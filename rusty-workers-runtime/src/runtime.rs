@@ -50,13 +50,25 @@ impl Runtime {
     }
     async fn monitor_task(self: Arc<Self>, worker_handle: WorkerHandle, mut timectl: InstanceTimeControl) {
         let mut deadline = None;
+
         loop {
             tokio::select! {
-                new_deadline = timectl.deadline_rx.recv() => {
-                    if let Some(x) = new_deadline {
-                        deadline = x;
+                op = timectl.timer_rx.recv() => {
+                    if let Some(op) = op {
+                        if op {
+                            // start timer
+                            deadline = Some(tokio::time::Instant::now() + timectl.budget);
+                        } else {
+                            let now = tokio::time::Instant::now();
+                            if let Some(deadline) = deadline {
+                                // Restore unused time budget
+                                timectl.budget = if now > deadline { Duration::from_millis(0) } else { deadline - now };
+                                debug!("remaining time budget: {:?}", timectl.budget);
+                            }
+                            deadline = None;
+                        }
                     } else {
-                        // closed
+                        // instance thread stopped
                         info!("stopping monitor for worker {}", worker_handle.id);
 
                         // May fail if removed by LRU policy / other code

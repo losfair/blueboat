@@ -20,7 +20,7 @@ pub struct Instance {
 struct InstanceState {
     task_rx: mpsc::Receiver<Task>,
     script: String,
-    deadline_tx: tokio::sync::mpsc::UnboundedSender<Option<tokio::time::Instant>>,
+    timer_tx: tokio::sync::mpsc::UnboundedSender<bool>,
     conf: ExecutorConfiguration,
     handle: WorkerHandle,
 
@@ -34,7 +34,8 @@ pub struct InstanceHandle {
 }
 
 pub struct InstanceTimeControl {
-    pub deadline_rx: tokio::sync::mpsc::UnboundedReceiver<Option<tokio::time::Instant>>,
+    pub budget: Duration,
+    pub timer_rx: tokio::sync::mpsc::UnboundedReceiver<bool>,
 }
 
 struct Task {
@@ -140,10 +141,11 @@ impl Instance {
         );
 
         let (task_tx, task_rx) = mpsc::sync_channel(128); // TODO: backlog size
-        let (deadline_tx, deadline_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (timer_tx, timer_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let time_control = InstanceTimeControl {
-            deadline_rx,
+            timer_rx,
+            budget: Duration::from_millis(conf.max_time_ms as u64),
         };
         let handle = InstanceHandle {
             isolate_handle: isolate.thread_safe_handle(),
@@ -155,7 +157,7 @@ impl Instance {
             state: Some(InstanceState {
                 task_rx,
                 script,
-                deadline_tx,
+                timer_tx,
                 conf: conf.clone(),
                 handle: worker_handle,
                 event_listeners: BTreeMap::new(),
@@ -174,7 +176,7 @@ impl Instance {
         let mut state = self.state.take().unwrap();
 
         // Init resources
-        state.renew_timeout();
+        state.start_timer();
         let mut isolate_scope = v8::HandleScope::new(&mut *self.isolate);
         let context = v8::Context::new(&mut isolate_scope);
         let mut context_scope = v8::ContextScope::new(&mut isolate_scope, context);
@@ -194,7 +196,7 @@ impl Instance {
 
         loop {
             let state = InstanceState::get(handle_scope);
-            state.clear_timeout();
+            state.stop_timer();
             let task = match state.task_rx.recv() {
                 Ok(x) => x,
                 Err(_) => {
@@ -202,7 +204,7 @@ impl Instance {
                     break;
                 }
             };
-            state.renew_timeout();
+            state.start_timer();
 
             let event_name = task.event.name();
             let listeners = state.event_listeners.get(event_name).map(|x| x.clone()).unwrap_or(Vec::new());
@@ -223,13 +225,12 @@ impl InstanceState {
         isolate.get_slot_mut::<Self>().unwrap()
     }
 
-    fn renew_timeout(&self) {
-        let timeout = Duration::from_millis(self.conf.max_time_ms as u64);
-        drop(self.deadline_tx.send(Some(tokio::time::Instant::now() + timeout)));
+    fn start_timer(&self) {
+        drop(self.timer_tx.send(true));
     }
 
-    fn clear_timeout(&self) {
-        drop(self.deadline_tx.send(None));
+    fn stop_timer(&self) {
+        drop(self.timer_tx.send(false));
     }
 
     /// Builds the global object.
