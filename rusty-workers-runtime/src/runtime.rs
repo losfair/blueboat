@@ -89,7 +89,7 @@ impl Runtime {
         }
     }
 
-    pub async fn spawn(self: &Arc<Self>, code: String, configuration: &WorkerConfiguration) -> GenericResult<WorkerHandle> {
+    pub async fn spawn(self: &Arc<Self>, _appid: String, code: String, configuration: &WorkerConfiguration) -> GenericResult<WorkerHandle> {
         let (result_tx, result_rx) = oneshot::channel();
         let worker_handle = WorkerHandle::generate();
         let this = self.clone();

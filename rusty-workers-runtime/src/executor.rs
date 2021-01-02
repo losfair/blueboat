@@ -170,6 +170,7 @@ impl Instance {
         };
         let global = v8::Global::new(scope, value);
         let state = InstanceState::get(scope);
+        debug!("addEventListener: {}", key);
         state.event_listeners.entry(key).or_insert(Vec::new()).push(global);
     }
 

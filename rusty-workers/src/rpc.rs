@@ -45,7 +45,7 @@ macro_rules! impl_listen {
 #[tarpc::service]
 pub trait RuntimeService {
     /// Spawn a worker.
-    async fn spawn_worker(account: String, configuration: WorkerConfiguration, code: String) -> GenericResult<WorkerHandle>;
+    async fn spawn_worker(appid: String, configuration: WorkerConfiguration, code: String) -> GenericResult<WorkerHandle>;
 
     /// Terminates a worker.
     async fn terminate_worker(handle: WorkerHandle) -> GenericResult<()>;

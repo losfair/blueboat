@@ -36,7 +36,7 @@ enum RuntimeCmd {
     #[structopt(name = "spawn")]
     Spawn {
         #[structopt(long)]
-        account: String,
+        appid: String,
 
         #[structopt(long)]
         config: String,
@@ -63,10 +63,10 @@ async fn main() -> Result<()> {
         Cmd::Runtime { remote, op } => {
             let mut client = rusty_workers::rpc::RuntimeServiceClient::connect(remote).await?;
             match op {
-                RuntimeCmd::Spawn { account, config, script } => {
+                RuntimeCmd::Spawn { appid, config, script } => {
                     let config = read_file(&config).await?;
                     let script = read_file(&script).await?;
-                    let result = client.spawn_worker(tarpc::context::current(), account, serde_json::from_str(&config)?, script).await?;
+                    let result = client.spawn_worker(tarpc::context::current(), appid, serde_json::from_str(&config)?, script).await?;
                     println!("{:?}", result);
                 }
                 RuntimeCmd::Terminate { handle } => {
