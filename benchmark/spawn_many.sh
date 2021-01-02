@@ -9,11 +9,7 @@ bench_once()
     for j in {1..10}; do
         #echo "bench $1: worker_id $worker_id"
         output=`"$BINARY" runtime fetch "$worker_id" || return 1`
-        http_status=`(echo "$output" | jq ".Ok.status") || return 1`
-        if [ "$http_status" != "200" ]; then
-            echo "[-] Bad http status: $output"
-            return 1
-        fi
+        http_status=`(echo "$output" | grep -F '"status":200') || return 1`
     done
     "$BINARY" runtime terminate "$worker_id" > /dev/null || return 1
     echo "bench $1 succeeded"
