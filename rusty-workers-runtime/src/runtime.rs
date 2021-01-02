@@ -2,7 +2,7 @@ use rusty_v8 as v8;
 use lru_time_cache::LruCache;
 use rusty_workers::types::*;
 use std::time::Duration;
-use crate::executor::{Instance, InstanceHandle, InstanceTimeControl};
+use crate::executor::{Instance, InstanceHandle, InstanceTimeControl, TimerControl};
 use tokio::sync::Mutex as AsyncMutex;
 use std::sync::Arc;
 use tokio::sync::oneshot;
@@ -50,22 +50,28 @@ impl Runtime {
     }
     async fn monitor_task(self: Arc<Self>, worker_handle: WorkerHandle, mut timectl: InstanceTimeControl) {
         let mut deadline = None;
+        let initial_budget = timectl.budget;
 
         loop {
             tokio::select! {
                 op = timectl.timer_rx.recv() => {
                     if let Some(op) = op {
-                        if op {
-                            // start timer
-                            deadline = Some(tokio::time::Instant::now() + timectl.budget);
-                        } else {
-                            let now = tokio::time::Instant::now();
-                            if let Some(deadline) = deadline {
-                                // Restore unused time budget
-                                timectl.budget = if now > deadline { Duration::from_millis(0) } else { deadline - now };
-                                debug!("remaining time budget: {:?}", timectl.budget);
+                        match op {
+                            TimerControl::Start => {
+                                deadline = Some(tokio::time::Instant::now() + timectl.budget);
                             }
-                            deadline = None;
+                            TimerControl::Stop => {
+                                let now = tokio::time::Instant::now();
+                                if let Some(deadline) = deadline {
+                                    // Restore unused time budget
+                                    timectl.budget = if now > deadline { Duration::from_millis(0) } else { deadline - now };
+                                    debug!("remaining time budget: {:?}", timectl.budget);
+                                }
+                                deadline = None;
+                            }
+                            TimerControl::Reset => {
+                                timectl.budget = initial_budget;
+                            }
                         }
                     } else {
                         // instance thread stopped

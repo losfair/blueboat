@@ -75,8 +75,8 @@ pub fn make_object<'s>(scope: &mut v8::HandleScope<'s>) -> GenericResult<v8::Loc
     Ok(v8::Object::new(scope))
 }
 
-pub fn make_string<'s>(scope: &mut v8::HandleScope<'s>, s: &str) -> GenericResult<v8::Local<'s, v8::String>> {
-    Ok(v8::String::new(scope, s).check(scope)?)
+pub fn make_string<'s, T: AsRef<str>>(scope: &mut v8::HandleScope<'s>, s: T) -> GenericResult<v8::Local<'s, v8::String>> {
+    Ok(v8::String::new(scope, s.as_ref()).check(scope)?)
 }
 
 pub fn is_instance_of<'s, 'i, 'j>(scope: &mut v8::HandleScope<'s>, constructor: v8::Local<'i, v8::Function>, object: v8::Local<'j, v8::Object>) -> GenericResult<bool> {
@@ -104,6 +104,20 @@ pub fn add_props_to_object<'s>(scope: &mut v8::HandleScope<'s>, obj: &v8::Local<
         obj.set(scope, k.into(), v);
     }
     Ok(())
+}
+
+pub fn native_to_js<'s, T: serde::Serialize>(scope: &mut v8::HandleScope<'s>, v: &T) -> GenericResult<v8::Local<'s, v8::Value>> {
+    let json_text = v8::String::new(
+        scope,
+        serde_json::to_string(v).map_err(|_| GenericError::Conversion)?.as_str(),
+    ).check(scope)?;
+    let js_value = v8::json::parse(scope, json_text.into()).check(scope)?;
+    Ok(js_value)
+}
+
+pub fn js_to_native<'s, T: serde::de::DeserializeOwned>(scope: &mut v8::HandleScope<'s>, v: v8::Local<'s, v8::Value>) -> GenericResult<T> {
+    let json_text = v8::json::stringify(scope, v).check(scope)?;
+    serde_json::from_str(json_text.to_rust_string_lossy(scope).as_str()).map_err(|_| GenericError::Conversion)
 }
 
 fn check_exception(isolate: &mut v8::Isolate) -> GenericError {

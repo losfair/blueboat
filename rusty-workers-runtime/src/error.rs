@@ -1,4 +1,5 @@
 use rusty_v8 as v8;
+use rusty_workers::types::*;
 
 #[derive(Debug)]
 pub struct JsError {
@@ -44,6 +45,26 @@ impl JsError {
             K::Error => v8::Exception::error(scope, message),
             K::TypeError => v8::Exception::type_error(scope, message),
             K::ReferenceError => v8::Exception::reference_error(scope, message),
+        }
+    }
+}
+
+
+impl From<GenericError> for JsError {
+    fn from(other: GenericError) -> Self {
+        match other {
+            GenericError::Conversion => Self::new(JsErrorKind::TypeError, Some("conversion error".into())),
+            GenericError::Typeck { expected }=> Self::new(JsErrorKind::TypeError, Some(format!("typeck error: expected {}", expected))),
+            _ => Self::new(JsErrorKind::Error, Some("generic error".into())),
+        }
+    }
+}
+
+impl From<v8::DataError> for JsError {
+    fn from(other: v8::DataError) -> Self {
+        match other {
+            v8::DataError::BadType { actual, expected } => Self::new(JsErrorKind::TypeError, Some(format!("expected {}, got {}", expected, actual))),
+            v8::DataError::NoData { expected } => Self::new(JsErrorKind::ReferenceError, Some(format!("expected {}", expected))),
         }
     }
 }

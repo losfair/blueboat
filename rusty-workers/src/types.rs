@@ -68,6 +68,12 @@ pub enum GenericError {
     #[error("try again")]
     TryAgain,
 
+    #[error("type conversion failed")]
+    Conversion,
+
+    #[error("type checking failed - expected {expected}")]
+    Typeck { expected: String },
+
     #[error("other: {0}")]
     Other(String),
 }

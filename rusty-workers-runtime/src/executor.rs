@@ -17,10 +17,17 @@ pub struct Instance {
     state: Option<InstanceState>,
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum TimerControl {
+    Start,
+    Stop,
+    Reset,
+}
+
 struct InstanceState {
     task_rx: mpsc::Receiver<Task>,
     script: String,
-    timer_tx: tokio::sync::mpsc::UnboundedSender<bool>,
+    timer_tx: tokio::sync::mpsc::UnboundedSender<TimerControl>,
     conf: ExecutorConfiguration,
     handle: WorkerHandle,
 
@@ -35,7 +42,7 @@ pub struct InstanceHandle {
 
 pub struct InstanceTimeControl {
     pub budget: Duration,
-    pub timer_rx: tokio::sync::mpsc::UnboundedReceiver<bool>,
+    pub timer_rx: tokio::sync::mpsc::UnboundedReceiver<TimerControl>,
 }
 
 struct Task {
@@ -89,16 +96,8 @@ impl Event {
     fn build<'s>(&self, scope: &mut v8::HandleScope<'s>) -> GenericResult<v8::Local<'s, v8::Value>> {
         match self {
             Event::Fetch(ref req, _) => {
-                let json_text = v8::String::new(
-                    scope,
-                    serde_json::to_string(req).map_err(|_| GenericError::Other("serde_json::to_string failed".into()))?.as_str(),
-                ).check(scope)?.into();
-                let obj = v8::json::parse(
-                    scope,
-                    json_text,
-                ).check(scope)?;
-                let fetch_event_constructor = TypeCache::get(scope).fetch_event.clone();
-                let fetch_event_constructor = v8::Local::new(scope, fetch_event_constructor);
+                let obj = native_to_js(scope, req)?;
+                let fetch_event_constructor = TypeCache::get(scope).fetch_event.clone().into_local(scope);
                 let event = fetch_event_constructor.new_instance(scope, &[]).check(scope)?;
 
                 let key = v8::String::new(scope, "type").check(scope)?;
@@ -197,6 +196,7 @@ impl Instance {
         loop {
             let state = InstanceState::get(handle_scope);
             state.stop_timer();
+            state.reset_timer();
             let task = match state.task_rx.recv() {
                 Ok(x) => x,
                 Err(_) => {
@@ -226,11 +226,15 @@ impl InstanceState {
     }
 
     fn start_timer(&self) {
-        drop(self.timer_tx.send(true));
+        drop(self.timer_tx.send(TimerControl::Start));
     }
 
     fn stop_timer(&self) {
-        drop(self.timer_tx.send(false));
+        drop(self.timer_tx.send(TimerControl::Stop));
+    }
+
+    fn reset_timer(&self) {
+        drop(self.timer_tx.send(TimerControl::Reset));
     }
 
     /// Builds the global object.
@@ -255,6 +259,24 @@ impl InstanceState {
 impl TypeCache {
     fn get(isolate: &mut v8::Isolate) -> &mut Self {
         isolate.get_slot_mut::<Self>().unwrap()
+    }
+
+    fn get_constructor<'s, M: FnOnce(&Self) -> &v8::Global<v8::Function>>(scope: &mut v8::HandleScope<'s>, mapper: M) -> v8::Local<'s, v8::Function> {
+        mapper(Self::get(scope)).clone().into_local(scope)
+    }
+
+    fn ensure_instance_of<'s, 'i, 'j, M: FnOnce(&Self) -> &v8::Global<v8::Function>>(
+        scope: &mut v8::HandleScope<'s>,
+        mapper: M,
+        obj: v8::Local<'j, v8::Object>,
+        class_name: &'static str,
+    ) -> GenericResult<()> {
+        let constructor = Self::get_constructor(scope, mapper);
+        if !is_instance_of(scope, constructor, obj)? {
+            Err(GenericError::Typeck { expected: class_name.into() })
+        } else {
+            Ok(())
+        }
     }
 
     fn new<'s>(scope: &mut v8::HandleScope<'s>) -> GenericResult<Self> {
@@ -306,7 +328,7 @@ fn add_event_listener_callback(
 ) {
     wrap_callback(scope, |scope| {
         let key = args.get(0).to_rust_string_lossy(scope);
-        let value = v8::Local::try_from(args.get(1)).map_err(|_| JsError::type_error())?;
+        let value = v8::Local::try_from(args.get(1))?;
         let global = v8::Global::new(scope, value);
         let state = InstanceState::get(scope);
         debug!("addEventListener: {}", key);
@@ -331,6 +353,33 @@ fn response_constructor_callback(
     mut _retval: v8::ReturnValue,
 ) {
     wrap_callback(scope, |scope| {
+        let this = args.this();
+        let mut data = ResponseObject::default();
+
+        let body = args.get(0);
+        let init = args.get(1);
+
+        data.status = 200;
+        if !init.is_undefined() {
+            let init = v8::Local::<'_, v8::Object>::try_from(init)?;
+
+            let key = make_string(scope, "status")?;
+            let maybe_status = init.get(scope, key.into()).check(scope)?;
+            if !maybe_status.is_undefined() {
+                data.status = u16::try_from(maybe_status.uint32_value(scope).check(scope)?)
+                    .map_err(|_| JsError::new(JsErrorKind::Error, Some("status code out of bounds".into())))?;
+            }
+        }
+        
+        if !body.is_undefined() {
+            let body = v8::Local::<'_, v8::String>::try_from(body)?;
+            data.body = body.to_rust_string_lossy(scope).into();
+        }
+;
+        let key = make_string(scope, "_data")?;
+        let value = native_to_js(scope, &data)?;
+        this.create_data_property(scope, key.into(), value.into()).check(scope)?;
+
         Ok(())
     })
 }
@@ -351,16 +400,16 @@ fn fetch_event_respond_with_callback(
     mut _retval: v8::ReturnValue,
 ) {
     wrap_callback(scope, |scope| {
-        let response = v8::Local::<'_, v8::Object>::try_from(args.get(0)).map_err(|_| JsError::type_error())?;
-        let constructor = TypeCache::get(scope).response.clone().into_local(scope);
-        if !is_instance_of(scope, constructor, response).map_err(|_| JsError::error())? {
-            return Err(JsError::new(JsErrorKind::TypeError, Some("respondWith: must be a response".into())));
-        }
+        let response = v8::Local::<'_, v8::Object>::try_from(args.get(0))?;
+        TypeCache::ensure_instance_of(scope, |x| &x.response, response, "Response")?;
+        let key = make_string(scope, "_data")?;
+        let response_data = response.get(scope, key.into()).check(scope)?;
+        let response_data = js_to_native(scope, response_data)?;
         let event = scope.get_slot_mut::<Task>().map(|x| &mut x.event);
         match event {
             Some(Event::Fetch(_, ref mut res)) => {
                 let res = res.0.take().ok_or_else(|| JsError::new(JsErrorKind::Error, Some("respondWith: cannot respond twice".into())))?;
-                drop(res.send(ResponseObject::default()));
+                drop(res.send(response_data));
                 Ok(())
             }
             None => {
