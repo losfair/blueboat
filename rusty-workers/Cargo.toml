@@ -16,3 +16,4 @@ thiserror = "1"
 log = "0.4"
 tokio-serde = { version = "0.8", features = ["bincode"] }
 tokio = { version = "1", features = ["full"] }
+futures = "0.3"

@@ -647,6 +647,7 @@ checksum = "3b181ba2dcf07aaccad5448e8ead58db5b742cf85dfe035e2227f137a539a189"
 name = "rusty-workers"
 version = "0.0.0"
 dependencies = [
+ "futures",
  "log",
  "serde",
  "tarpc",

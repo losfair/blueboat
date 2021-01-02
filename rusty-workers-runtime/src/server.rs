@@ -18,3 +18,5 @@ impl rusty_workers::rpc::RuntimeService for RuntimeServer {
         Err(GenericError::Other("not implemented".into()))
     }
 }
+
+rusty_workers::impl_listen!(RuntimeServer, rusty_workers::rpc::RuntimeService);

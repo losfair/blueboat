@@ -29,18 +29,7 @@ async fn main() -> Result<()> {
     let opt = Opt::from_args();
     info!("rusty-workers-runtime starting");
 
-    let mut listener = tarpc::serde_transport::tcp::listen(&opt.rpc_listen, rusty_workers::SerdeFormat::default).await?;
-    listener.config_mut().max_frame_length(16 * 1048576);
-    listener
-        .filter_map(|r| future::ready(r.ok())) // Ignore accept errors.
-        .map(tarpc::server::BaseChannel::with_defaults)
-        .map(|channel| {
-            let server = server::RuntimeServer;
-            channel.respond_with(server.serve()).execute()
-        })
-        .buffer_unordered(100) // Max 100 channels.
-        .for_each(|_| async {})
-        .await;
+    server::RuntimeServer::listen(&opt.rpc_listen, || server::RuntimeServer).await;
 
     Ok(())
 }
