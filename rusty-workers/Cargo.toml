@@ -10,3 +10,9 @@ repository = "https://github.com/losfair/rusty-workers"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+tarpc = { version = "0.24", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "1"
+log = "0.4"
+tokio-serde = { version = "0.8", features = ["bincode"] }
+tokio = { version = "1", features = ["full"] }

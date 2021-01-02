@@ -1,7 +1,10 @@
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
+#[macro_use]
+extern crate log;
+
+pub mod rpc;
+pub mod types;
+
+pub use tarpc;
+pub use tokio_serde;
+
+pub use tokio_serde::formats::Bincode as SerdeFormat;

@@ -4,4 +4,5 @@ members = [
     "rusty-workers-runtime",
     "rusty-workers-fetchd",
     "rusty-workers",
+    "rusty-workers-cli",
 ]
