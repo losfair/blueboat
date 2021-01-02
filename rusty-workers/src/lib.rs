@@ -3,6 +3,7 @@ extern crate log;
 
 pub mod rpc;
 pub mod types;
+pub mod util;
 
 pub use tarpc;
 pub use tokio_serde;
