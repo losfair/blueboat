@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 
 pub struct Runtime {
-    instances: AsyncMutex<LruCache<WorkerHandle, InstanceHandle>>,
+    instances: AsyncMutex<LruCache<WorkerHandle, Arc<InstanceHandle>>>,
 }
 
 pub fn init() {
@@ -89,6 +89,11 @@ impl Runtime {
         }
     }
 
+    pub async fn fetch(&self, worker_handle: &WorkerHandle, req: RequestObject) -> GenericResult<ResponseObject> {
+        let instance = self.instances.lock().await.get(&worker_handle).cloned().ok_or_else(|| GenericError::NoSuchWorker)?;
+        instance.fetch(req).await
+    }
+
     pub async fn spawn(self: &Arc<Self>, _appid: String, code: String, configuration: &WorkerConfiguration) -> GenericResult<WorkerHandle> {
         let (result_tx, result_rx) = oneshot::channel();
         let worker_handle = WorkerHandle::generate();
@@ -101,7 +106,7 @@ impl Runtime {
         let result = result_rx.await.unwrap(); // unwrap() works here since `instance_thread` will always send a result
         match result {
             Ok((handle, timectl)) => {
-                self.instances.lock().await.insert(worker_handle.clone(), handle);
+                self.instances.lock().await.insert(worker_handle.clone(), Arc::new(handle));
                 tokio::spawn(self.clone().monitor_task(worker_handle.clone(), timectl));
                 Ok(worker_handle)
             }

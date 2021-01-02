@@ -7,8 +7,11 @@ use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};
 use crate::error::*;
+use maplit::btreemap;
 
 const SAFE_AREA_SIZE: usize = 1048576;
+
+trait Callback = Fn(&mut v8::HandleScope, v8::FunctionCallbackArguments, v8::ReturnValue) + Copy + Sized;
 
 pub struct Instance {
     isolate: Box<v8::OwnedIsolate>,
@@ -45,23 +48,38 @@ pub struct InstanceTimeControl {
     pub deadline_rx: tokio::sync::mpsc::UnboundedReceiver<Option<tokio::time::Instant>>,
 }
 
-pub struct Task {
+struct Task {
     event: Event,
 }
 
-pub enum Event {
-    Fetch(RequestObject, tokio::sync::oneshot::Sender<ResponseObject>),
+struct FetchResponseChannel(Option<tokio::sync::oneshot::Sender<ResponseObject>>);
+
+enum Event {
+    Fetch(RequestObject, FetchResponseChannel),
 }
 
 struct DoubleMleGuard {
     triggered_mle: bool,
 }
 
+struct TypeCache {
+    fetch_event: v8::Global<v8::Function>,
+    request: v8::Global<v8::Function>,
+    response: v8::Global<v8::Function>,
+}
+
 impl InstanceHandle {
-    pub async fn terminate_for_time_limit(self) {
+    pub async fn terminate_for_time_limit(&self) {
         tokio::task::block_in_place(|| {
             *self.termination_reason.0.lock().unwrap() = TerminationReason::TimeLimit;
         });
+        self.isolate_handle.terminate_execution();
+    }
+
+    pub async fn fetch(&self, req: RequestObject) -> GenericResult<ResponseObject> {
+        let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+        self.task_tx.try_send(Task { event: Event::Fetch(req, FetchResponseChannel(Some(result_tx))) }).map_err(|_| GenericError::TryAgain)?;
+        result_rx.await.map_err(|_| GenericError::TryAgain)
     }
 }
 
@@ -78,18 +96,20 @@ impl Event {
         }
     }
 
-    fn build<'s>(self, scope: &mut v8::HandleScope<'s>) -> GenericResult<v8::Local<'s, v8::Value>> {
+    fn build<'s>(&self, scope: &mut v8::HandleScope<'s>) -> GenericResult<v8::Local<'s, v8::Value>> {
         match self {
-            Event::Fetch(req, res) => {
+            Event::Fetch(ref req, _) => {
                 let json_text = v8::String::new(
                     scope,
-                    serde_json::to_string(&req).map_err(|_| GenericError::Other("serde_json::to_string failed".into()))?.as_str(),
+                    serde_json::to_string(req).map_err(|_| GenericError::Other("serde_json::to_string failed".into()))?.as_str(),
                 ).ok_or_else(|| check_exception(scope))?.into();
                 let obj = v8::json::parse(
                     scope,
                     json_text,
                 ).ok_or_else(|| check_exception(scope))?;
-                let event = v8::Object::new(scope);
+                let fetch_event_constructor = TypeCache::get(scope).fetch_event.clone();
+                let fetch_event_constructor = v8::Local::new(scope, fetch_event_constructor);
+                let event = fetch_event_constructor.new_instance(scope, &[]).ok_or_else(|| check_exception(scope))?;
 
                 let key = v8::String::new(scope, "type").ok_or_else(|| check_exception(scope))?;
                 let value = v8::String::new(scope, "fetch").ok_or_else(|| check_exception(scope))?;
@@ -105,8 +125,7 @@ impl Event {
                     key.into(),
                     obj,
                 );
-                // TODO: prototype
-                return Ok(obj);
+                return Ok(event.into());
             }
         }
     }
@@ -168,11 +187,14 @@ impl Instance {
         // Init resources
         state.renew_timeout();
         let mut isolate_scope = v8::HandleScope::new(&mut *self.isolate);
-        let global = state.init_global_env(&mut isolate_scope)?;
-
-        let context = v8::Context::new_from_template(&mut isolate_scope, global);
+        let context = v8::Context::new(&mut isolate_scope);
         let mut context_scope = v8::ContextScope::new(&mut isolate_scope, context);
         let mut handle_scope = &mut v8::HandleScope::new(&mut context_scope);
+
+        let type_cache = TypeCache::new(handle_scope)?;
+        handle_scope.set_slot(type_cache);
+
+        state.init_global_env(handle_scope)?;
 
         let script = Self::compile(handle_scope, &state.script)?;
 
@@ -197,6 +219,7 @@ impl Instance {
             let listeners = state.event_listeners.get(event_name).map(|x| x.clone()).unwrap_or(Vec::new());
             let recv = v8::undefined(handle_scope);
             let args = &[task.event.build(handle_scope)?];
+            handle_scope.set_slot(task);
             for listener in listeners {
                 let target = v8::Local::new(handle_scope, listener);
                 target.call(handle_scope, recv.into(), args).ok_or_else(|| check_exception(handle_scope))?;
@@ -221,14 +244,88 @@ impl InstanceState {
     }
 
     /// Builds the global object.
-    fn init_global_env<'s>(&self, isolate_scope: &mut v8::HandleScope<'s, ()>) -> GenericResult<v8::Local<'s, v8::ObjectTemplate>> {
-        let global = v8::ObjectTemplate::new(isolate_scope);
-        global.set(
-            v8::String::new(isolate_scope, "addEventListener").ok_or_else(|| check_exception(isolate_scope))?.into(),
-            v8::FunctionTemplate::new(isolate_scope, add_event_listener_callback).into(),
-        );
-        Ok(global)
+    fn init_global_env<'s>(&self, scope: &mut v8::HandleScope<'s>) -> GenericResult<()> {
+        let global = scope.get_current_context().global(scope);
+        let console_props = btreemap! {
+            "log".into() => make_function(scope, console_log_callback)?.into(),
+        };
+        let console_obj = make_object(scope)?;
+        add_props_to_object(scope, &console_obj, console_props)?;
+
+        let global_props = btreemap! {
+            "addEventListener".into() => make_function(scope, add_event_listener_callback)?.into(),
+            "console".into() => console_obj.into(),
+            "Response".into() => TypeCache::get(scope).response.clone().into_local(scope).into(),
+        };
+        add_props_to_object(scope, &global, global_props)?;
+        Ok(())
     }
+}
+
+impl TypeCache {
+    fn get(isolate: &mut v8::Isolate) -> &mut Self {
+        isolate.get_slot_mut::<Self>().unwrap()
+    }
+
+    fn new<'s>(scope: &mut v8::HandleScope<'s>) -> GenericResult<Self> {
+        let props = btreemap! {
+            "respondWith".to_string() => make_function(scope, fetch_event_respond_with_callback)?.into(),
+        };
+        let fetch_event = make_persistent_class(scope, fetch_event_constructor_callback, props)?;
+        
+        let request = make_persistent_class(scope, request_constructor_callback, btreemap! {
+
+        })?;
+
+        let response = make_persistent_class(scope, response_constructor_callback, btreemap! {
+
+        })?;
+
+        Ok(Self {
+            fetch_event,
+            request,
+            response,
+        })
+    }
+}
+
+fn make_function<'s, C: Callback>(scope: &mut v8::HandleScope<'s>, native: C) -> GenericResult<v8::Local<'s, v8::Function>> {
+    Ok(v8::Function::new(scope, native).ok_or_else(|| check_exception(scope))?)
+}
+
+fn make_object<'s>(scope: &mut v8::HandleScope<'s>) -> GenericResult<v8::Local<'s, v8::Object>> {
+    Ok(v8::Object::new(scope))
+}
+
+fn make_string<'s>(scope: &mut v8::HandleScope<'s>, s: &str) -> GenericResult<v8::Local<'s, v8::String>> {
+    Ok(v8::String::new(scope, s).ok_or_else(|| check_exception(scope))?)
+}
+
+fn is_instance_of<'s, 'i, 'j>(scope: &mut v8::HandleScope<'s>, constructor: v8::Local<'i, v8::Function>, object: v8::Local<'j, v8::Object>) -> GenericResult<bool> {
+    let key = make_string(scope, "prototype")?;
+    let expected_proto = constructor.get(scope, key.into()).ok_or_else(|| check_exception(scope))?;
+    let actual_proto = object.get_prototype(scope).ok_or_else(|| check_exception(scope))?;
+    Ok(expected_proto.same_value(actual_proto))
+}
+
+fn make_persistent_class<'s, C: Callback>(scope: &mut v8::HandleScope<'s>, constructor: C, elements: BTreeMap<String, v8::Local<'s, v8::Value>>) -> GenericResult<v8::Global<v8::Function>> {
+    let constructor = make_function(scope, constructor)?;
+    let key = make_string(scope, "prototype")?;
+    let proto = constructor.get(scope, key.into()).ok_or_else(|| check_exception(scope))?;
+    let proto = v8::Local::<'_, v8::Object>::try_from(proto).map_err(|_| GenericError::Other("make_persistent_class: cannot convert prototype".into()))?;
+    for (k, v) in elements {
+        let k = v8::String::new(scope, k.as_str()).ok_or_else(|| check_exception(scope))?;
+        proto.set(scope, k.into(), v);
+    }
+    Ok(v8::Global::new(scope, constructor))
+}
+
+fn add_props_to_object<'s>(scope: &mut v8::HandleScope<'s>, obj: &v8::Local<'s, v8::Object>, elements: BTreeMap<String, v8::Local<'s, v8::Value>>) -> GenericResult<()> {
+    for (k, v) in elements {
+        let k = v8::String::new(scope, k.as_str()).ok_or_else(|| check_exception(scope))?;
+        obj.set(scope, k.into(), v);
+    }
+    Ok(())
 }
 
 extern "C" fn on_memory_limit_exceeded(data: *mut c_void, current_heap_limit: usize, _initial_heap_limit: usize) -> usize {
@@ -276,3 +373,81 @@ fn add_event_listener_callback(
     });
 }
 
+fn request_constructor_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut _retval: v8::ReturnValue,
+) {
+    wrap_callback(scope, |scope| {
+        Ok(())
+    })
+}
+
+fn response_constructor_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut _retval: v8::ReturnValue,
+) {
+    wrap_callback(scope, |scope| {
+        Ok(())
+    })
+}
+
+fn fetch_event_constructor_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut _retval: v8::ReturnValue,
+) {
+    wrap_callback(scope, |scope| {
+        Ok(())
+    })
+}
+
+fn fetch_event_respond_with_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut _retval: v8::ReturnValue,
+) {
+    wrap_callback(scope, |scope| {
+        let response = v8::Local::<'_, v8::Object>::try_from(args.get(0)).map_err(|_| JsError::type_error())?;
+        let constructor = TypeCache::get(scope).response.clone().into_local(scope);
+        if !is_instance_of(scope, constructor, response).map_err(|_| JsError::error())? {
+            return Err(JsError::new(JsErrorKind::TypeError, Some("respondWith: must be a response".into())));
+        }
+        let event = scope.get_slot_mut::<Task>().map(|x| &mut x.event);
+        match event {
+            Some(Event::Fetch(_, ref mut res)) => {
+                let res = res.0.take().ok_or_else(|| JsError::new(JsErrorKind::Error, Some("respondWith: cannot respond twice".into())))?;
+                drop(res.send(ResponseObject::default()));
+                Ok(())
+            }
+            None => {
+                Err(JsError::error())
+            }
+        }
+    })
+}
+
+fn console_log_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut _retval: v8::ReturnValue,
+) {
+    wrap_callback(scope, |scope| {
+        let text = args.get(0).to_rust_string_lossy(scope);
+        debug!("console.log: {}", text);
+        Ok(())
+    })
+}
+
+trait IntoLocal {
+    type Target;
+    fn into_local<'s>(self, scope: &mut v8::HandleScope<'s>) -> v8::Local<'s, Self::Target>;
+}
+
+impl<T> IntoLocal for v8::Global<T> {
+    type Target = T;
+    fn into_local<'s>(self, scope: &mut v8::HandleScope<'s>) -> v8::Local<'s, Self::Target> {
+        v8::Local::new(scope, self)
+    }
+}

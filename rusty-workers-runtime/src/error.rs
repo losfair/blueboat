@@ -23,6 +23,10 @@ impl JsError {
         }
     }
 
+    pub fn error() -> Self {
+        Self::new(JsErrorKind::Error, None)
+    }
+
     pub fn type_error() -> Self {
         Self::new(JsErrorKind::TypeError, None)
     }

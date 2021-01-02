@@ -53,6 +53,12 @@ enum RuntimeCmd {
 
     #[structopt(name = "list")]
     List,
+
+    #[structopt(name = "fetch")]
+    Fetch {
+        #[structopt(long)]
+        handle: String,
+    },
 }
 
 #[tokio::main]
@@ -76,6 +82,12 @@ async fn main() -> Result<()> {
                 }
                 RuntimeCmd::List => {
                     let result = client.list_workers(tarpc::context::current()).await?;
+                    println!("{:?}", result);
+                }
+                RuntimeCmd::Fetch { handle } => {
+                    let worker_handle = WorkerHandle { id: handle };
+                    let req = RequestObject::default();
+                    let result = client.fetch(tarpc::context::current(), worker_handle, req).await?;
                     println!("{:?}", result);
                 }
             }

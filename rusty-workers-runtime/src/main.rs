@@ -1,3 +1,5 @@
+#![feature(trait_alias)]
+
 #[macro_use]
 extern crate log;
 

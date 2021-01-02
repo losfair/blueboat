@@ -52,6 +52,9 @@ pub trait RuntimeService {
 
     /// List active workers.
     async fn list_workers() -> GenericResult<Vec<WorkerHandle>>;
+
+    /// Issue a "fetch" event.
+    async fn fetch(handle: WorkerHandle, req: RequestObject) -> GenericResult<ResponseObject>;
 }
 
 impl_connect!(RuntimeServiceClient);

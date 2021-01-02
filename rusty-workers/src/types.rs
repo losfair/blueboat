@@ -65,6 +65,9 @@ pub enum GenericError {
     #[error("no such worker")]
     NoSuchWorker,
 
+    #[error("try again")]
+    TryAgain,
+
     #[error("other: {0}")]
     Other(String),
 }

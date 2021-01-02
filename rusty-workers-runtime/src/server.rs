@@ -21,6 +21,10 @@ impl rusty_workers::rpc::RuntimeService for RuntimeServer {
     async fn list_workers(self, _: tarpc::context::Context) -> GenericResult<Vec<WorkerHandle>> {
         self.runtime.list().await
     }
+
+    async fn fetch(self, _: tarpc::context::Context, handle: WorkerHandle, req: RequestObject) -> GenericResult<ResponseObject> {
+        self.runtime.fetch(&handle, req).await
+    }
 }
 
 rusty_workers::impl_listen!(RuntimeServer, rusty_workers::rpc::RuntimeService);
