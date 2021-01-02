@@ -730,6 +730,7 @@ dependencies = [
  "log",
  "pretty_env_logger",
  "rusty-workers",
+ "serde_json",
  "structopt",
  "thiserror",
  "tokio",

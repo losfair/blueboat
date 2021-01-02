@@ -34,7 +34,9 @@ async fn main() -> Result<()> {
 
     let rt = runtime::Runtime::new();
 
-    server::RuntimeServer::listen(&opt.rpc_listen, || server::RuntimeServer).await?;
+    server::RuntimeServer::listen(&opt.rpc_listen, move || server::RuntimeServer {
+        runtime: rt.clone(),
+    }).await?;
 
     Ok(())
 }

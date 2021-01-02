@@ -10,7 +10,7 @@ const SAFE_AREA_SIZE: usize = 1048576;
 
 pub struct Instance {
     isolate: Box<v8::OwnedIsolate>,
-    state: Option<Box<InstanceState>>,
+    state: Option<InstanceState>,
 }
 
 struct InstanceState {
@@ -18,6 +18,7 @@ struct InstanceState {
     script: String,
     deadline_tx: tokio::sync::mpsc::UnboundedSender<Option<tokio::time::Instant>>,
     conf: ExecutorConfiguration,
+    handle: WorkerHandle,
 
     event_listeners: BTreeMap<String, Vec<v8::Global<v8::Function>>>,
 }
@@ -25,7 +26,10 @@ struct InstanceState {
 pub struct InstanceHandle {
     isolate_handle: v8::IsolateHandle,
     task_tx: mpsc::SyncSender<Task>,
-    deadline_rx: tokio::sync::mpsc::UnboundedReceiver<Option<tokio::time::Instant>>,
+}
+
+pub struct InstanceTimeControl {
+    pub deadline_rx: tokio::sync::mpsc::UnboundedReceiver<Option<tokio::time::Instant>>,
 }
 
 pub struct Task {
@@ -88,7 +92,7 @@ impl Event {
 }
 
 impl Instance {
-    pub fn new(script: String, conf: &ExecutorConfiguration) -> GenericResult<(Self, InstanceHandle)> {
+    pub fn new(worker_handle: WorkerHandle, script: String, conf: &ExecutorConfiguration) -> GenericResult<(Self, InstanceHandle, InstanceTimeControl)> {
         let params = v8::Isolate::create_params()
             .heap_limits(0, conf.max_memory_mb as usize * 1048576);
         let mut isolate = Box::new(v8::Isolate::new(params));
@@ -106,22 +110,25 @@ impl Instance {
         let (task_tx, task_rx) = mpsc::sync_channel(128); // TODO: backlog size
         let (deadline_tx, deadline_rx) = tokio::sync::mpsc::unbounded_channel();
 
+        let time_control = InstanceTimeControl {
+            deadline_rx,
+        };
         let handle = InstanceHandle {
             isolate_handle: isolate.thread_safe_handle(),
             task_tx,
-            deadline_rx,
         };
         let instance = Instance {
             isolate,
-            state: Some(Box::new(InstanceState {
+            state: Some(InstanceState {
                 task_rx,
                 script,
                 deadline_tx,
                 conf: conf.clone(),
+                handle: worker_handle,
                 event_listeners: BTreeMap::new(),
-            })),
+            }),
         };
-        Ok((instance, handle))
+        Ok((instance, handle, time_control))
     }
 
     fn add_event_listener_callback(
@@ -165,8 +172,11 @@ impl Instance {
         let mut handle_scope = &mut v8::HandleScope::new(&mut context_scope);
 
         let script = Self::compile(handle_scope, &state.script)?;
+
+        let worker_handle = state.handle.clone();
         handle_scope.set_slot(state);
         script.run(handle_scope).ok_or_else(|| check_exception(&mut handle_scope))?;
+        info!("worker instance {} ready", worker_handle.id);
 
         loop {
             let state = InstanceState::get(handle_scope);

@@ -8,7 +8,7 @@ macro_rules! impl_connect {
             pub async fn connect<A: tokio::net::ToSocketAddrs>(addr: A) -> GenericResult<Self> {
                 let mut transport = tarpc::serde_transport::tcp::connect(addr, crate::SerdeFormat::default);
                 transport.config_mut().max_frame_length(16 * 1048576);
-                let mut client = $ty::new(tarpc::client::Config::default(), transport.await?).spawn()?;
+                let client = $ty::new(tarpc::client::Config::default(), transport.await?).spawn()?;
                 Ok(client)
             }
         }

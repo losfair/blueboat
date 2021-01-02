@@ -59,6 +59,9 @@ pub enum GenericError {
     #[error("limits exceeded")]
     LimitsExceeded,
 
+    #[error("no such worker")]
+    NoSuchWorker,
+
     #[error("other: {0}")]
     Other(String),
 }
