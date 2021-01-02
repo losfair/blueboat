@@ -58,17 +58,24 @@ impl Runtime {
                     } else {
                         // closed
                         info!("stopping monitor for worker {}", worker_handle.id);
+
+                        // May fail if removed by LRU policy / other code
+                        self.instances.lock().await.remove(&worker_handle);
+
                         break;
                     }
                 }
                 _ = wait_until(deadline) => {
                     info!("worker {} timed out", worker_handle.id);
+
+                    if let Some(handle) = self.instances.lock().await.remove(&worker_handle) {
+                        handle.terminate_for_time_limit().await;
+                    }
+
                     break;
                 }
             }
         }
-        // May fail if removed by LRU policy / other code
-        self.instances.lock().await.remove(&worker_handle);
     }
 
     pub async fn list(&self) -> GenericResult<Vec<WorkerHandle>> {

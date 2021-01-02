@@ -5,6 +5,7 @@ use std::ffi::c_void;
 use std::time::Duration;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
+use std::sync::{Arc, Mutex};
 
 const SAFE_AREA_SIZE: usize = 1048576;
 
@@ -23,9 +24,20 @@ struct InstanceState {
     event_listeners: BTreeMap<String, Vec<v8::Global<v8::Function>>>,
 }
 
+#[derive(Clone)]
+struct TerminationReasonBox(Arc<Mutex<TerminationReason>>);
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum TerminationReason {
+    Unknown,
+    TimeLimit,
+    MemoryLimit,
+}
+
 pub struct InstanceHandle {
     isolate_handle: v8::IsolateHandle,
     task_tx: mpsc::SyncSender<Task>,
+    termination_reason: TerminationReasonBox,
 }
 
 pub struct InstanceTimeControl {
@@ -42,6 +54,14 @@ pub enum Event {
 
 struct DoubleMleGuard {
     triggered_mle: bool,
+}
+
+impl InstanceHandle {
+    pub async fn terminate_for_time_limit(self) {
+        tokio::task::block_in_place(|| {
+            *self.termination_reason.0.lock().unwrap() = TerminationReason::TimeLimit;
+        });
+    }
 }
 
 impl Drop for InstanceHandle {
@@ -102,6 +122,9 @@ impl Instance {
             triggered_mle: false,
         });
 
+        let termination_reason = TerminationReasonBox(Arc::new(Mutex::new(TerminationReason::Unknown)));
+        isolate.set_slot(termination_reason.clone());
+
         isolate.add_near_heap_limit_callback(
             on_memory_limit_exceeded,
             isolate_ptr as _,
@@ -116,6 +139,7 @@ impl Instance {
         let handle = InstanceHandle {
             isolate_handle: isolate.thread_safe_handle(),
             task_tx,
+            termination_reason,
         };
         let instance = Instance {
             isolate,
@@ -229,15 +253,20 @@ extern "C" fn on_memory_limit_exceeded(data: *mut c_void, current_heap_limit: us
     } else {
         // Execution may not terminate immediately if we are in native code. So allocate some "safe area" here.
         double_mle_guard.triggered_mle = true;
+
+        let termination_reason = isolate.get_slot_mut::<TerminationReasonBox>().unwrap();
+        *termination_reason.0.lock().unwrap() =  TerminationReason::MemoryLimit;
+
         isolate.terminate_execution();
     }
     return current_heap_limit + SAFE_AREA_SIZE;
 }
 
 fn check_exception(isolate: &mut v8::Isolate) -> GenericError {
-    if isolate.is_execution_terminating() {
-        GenericError::LimitsExceeded
-    } else {
-        GenericError::ScriptThrowsException
+    let termination_reason = isolate.get_slot_mut::<TerminationReasonBox>().unwrap().0.lock().unwrap().clone();
+    match termination_reason {
+        TerminationReason::Unknown => GenericError::ScriptThrowsException,
+        TerminationReason::TimeLimit => GenericError::TimeLimitExceeded,
+        TerminationReason::MemoryLimit => GenericError::MemoryLimitExceeded,
     }
 }

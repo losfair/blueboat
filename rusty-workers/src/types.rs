@@ -56,8 +56,11 @@ pub enum GenericError {
     #[error("script throws exception")]
     ScriptThrowsException,
 
-    #[error("limits exceeded")]
-    LimitsExceeded,
+    #[error("time limit exceeded")]
+    TimeLimitExceeded,
+
+    #[error("memory limit exceeded")]
+    MemoryLimitExceeded,
 
     #[error("no such worker")]
     NoSuchWorker,
