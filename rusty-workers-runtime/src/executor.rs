@@ -6,6 +6,7 @@ use std::time::Duration;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};
+use crate::error::*;
 
 const SAFE_AREA_SIZE: usize = 1048576;
 
@@ -155,25 +156,6 @@ impl Instance {
         Ok((instance, handle, time_control))
     }
 
-    fn add_event_listener_callback(
-        scope: &mut v8::HandleScope,
-        args: v8::FunctionCallbackArguments,
-        mut _retval: v8::ReturnValue,
-    ) {
-        let key = args.get(0).to_rust_string_lossy(scope);
-        let value = match v8::Local::try_from(args.get(1)) {
-            Ok(x) => x,
-            Err(e) => {
-                // TODO: throw exception
-                return;
-            }
-        };
-        let global = v8::Global::new(scope, value);
-        let state = InstanceState::get(scope);
-        debug!("addEventListener: {}", key);
-        state.event_listeners.entry(key).or_insert(Vec::new()).push(global);
-    }
-
     fn compile<'s>(scope: &mut v8::HandleScope<'s>, script: &str) -> GenericResult<v8::Local<'s, v8::Script>> {
         let script = v8::String::new(scope, script).ok_or(GenericError::V8Unknown)?;
         let script = v8::Script::compile(scope, script, None).ok_or(GenericError::Executor("cannot compile script".into()))?;
@@ -186,11 +168,7 @@ impl Instance {
         // Init resources
         state.renew_timeout();
         let mut isolate_scope = v8::HandleScope::new(&mut *self.isolate);
-        let global = v8::ObjectTemplate::new(&mut isolate_scope);
-        global.set(
-            v8::String::new(&mut isolate_scope, "addEventListener").ok_or(GenericError::V8Unknown)?.into(),
-            v8::FunctionTemplate::new(&mut isolate_scope, Self::add_event_listener_callback).into(),
-        );
+        let global = state.init_global_env(&mut isolate_scope)?;
 
         let context = v8::Context::new_from_template(&mut isolate_scope, global);
         let mut context_scope = v8::ContextScope::new(&mut isolate_scope, context);
@@ -241,6 +219,16 @@ impl InstanceState {
     fn clear_timeout(&self) {
         drop(self.deadline_tx.send(None));
     }
+
+    /// Builds the global object.
+    fn init_global_env<'s>(&self, isolate_scope: &mut v8::HandleScope<'s, ()>) -> GenericResult<v8::Local<'s, v8::ObjectTemplate>> {
+        let global = v8::ObjectTemplate::new(isolate_scope);
+        global.set(
+            v8::String::new(isolate_scope, "addEventListener").ok_or_else(|| check_exception(isolate_scope))?.into(),
+            v8::FunctionTemplate::new(isolate_scope, add_event_listener_callback).into(),
+        );
+        Ok(global)
+    }
 }
 
 extern "C" fn on_memory_limit_exceeded(data: *mut c_void, current_heap_limit: usize, _initial_heap_limit: usize) -> usize {
@@ -271,3 +259,20 @@ fn check_exception(isolate: &mut v8::Isolate) -> GenericError {
         TerminationReason::MemoryLimit => GenericError::MemoryLimitExceeded,
     }
 }
+
+fn add_event_listener_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut _retval: v8::ReturnValue,
+) {
+    wrap_callback(scope, |scope| {
+        let key = args.get(0).to_rust_string_lossy(scope);
+        let value = v8::Local::try_from(args.get(1)).map_err(|_| JsError::type_error())?;
+        let global = v8::Global::new(scope, value);
+        let state = InstanceState::get(scope);
+        debug!("addEventListener: {}", key);
+        state.event_listeners.entry(key).or_insert(Vec::new()).push(global);
+        Ok(())
+    });
+}
+

@@ -4,6 +4,7 @@ extern crate log;
 mod server;
 mod runtime;
 mod executor;
+mod error;
 
 use structopt::StructOpt;
 use anyhow::Result;
