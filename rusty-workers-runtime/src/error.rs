@@ -47,13 +47,3 @@ impl JsError {
         }
     }
 }
-
-pub fn wrap_callback<'s, F: FnOnce(&mut v8::HandleScope<'s>) -> JsResult<()>>(scope: &mut v8::HandleScope<'s>, f: F) {
-    match f(scope) {
-        Ok(()) => {}
-        Err(e) => {
-            let exception = e.build(scope);
-            scope.throw_exception(exception);
-        }
-    }
-}

@@ -8,10 +8,9 @@ use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};
 use crate::error::*;
 use maplit::btreemap;
+use crate::engine::*;
 
 const SAFE_AREA_SIZE: usize = 1048576;
-
-trait Callback = Fn(&mut v8::HandleScope, v8::FunctionCallbackArguments, v8::ReturnValue) + Copy + Sized;
 
 pub struct Instance {
     isolate: Box<v8::OwnedIsolate>,
@@ -26,16 +25,6 @@ struct InstanceState {
     handle: WorkerHandle,
 
     event_listeners: BTreeMap<String, Vec<v8::Global<v8::Function>>>,
-}
-
-#[derive(Clone)]
-struct TerminationReasonBox(Arc<Mutex<TerminationReason>>);
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-enum TerminationReason {
-    Unknown,
-    TimeLimit,
-    MemoryLimit,
 }
 
 pub struct InstanceHandle {
@@ -102,24 +91,24 @@ impl Event {
                 let json_text = v8::String::new(
                     scope,
                     serde_json::to_string(req).map_err(|_| GenericError::Other("serde_json::to_string failed".into()))?.as_str(),
-                ).ok_or_else(|| check_exception(scope))?.into();
+                ).check(scope)?.into();
                 let obj = v8::json::parse(
                     scope,
                     json_text,
-                ).ok_or_else(|| check_exception(scope))?;
+                ).check(scope)?;
                 let fetch_event_constructor = TypeCache::get(scope).fetch_event.clone();
                 let fetch_event_constructor = v8::Local::new(scope, fetch_event_constructor);
-                let event = fetch_event_constructor.new_instance(scope, &[]).ok_or_else(|| check_exception(scope))?;
+                let event = fetch_event_constructor.new_instance(scope, &[]).check(scope)?;
 
-                let key = v8::String::new(scope, "type").ok_or_else(|| check_exception(scope))?;
-                let value = v8::String::new(scope, "fetch").ok_or_else(|| check_exception(scope))?;
+                let key = v8::String::new(scope, "type").check(scope)?;
+                let value = v8::String::new(scope, "fetch").check(scope)?;
                 event.set(
                     scope,
                     key.into(),
                     value.into(),
                 );
 
-                let key = v8::String::new(scope, "request").ok_or_else(|| check_exception(scope))?;
+                let key = v8::String::new(scope, "request").check(scope)?;
                 event.set(
                     scope,
                     key.into(),
@@ -200,7 +189,7 @@ impl Instance {
 
         let worker_handle = state.handle.clone();
         handle_scope.set_slot(state);
-        script.run(handle_scope).ok_or_else(|| check_exception(&mut handle_scope))?;
+        script.run(handle_scope).check(&mut handle_scope)?;
         info!("worker instance {} ready", worker_handle.id);
 
         loop {
@@ -222,7 +211,7 @@ impl Instance {
             handle_scope.set_slot(task);
             for listener in listeners {
                 let target = v8::Local::new(handle_scope, listener);
-                target.call(handle_scope, recv.into(), args).ok_or_else(|| check_exception(handle_scope))?;
+                target.call(handle_scope, recv.into(), args).check(handle_scope)?;
             }
         }
         Ok(())
@@ -289,45 +278,6 @@ impl TypeCache {
     }
 }
 
-fn make_function<'s, C: Callback>(scope: &mut v8::HandleScope<'s>, native: C) -> GenericResult<v8::Local<'s, v8::Function>> {
-    Ok(v8::Function::new(scope, native).ok_or_else(|| check_exception(scope))?)
-}
-
-fn make_object<'s>(scope: &mut v8::HandleScope<'s>) -> GenericResult<v8::Local<'s, v8::Object>> {
-    Ok(v8::Object::new(scope))
-}
-
-fn make_string<'s>(scope: &mut v8::HandleScope<'s>, s: &str) -> GenericResult<v8::Local<'s, v8::String>> {
-    Ok(v8::String::new(scope, s).ok_or_else(|| check_exception(scope))?)
-}
-
-fn is_instance_of<'s, 'i, 'j>(scope: &mut v8::HandleScope<'s>, constructor: v8::Local<'i, v8::Function>, object: v8::Local<'j, v8::Object>) -> GenericResult<bool> {
-    let key = make_string(scope, "prototype")?;
-    let expected_proto = constructor.get(scope, key.into()).ok_or_else(|| check_exception(scope))?;
-    let actual_proto = object.get_prototype(scope).ok_or_else(|| check_exception(scope))?;
-    Ok(expected_proto.same_value(actual_proto))
-}
-
-fn make_persistent_class<'s, C: Callback>(scope: &mut v8::HandleScope<'s>, constructor: C, elements: BTreeMap<String, v8::Local<'s, v8::Value>>) -> GenericResult<v8::Global<v8::Function>> {
-    let constructor = make_function(scope, constructor)?;
-    let key = make_string(scope, "prototype")?;
-    let proto = constructor.get(scope, key.into()).ok_or_else(|| check_exception(scope))?;
-    let proto = v8::Local::<'_, v8::Object>::try_from(proto).map_err(|_| GenericError::Other("make_persistent_class: cannot convert prototype".into()))?;
-    for (k, v) in elements {
-        let k = v8::String::new(scope, k.as_str()).ok_or_else(|| check_exception(scope))?;
-        proto.set(scope, k.into(), v);
-    }
-    Ok(v8::Global::new(scope, constructor))
-}
-
-fn add_props_to_object<'s>(scope: &mut v8::HandleScope<'s>, obj: &v8::Local<'s, v8::Object>, elements: BTreeMap<String, v8::Local<'s, v8::Value>>) -> GenericResult<()> {
-    for (k, v) in elements {
-        let k = v8::String::new(scope, k.as_str()).ok_or_else(|| check_exception(scope))?;
-        obj.set(scope, k.into(), v);
-    }
-    Ok(())
-}
-
 extern "C" fn on_memory_limit_exceeded(data: *mut c_void, current_heap_limit: usize, _initial_heap_limit: usize) -> usize {
     let isolate = unsafe {
         &mut *(data as *mut v8::OwnedIsolate)
@@ -346,15 +296,6 @@ extern "C" fn on_memory_limit_exceeded(data: *mut c_void, current_heap_limit: us
         isolate.terminate_execution();
     }
     return current_heap_limit + SAFE_AREA_SIZE;
-}
-
-fn check_exception(isolate: &mut v8::Isolate) -> GenericError {
-    let termination_reason = isolate.get_slot_mut::<TerminationReasonBox>().unwrap().0.lock().unwrap().clone();
-    match termination_reason {
-        TerminationReason::Unknown => GenericError::ScriptThrowsException,
-        TerminationReason::TimeLimit => GenericError::TimeLimitExceeded,
-        TerminationReason::MemoryLimit => GenericError::MemoryLimitExceeded,
-    }
 }
 
 fn add_event_listener_callback(
@@ -438,16 +379,4 @@ fn console_log_callback(
         debug!("console.log: {}", text);
         Ok(())
     })
-}
-
-trait IntoLocal {
-    type Target;
-    fn into_local<'s>(self, scope: &mut v8::HandleScope<'s>) -> v8::Local<'s, Self::Target>;
-}
-
-impl<T> IntoLocal for v8::Global<T> {
-    type Target = T;
-    fn into_local<'s>(self, scope: &mut v8::HandleScope<'s>) -> v8::Local<'s, Self::Target> {
-        v8::Local::new(scope, self)
-    }
 }
