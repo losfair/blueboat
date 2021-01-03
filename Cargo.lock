@@ -760,6 +760,7 @@ dependencies = [
  "rusty_v8",
  "serde",
  "serde_json",
+ "slab",
  "structopt",
  "thiserror",
  "tokio",

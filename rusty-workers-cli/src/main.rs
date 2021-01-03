@@ -75,6 +75,8 @@ async fn main() -> Result<()> {
                             executor: ExecutorConfiguration {
                                 max_memory_mb: 32,
                                 max_time_ms: 100,
+                                max_io_concurrency: 10,
+                                max_io_per_request: 50,
                             }
                         }
                     };

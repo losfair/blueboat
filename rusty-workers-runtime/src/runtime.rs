@@ -25,12 +25,13 @@ impl Runtime {
     }
 
     fn instance_thread(
+        rt: tokio::runtime::Handle,
         worker_handle: WorkerHandle,
         code: String,
         configuration: &WorkerConfiguration,
         result_tx: oneshot::Sender<Result<(InstanceHandle, InstanceTimeControl), GenericError>>,
     ) {
-        match Instance::new(worker_handle.clone(), code, &configuration.executor) {
+        match Instance::new(rt, worker_handle.clone(), code, &configuration.executor) {
             Ok((instance, handle, timectl)) => {
                 drop(result_tx.send(Ok((handle, timectl))));
                 let run_result = instance.run();
@@ -118,8 +119,9 @@ impl Runtime {
         let this = self.clone();
         let worker_handle_2 = worker_handle.clone();
         let configuration = configuration.clone();
+        let rt = tokio::runtime::Handle::current();
         std::thread::spawn(move || {
-            Self::instance_thread(worker_handle_2, code, &configuration, result_tx)
+            Self::instance_thread(rt, worker_handle_2, code, &configuration, result_tx)
         });
         let result = result_rx.await.unwrap(); // unwrap() works here since `instance_thread` will always send a result
         match result {

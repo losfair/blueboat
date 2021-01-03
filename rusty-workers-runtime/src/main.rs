@@ -9,6 +9,7 @@ mod executor;
 mod error;
 mod engine;
 mod interface;
+mod io;
 
 use structopt::StructOpt;
 use anyhow::Result;

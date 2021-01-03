@@ -11,6 +11,8 @@ pub struct WorkerConfiguration {
 pub struct ExecutorConfiguration {
     pub max_memory_mb: u32,
     pub max_time_ms: u32,
+    pub max_io_concurrency: u32,
+    pub max_io_per_request: u32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -65,6 +67,9 @@ pub enum GenericError {
     #[error("v8 unknown error")]
     V8Unknown,
 
+    #[error("I/O timed out")]
+    IoTimeout,
+
     #[error("runtime throws exception")]
     RuntimeThrowsException,
 
@@ -79,6 +84,9 @@ pub enum GenericError {
 
     #[error("memory limit exceeded")]
     MemoryLimitExceeded,
+
+    #[error("I/O limit exceeded")]
+    IoLimitExceeded,
 
     #[error("no such worker")]
     NoSuchWorker,

@@ -10,6 +10,7 @@ use crate::error::*;
 use maplit::btreemap;
 use crate::engine::*;
 use crate::interface::*;
+use crate::io::*;
 use std::cell::Cell;
 
 const SAFE_AREA_SIZE: usize = 1048576;
@@ -32,11 +33,13 @@ pub enum TimerControl {
 }
 
 struct InstanceState {
+    rt: tokio::runtime::Handle,
     task_rx: mpsc::Receiver<Task>,
     script: String,
     timer_tx: tokio::sync::mpsc::UnboundedSender<TimerControl>,
     conf: ExecutorConfiguration,
     handle: WorkerHandle,
+    io_waiter: Option<IoWaiter>,
 
     done: bool,
 
@@ -94,7 +97,7 @@ impl Drop for InstanceHandle {
 }
 
 impl Instance {
-    pub fn new(worker_handle: WorkerHandle, script: String, conf: &ExecutorConfiguration) -> GenericResult<(Self, InstanceHandle, InstanceTimeControl)> {
+    pub fn new(rt: tokio::runtime::Handle, worker_handle: WorkerHandle, script: String, conf: &ExecutorConfiguration) -> GenericResult<(Self, InstanceHandle, InstanceTimeControl)> {
         let params = v8::Isolate::create_params()
             .heap_limits(0, conf.max_memory_mb as usize * 1048576);
         let mut isolate = Box::new(v8::Isolate::new(params));
@@ -131,11 +134,13 @@ impl Instance {
         let instance = Instance {
             isolate,
             state: Some(InstanceState {
+                rt,
                 task_rx,
                 script,
                 timer_tx,
                 conf: conf.clone(),
                 handle: worker_handle,
+                io_waiter: None,
                 done: false,
                 fetch_response_channel: None,
             }),
@@ -189,6 +194,11 @@ impl Instance {
             let state = InstanceState::get(scope);
             state.stop_timer();
             state.reset_timer();
+
+            // Cleanup state
+            state.io_waiter = None; // drop it
+            state.done = false;
+
             let task = match state.task_rx.recv() {
                 Ok(x) => x,
                 Err(_) => {
@@ -200,6 +210,11 @@ impl Instance {
             state.populate_with_task(task)?;
             state.start_timer();
 
+            // Start I/O processor (per-request)
+            let (io_waiter, io_processor) = IoWaiter::new(state.conf.clone());
+            state.rt.spawn(io_processor.run());
+            state.io_waiter = Some(io_waiter);
+
             let global = scope.get_current_context().global(scope);
             let callback_key = make_string(scope, "_dispatchEvent")?;
             let callback = global.get(scope, callback_key.into()).check(scope)?;
@@ -208,25 +223,51 @@ impl Instance {
             let event_js = native_to_js(scope, &event)?;
             callback.call(scope, recv.into(), &[event_js]);
 
-            let maybe_error;
+            // Drive to completion.
+            loop {
+                let maybe_error;
+    
+                if let Some(e) = try_catch.exception_description() {
+                    try_catch.reset(); // Clear exception
+                    maybe_error = Some(e);
+                } else if let Some(e) = PROMISE_REJECTION.with(|x| x.replace(None)) {
+                    maybe_error = Some(e);
+                } else {
+                    maybe_error = None;
+                }
 
-            if let Some(e) = try_catch.exception_description() {
-                maybe_error = Some(e);
-            } else if let Some(e) = PROMISE_REJECTION.with(|x| x.replace(None)) {
-                maybe_error = Some(e);
-            } else {
-                maybe_error = None;
+                let scope = &mut v8::HandleScope::new(try_catch);
+                let state = InstanceState::get(scope);
+    
+                if let Some(e) = maybe_error {
+                    debug!("script throws exception: {}", e);
+                    break;
+                }
+
+                if state.done {
+                    break;
+                }
+
+                // Waiting for I/O now. Stop the timer.
+                state.stop_timer();
+                let (callback, data) = state.io_waiter.as_mut().unwrap().wait()?;
+                state.start_timer();
+
+                let callback = v8::Local::<'_, v8::Function>::new(scope, callback);
+                let json_text = v8::String::new(
+                    scope,
+                    data.as_str(),
+                ).check(scope)?;
+                let data = v8::json::parse(scope, json_text.into()).check(scope)?;
+                callback.call(scope, recv.into(), &[data]);
             }
 
-            if let Some(e) = maybe_error {
-                debug!("script throws exception: {}", e);
-                let state = InstanceState::get(try_catch);
-                if let Some(ch) = state.fetch_response_channel.take() {
-                    drop(ch.send(ResponseObject {
-                        status: 500,
-                        ..Default::default()
-                    }));
-                }
+            if let Some(ch) = InstanceState::get(try_catch).fetch_response_channel.take() {
+                // Response channel left open
+                drop(ch.send(ResponseObject {
+                    status: 500,
+                    ..Default::default()
+                }));
             }
         }
         Ok(())
@@ -236,6 +277,10 @@ impl Instance {
 impl InstanceState {
     fn get(isolate: &mut v8::Isolate) -> &mut Self {
         isolate.get_slot_mut::<Self>().unwrap()
+    }
+
+    fn io_waiter(&mut self) -> JsResult<&mut IoWaiter> {
+        self.io_waiter.as_mut().ok_or_else(|| JsError::new(JsErrorKind::Error, Some("io service not available".into())))
     }
 
     fn start_timer(&self) {
@@ -319,9 +364,9 @@ fn call_service_callback(
             }
             ServiceCall::Async(call) => {
                 let callback = v8::Local::<'_, v8::Function>::try_from(args.get(1))?;
-                match call {
-
-                }
+                let callback = v8::Global::new(scope, callback);
+                let state = InstanceState::get(scope);
+                state.io_waiter()?.issue(false, call, callback)?;
             }
         }
         Ok(())
