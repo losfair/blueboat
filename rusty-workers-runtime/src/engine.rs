@@ -52,18 +52,13 @@ pub trait CheckedResult {
 impl<T> CheckedResult for Option<T> {
     type Target = T;
     fn check<'s>(self, scope: &mut v8::HandleScope<'s>) -> GenericResult<Self::Target> {
-        self.ok_or_else(|| check_exception(scope))
+        self.ok_or_else(|| check_exception(scope, GenericError::RuntimeThrowsException))
     }
 }
 
 pub trait CheckedTryCatch {
     fn exception_description(&mut self) -> Option<String>;
-    fn check(&mut self) -> GenericResult<()> {
-        match self.exception_description() {
-            Some(x) => Err(GenericError::ScriptThrowsException(x)),
-            None => Ok(())
-        }
-    }
+    fn check(&mut self) -> GenericResult<()>;
 }
 
 impl<'s, 'p: 's, P> CheckedTryCatch for v8::TryCatch<'s, P>
@@ -77,6 +72,13 @@ impl<'s, 'p: 's, P> CheckedTryCatch for v8::TryCatch<'s, P>
             Some(desc)
         } else {
             None
+        }
+    }
+
+    fn check(&mut self) -> GenericResult<()> {
+        match self.exception_description() {
+            Some(x) => Err(check_exception(self.as_mut(), GenericError::ScriptThrowsException(x))),
+            None => Ok(())
         }
     }
 }
@@ -152,10 +154,10 @@ pub fn terminate_with_reason(isolate: &mut v8::Isolate, reason: TerminationReaso
     isolate.terminate_execution();
 }
 
-fn check_exception(isolate: &mut v8::Isolate) -> GenericError {
+fn check_exception(isolate: &mut v8::Isolate, default_error: GenericError) -> GenericError {
     let termination_reason = isolate.get_slot_mut::<TerminationReasonBox>().unwrap().0.lock().unwrap().clone();
     match termination_reason {
-        TerminationReason::Unknown => GenericError::RuntimeThrowsException,
+        TerminationReason::Unknown => default_error,
         TerminationReason::TimeLimit => GenericError::TimeLimitExceeded,
         TerminationReason::MemoryLimit => GenericError::MemoryLimitExceeded,
     }
