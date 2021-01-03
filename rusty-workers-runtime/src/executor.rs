@@ -179,21 +179,28 @@ impl Instance {
         let mut isolate_scope = v8::HandleScope::new(&mut *self.isolate);
         let context = v8::Context::new(&mut isolate_scope);
         let mut context_scope = v8::ContextScope::new(&mut isolate_scope, context);
-        let mut handle_scope = &mut v8::HandleScope::new(&mut context_scope);
-
-        let type_cache = TypeCache::new(handle_scope)?;
-        handle_scope.set_slot(type_cache);
-
-        state.init_global_env(handle_scope)?;
-
-        let script = Self::compile(handle_scope, &state.script)?;
 
         let worker_handle = state.handle.clone();
-        handle_scope.set_slot(state);
-        script.run(handle_scope).check(&mut handle_scope)?;
+
+        // Take a HandleScope and initialize the environment.
+        {
+            let mut handle_scope = v8::HandleScope::new(&mut context_scope);
+    
+            let type_cache = TypeCache::new(&mut handle_scope)?;
+            handle_scope.set_slot(type_cache);
+    
+            state.init_global_env(&mut handle_scope)?;
+    
+            let script = Self::compile(&mut handle_scope, &state.script)?;
+    
+            handle_scope.set_slot(state);
+            script.run(&mut handle_scope).check(&mut handle_scope)?;
+        }
         info!("worker instance {} ready", worker_handle.id);
 
+        // Wait for tasks.
         loop {
+            let mut handle_scope = &mut v8::HandleScope::new(&mut context_scope);
             let state = InstanceState::get(handle_scope);
             state.stop_timer();
             state.reset_timer();
