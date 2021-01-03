@@ -120,6 +120,12 @@ pub fn js_to_native<'s, T: serde::de::DeserializeOwned>(scope: &mut v8::HandleSc
     serde_json::from_str(json_text.to_rust_string_lossy(scope).as_str()).map_err(|_| GenericError::Conversion)
 }
 
+pub fn terminate_with_reason(isolate: &mut v8::Isolate, reason: TerminationReason) {
+    let termination_reason = isolate.get_slot::<TerminationReasonBox>().unwrap();
+    *termination_reason.0.lock().unwrap() = reason;
+    isolate.terminate_execution();
+}
+
 fn check_exception(isolate: &mut v8::Isolate) -> GenericError {
     let termination_reason = isolate.get_slot_mut::<TerminationReasonBox>().unwrap().0.lock().unwrap().clone();
     match termination_reason {

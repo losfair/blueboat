@@ -8,6 +8,7 @@ mod runtime;
 mod executor;
 mod error;
 mod engine;
+mod interface;
 
 use structopt::StructOpt;
 use anyhow::Result;

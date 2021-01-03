@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use crate::error::*;
 use maplit::btreemap;
 use crate::engine::*;
+use crate::interface::*;
 
 const SAFE_AREA_SIZE: usize = 1048576;
 
@@ -31,7 +32,9 @@ struct InstanceState {
     conf: ExecutorConfiguration,
     handle: WorkerHandle,
 
-    event_listeners: BTreeMap<String, Vec<v8::Global<v8::Function>>>,
+    done: bool,
+
+    fetch_response_channel: Option<tokio::sync::oneshot::Sender<ResponseObject>>,
 }
 
 pub struct InstanceHandle {
@@ -45,24 +48,22 @@ pub struct InstanceTimeControl {
     pub timer_rx: tokio::sync::mpsc::UnboundedReceiver<TimerControl>,
 }
 
-struct Task {
-    event: Event,
-}
-
-struct FetchResponseChannel(Option<tokio::sync::oneshot::Sender<ResponseObject>>);
-
-enum Event {
-    Fetch(RequestObject, FetchResponseChannel),
+enum Task {
+    Fetch(RequestObject, tokio::sync::oneshot::Sender<ResponseObject>),
 }
 
 struct DoubleMleGuard {
     triggered_mle: bool,
 }
 
-struct TypeCache {
-    fetch_event: v8::Global<v8::Function>,
-    request: v8::Global<v8::Function>,
-    response: v8::Global<v8::Function>,
+impl Task {
+    fn make_event(&self) -> ServiceEvent {
+        match self {
+            Task::Fetch(ref req, _) => ServiceEvent::Fetch(FetchEvent {
+                request: req.clone(),
+            }),
+        }
+    }
 }
 
 impl InstanceHandle {
@@ -75,7 +76,7 @@ impl InstanceHandle {
 
     pub async fn fetch(&self, req: RequestObject) -> GenericResult<ResponseObject> {
         let (result_tx, result_rx) = tokio::sync::oneshot::channel();
-        self.task_tx.try_send(Task { event: Event::Fetch(req, FetchResponseChannel(Some(result_tx))) }).map_err(|_| GenericError::TryAgain)?;
+        self.task_tx.try_send(Task::Fetch(req, result_tx)).map_err(|_| GenericError::TryAgain)?;
         result_rx.await.map_err(|_| GenericError::TryAgain)
     }
 }
@@ -83,40 +84,6 @@ impl InstanceHandle {
 impl Drop for InstanceHandle {
     fn drop(&mut self) {
         self.isolate_handle.terminate_execution();
-    }
-}
-
-impl Event {
-    fn name(&self) -> &'static str {
-        match self {
-            Event::Fetch(_, _) => "fetch",
-        }
-    }
-
-    fn build<'s>(&self, scope: &mut v8::HandleScope<'s>) -> GenericResult<v8::Local<'s, v8::Value>> {
-        match self {
-            Event::Fetch(ref req, _) => {
-                let obj = native_to_js(scope, req)?;
-                let fetch_event_constructor = TypeCache::get(scope).fetch_event.clone().into_local(scope);
-                let event = fetch_event_constructor.new_instance(scope, &[]).check(scope)?;
-
-                let key = v8::String::new(scope, "type").check(scope)?;
-                let value = v8::String::new(scope, "fetch").check(scope)?;
-                event.set(
-                    scope,
-                    key.into(),
-                    value.into(),
-                );
-
-                let key = v8::String::new(scope, "request").check(scope)?;
-                event.set(
-                    scope,
-                    key.into(),
-                    obj,
-                );
-                return Ok(event.into());
-            }
-        }
     }
 }
 
@@ -159,7 +126,8 @@ impl Instance {
                 timer_tx,
                 conf: conf.clone(),
                 handle: worker_handle,
-                event_listeners: BTreeMap::new(),
+                done: false,
+                fetch_response_channel: None,
             }),
         };
         Ok((instance, handle, time_control))
@@ -184,24 +152,21 @@ impl Instance {
 
         // Take a HandleScope and initialize the environment.
         {
-            let mut handle_scope = v8::HandleScope::new(&mut context_scope);
+            let mut scope = v8::HandleScope::new(&mut context_scope);
     
-            let type_cache = TypeCache::new(&mut handle_scope)?;
-            handle_scope.set_slot(type_cache);
+            state.init_global_env(&mut scope)?;
     
-            state.init_global_env(&mut handle_scope)?;
+            let script = Self::compile(&mut scope, &state.script)?;
     
-            let script = Self::compile(&mut handle_scope, &state.script)?;
-    
-            handle_scope.set_slot(state);
-            script.run(&mut handle_scope).check(&mut handle_scope)?;
+            scope.set_slot(state);
+            script.run(&mut scope).check(&mut scope)?;
         }
         info!("worker instance {} ready", worker_handle.id);
 
         // Wait for tasks.
         loop {
-            let mut handle_scope = &mut v8::HandleScope::new(&mut context_scope);
-            let state = InstanceState::get(handle_scope);
+            let mut scope = &mut v8::HandleScope::new(&mut context_scope);
+            let state = InstanceState::get(scope);
             state.stop_timer();
             state.reset_timer();
             let task = match state.task_rx.recv() {
@@ -211,17 +176,17 @@ impl Instance {
                     break;
                 }
             };
+            let event = task.make_event();
+            state.populate_with_task(task)?;
             state.start_timer();
 
-            let event_name = task.event.name();
-            let listeners = state.event_listeners.get(event_name).map(|x| x.clone()).unwrap_or(Vec::new());
-            let recv = v8::undefined(handle_scope);
-            let args = &[task.event.build(handle_scope)?];
-            handle_scope.set_slot(task);
-            for listener in listeners {
-                let target = v8::Local::new(handle_scope, listener);
-                target.call(handle_scope, recv.into(), args).check(handle_scope)?;
-            }
+            let global = scope.get_current_context().global(scope);
+            let callback_key = make_string(scope, "_dispatchEvent")?;
+            let callback = global.get(scope, callback_key.into()).check(scope)?;
+            let callback = v8::Local::<'_, v8::Function>::try_from(callback).map_err(|_| GenericError::Other("bad _dispatchEvent".into()))?;
+            let recv = v8::undefined(scope);
+            let event_js = native_to_js(scope, &event)?;
+            callback.call(scope, recv.into(), &[event_js]).check(scope)?;
         }
         Ok(())
     }
@@ -247,64 +212,21 @@ impl InstanceState {
     /// Builds the global object.
     fn init_global_env<'s>(&self, scope: &mut v8::HandleScope<'s>) -> GenericResult<()> {
         let global = scope.get_current_context().global(scope);
-        let console_props = btreemap! {
-            "log".into() => make_function(scope, console_log_callback)?.into(),
-        };
-        let console_obj = make_object(scope)?;
-        add_props_to_object(scope, &console_obj, console_props)?;
-
         let global_props = btreemap! {
-            "addEventListener".into() => make_function(scope, add_event_listener_callback)?.into(),
-            "console".into() => console_obj.into(),
-            "Response".into() => TypeCache::get(scope).response.clone().into_local(scope).into(),
+            "_callService".into() => make_function(scope, call_service_callback)?.into(),
+            "global".into() => global.into(),
         };
         add_props_to_object(scope, &global, global_props)?;
         Ok(())
     }
-}
 
-impl TypeCache {
-    fn get(isolate: &mut v8::Isolate) -> &mut Self {
-        isolate.get_slot_mut::<Self>().unwrap()
-    }
-
-    fn get_constructor<'s, M: FnOnce(&Self) -> &v8::Global<v8::Function>>(scope: &mut v8::HandleScope<'s>, mapper: M) -> v8::Local<'s, v8::Function> {
-        mapper(Self::get(scope)).clone().into_local(scope)
-    }
-
-    fn ensure_instance_of<'s, 'i, 'j, M: FnOnce(&Self) -> &v8::Global<v8::Function>>(
-        scope: &mut v8::HandleScope<'s>,
-        mapper: M,
-        obj: v8::Local<'j, v8::Object>,
-        class_name: &'static str,
-    ) -> GenericResult<()> {
-        let constructor = Self::get_constructor(scope, mapper);
-        if !is_instance_of(scope, constructor, obj)? {
-            Err(GenericError::Typeck { expected: class_name.into() })
-        } else {
-            Ok(())
+    fn populate_with_task(&mut self, task: Task) -> GenericResult<()> {
+        match task {
+            Task::Fetch(_, res) => {
+                self.fetch_response_channel = Some(res);
+            }
         }
-    }
-
-    fn new<'s>(scope: &mut v8::HandleScope<'s>) -> GenericResult<Self> {
-        let props = btreemap! {
-            "respondWith".to_string() => make_function(scope, fetch_event_respond_with_callback)?.into(),
-        };
-        let fetch_event = make_persistent_class(scope, fetch_event_constructor_callback, props)?;
-        
-        let request = make_persistent_class(scope, request_constructor_callback, btreemap! {
-
-        })?;
-
-        let response = make_persistent_class(scope, response_constructor_callback, btreemap! {
-
-        })?;
-
-        Ok(Self {
-            fetch_event,
-            request,
-            response,
-        })
+        Ok(())
     }
 }
 
@@ -319,121 +241,44 @@ extern "C" fn on_memory_limit_exceeded(data: *mut c_void, current_heap_limit: us
     } else {
         // Execution may not terminate immediately if we are in native code. So allocate some "safe area" here.
         double_mle_guard.triggered_mle = true;
-
-        let termination_reason = isolate.get_slot_mut::<TerminationReasonBox>().unwrap();
-        *termination_reason.0.lock().unwrap() =  TerminationReason::MemoryLimit;
-
-        isolate.terminate_execution();
+        terminate_with_reason(isolate, TerminationReason::MemoryLimit);
     }
     return current_heap_limit + SAFE_AREA_SIZE;
 }
 
-fn add_event_listener_callback(
+fn call_service_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
     mut _retval: v8::ReturnValue,
 ) {
     wrap_callback(scope, |scope| {
-        let key = args.get(0).to_rust_string_lossy(scope);
-        let value = v8::Local::try_from(args.get(1))?;
-        let global = v8::Global::new(scope, value);
-        let state = InstanceState::get(scope);
-        debug!("addEventListener: {}", key);
-        state.event_listeners.entry(key).or_insert(Vec::new()).push(global);
-        Ok(())
-    });
-}
+        let scope = &mut v8::HandleScope::new(scope);
+        let call: ServiceCall = js_to_native(scope, args.get(0))?;
+        match call {
+            ServiceCall::Sync(call) => {
+                match call {
+                    SyncCall::Log(s) => {
+                        debug!("log: {}", s);
+                    }
+                    SyncCall::Done => {
+                        let state = InstanceState::get(scope);
+                        state.done = true;
+                    }
+                    SyncCall::SendFetchResponse(res) => {
+                        let state = InstanceState::get(scope);
+                        if let Some(ch) = state.fetch_response_channel.take() {
+                            drop(ch.send(res));
+                        }
+                    }
+                }
+            }
+            ServiceCall::Async(call) => {
+                let callback = v8::Local::<'_, v8::Function>::try_from(args.get(1))?;
+                match call {
 
-fn request_constructor_callback(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut _retval: v8::ReturnValue,
-) {
-    wrap_callback(scope, |scope| {
-        Ok(())
-    })
-}
-
-fn response_constructor_callback(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut _retval: v8::ReturnValue,
-) {
-    wrap_callback(scope, |scope| {
-        let this = args.this();
-        let mut data = ResponseObject::default();
-
-        let body = args.get(0);
-        let init = args.get(1);
-
-        data.status = 200;
-        if !init.is_undefined() {
-            let init = v8::Local::<'_, v8::Object>::try_from(init)?;
-
-            let key = make_string(scope, "status")?;
-            let maybe_status = init.get(scope, key.into()).check(scope)?;
-            if !maybe_status.is_undefined() {
-                data.status = u16::try_from(maybe_status.uint32_value(scope).check(scope)?)
-                    .map_err(|_| JsError::new(JsErrorKind::Error, Some("status code out of bounds".into())))?;
+                }
             }
         }
-        
-        if !body.is_undefined() {
-            let body = v8::Local::<'_, v8::String>::try_from(body)?;
-            data.body = body.to_rust_string_lossy(scope).into();
-        }
-;
-        let key = make_string(scope, "_data")?;
-        let value = native_to_js(scope, &data)?;
-        this.create_data_property(scope, key.into(), value.into()).check(scope)?;
-
-        Ok(())
-    })
-}
-
-fn fetch_event_constructor_callback(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut _retval: v8::ReturnValue,
-) {
-    wrap_callback(scope, |scope| {
-        Ok(())
-    })
-}
-
-fn fetch_event_respond_with_callback(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut _retval: v8::ReturnValue,
-) {
-    wrap_callback(scope, |scope| {
-        let response = v8::Local::<'_, v8::Object>::try_from(args.get(0))?;
-        TypeCache::ensure_instance_of(scope, |x| &x.response, response, "Response")?;
-        let key = make_string(scope, "_data")?;
-        let response_data = response.get(scope, key.into()).check(scope)?;
-        let response_data = js_to_native(scope, response_data)?;
-        let event = scope.get_slot_mut::<Task>().map(|x| &mut x.event);
-        match event {
-            Some(Event::Fetch(_, ref mut res)) => {
-                let res = res.0.take().ok_or_else(|| JsError::new(JsErrorKind::Error, Some("respondWith: cannot respond twice".into())))?;
-                drop(res.send(response_data));
-                Ok(())
-            }
-            None => {
-                Err(JsError::error())
-            }
-        }
-    })
-}
-
-fn console_log_callback(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut _retval: v8::ReturnValue,
-) {
-    wrap_callback(scope, |scope| {
-        let text = args.get(0).to_rust_string_lossy(scope);
-        debug!("console.log: {}", text);
         Ok(())
     })
 }

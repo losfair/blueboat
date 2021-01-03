@@ -39,7 +39,19 @@ pub struct RequestObject {
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]
 pub struct ResponseObject {
     pub status: u16,
-    pub body: Vec<u8>,
+    pub body: ResponseBody,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ResponseBody {
+    Binary(Vec<u8>),
+    Text(String),
+}
+
+impl Default for ResponseBody {
+    fn default() -> Self {
+        Self::Text("".into())
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Error)]
