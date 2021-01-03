@@ -10,8 +10,14 @@ use crate::error::*;
 use maplit::btreemap;
 use crate::engine::*;
 use crate::interface::*;
+use std::cell::Cell;
 
 const SAFE_AREA_SIZE: usize = 1048576;
+static LIBRT: &'static str = include_str!("../../librt/dist/main.js");
+
+thread_local! {
+    static PROMISE_REJECTION: Cell<Option<String>> = Cell::new(None);
+}
 
 pub struct Instance {
     isolate: Box<v8::OwnedIsolate>,
@@ -94,6 +100,10 @@ impl Instance {
         let mut isolate = Box::new(v8::Isolate::new(params));
         let isolate_ptr = &mut *isolate as *mut v8::OwnedIsolate;
 
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Auto);
+
+        isolate.set_promise_reject_callback(on_promise_rejection);
+
         isolate.set_slot(DoubleMleGuard {
             triggered_mle: false,
         });
@@ -134,8 +144,8 @@ impl Instance {
     }
 
     fn compile<'s>(scope: &mut v8::HandleScope<'s>, script: &str) -> GenericResult<v8::Local<'s, v8::Script>> {
-        let script = v8::String::new(scope, script).ok_or(GenericError::V8Unknown)?;
-        let script = v8::Script::compile(scope, script, None).ok_or(GenericError::Executor("cannot compile script".into()))?;
+        let script = v8::String::new(scope, script).ok_or(GenericError::ScriptCompileException)?;
+        let script = v8::Script::compile(scope, script, None).ok_or(GenericError::ScriptCompileException)?;
         Ok(script)
     }
 
@@ -152,20 +162,30 @@ impl Instance {
 
         // Take a HandleScope and initialize the environment.
         {
-            let mut scope = v8::HandleScope::new(&mut context_scope);
+            let mut scope = &mut v8::HandleScope::new(&mut context_scope);
+            let mut try_catch = &mut v8::TryCatch::new(scope);
+            let scope: &mut v8::HandleScope<'_> = try_catch.as_mut();
+            state.init_global_env(scope)?;
     
-            state.init_global_env(&mut scope)?;
-    
-            let script = Self::compile(&mut scope, &state.script)?;
+            let librt = Self::compile(scope, LIBRT)?;
+            let script = Self::compile(scope, &state.script)?;
     
             scope.set_slot(state);
-            script.run(&mut scope).check(&mut scope)?;
+            try_catch.check()?;
+
+            librt.run(try_catch.as_mut());
+            try_catch.check()?;
+
+            script.run(try_catch.as_mut());
+            try_catch.check()?;
         }
         info!("worker instance {} ready", worker_handle.id);
 
         // Wait for tasks.
         loop {
             let mut scope = &mut v8::HandleScope::new(&mut context_scope);
+            let mut try_catch = &mut v8::TryCatch::new(scope);
+            let scope: &mut v8::HandleScope<'_> = try_catch.as_mut();
             let state = InstanceState::get(scope);
             state.stop_timer();
             state.reset_timer();
@@ -186,7 +206,28 @@ impl Instance {
             let callback = v8::Local::<'_, v8::Function>::try_from(callback).map_err(|_| GenericError::Other("bad _dispatchEvent".into()))?;
             let recv = v8::undefined(scope);
             let event_js = native_to_js(scope, &event)?;
-            callback.call(scope, recv.into(), &[event_js]).check(scope)?;
+            callback.call(scope, recv.into(), &[event_js]);
+
+            let maybe_error;
+
+            if let Some(e) = try_catch.exception_description() {
+                maybe_error = Some(e);
+            } else if let Some(e) = PROMISE_REJECTION.with(|x| x.replace(None)) {
+                maybe_error = Some(e);
+            } else {
+                maybe_error = None;
+            }
+
+            if let Some(e) = maybe_error {
+                debug!("script throws exception: {}", e);
+                let state = InstanceState::get(try_catch);
+                if let Some(ch) = state.fetch_response_channel.take() {
+                    drop(ch.send(ResponseObject {
+                        status: 500,
+                        ..Default::default()
+                    }));
+                }
+            }
         }
         Ok(())
     }
@@ -244,6 +285,10 @@ extern "C" fn on_memory_limit_exceeded(data: *mut c_void, current_heap_limit: us
         terminate_with_reason(isolate, TerminationReason::MemoryLimit);
     }
     return current_heap_limit + SAFE_AREA_SIZE;
+}
+
+extern "C" fn on_promise_rejection(_msg: v8::PromiseRejectMessage<'_>) {
+    PROMISE_REJECTION.with(|x| x.set(Some("unhandled promise rejection".into())));
 }
 
 fn call_service_callback(

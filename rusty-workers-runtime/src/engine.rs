@@ -56,11 +56,37 @@ impl<T> CheckedResult for Option<T> {
     }
 }
 
+pub trait CheckedTryCatch {
+    fn exception_description(&mut self) -> Option<String>;
+    fn check(&mut self) -> GenericResult<()> {
+        match self.exception_description() {
+            Some(x) => Err(GenericError::ScriptThrowsException(x)),
+            None => Ok(())
+        }
+    }
+}
+
+impl<'s, 'p: 's, P> CheckedTryCatch for v8::TryCatch<'s, P>
+    where v8::TryCatch<'s, P>: AsMut<v8::HandleScope<'p, ()>> + AsMut<v8::HandleScope<'p, v8::Context>>
+{
+    fn exception_description(&mut self) -> Option<String> {
+        let exception = self.exception();
+        if let Some(exc) = exception {
+            let scope: &mut v8::HandleScope<'p> = self.as_mut();
+            let desc = exc.to_rust_string_lossy(scope);
+            Some(desc)
+        } else {
+            None
+        }
+    }
+}
+
 /// Converts a `Result` from a callback function into a JavaScript exception.
 pub fn wrap_callback<'s, F: FnOnce(&mut v8::HandleScope<'s>) -> JsResult<()>>(scope: &mut v8::HandleScope<'s>, f: F) {
     match f(scope) {
         Ok(()) => {}
         Err(e) => {
+            debug!("Throwing JS exception: {:?}", e);
             let exception = e.build(scope);
             scope.throw_exception(exception);
         }
@@ -129,7 +155,7 @@ pub fn terminate_with_reason(isolate: &mut v8::Isolate, reason: TerminationReaso
 fn check_exception(isolate: &mut v8::Isolate) -> GenericError {
     let termination_reason = isolate.get_slot_mut::<TerminationReasonBox>().unwrap().0.lock().unwrap().clone();
     match termination_reason {
-        TerminationReason::Unknown => GenericError::ScriptThrowsException,
+        TerminationReason::Unknown => GenericError::RuntimeThrowsException,
         TerminationReason::TimeLimit => GenericError::TimeLimitExceeded,
         TerminationReason::MemoryLimit => GenericError::MemoryLimitExceeded,
     }

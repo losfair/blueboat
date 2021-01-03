@@ -65,8 +65,14 @@ pub enum GenericError {
     #[error("v8 unknown error")]
     V8Unknown,
 
+    #[error("runtime throws exception")]
+    RuntimeThrowsException,
+
     #[error("script throws exception")]
-    ScriptThrowsException,
+    ScriptThrowsException(String),
+
+    #[error("script compile exception")]
+    ScriptCompileException,
 
     #[error("time limit exceeded")]
     TimeLimitExceeded,
