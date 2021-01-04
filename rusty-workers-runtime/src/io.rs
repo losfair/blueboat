@@ -5,6 +5,8 @@ use slab::Slab;
 use serde::{Serialize, Deserialize};
 use anyhow::Result;
 use crate::interface::AsyncCall;
+use std::time::Duration;
+use serde_json::json;
 
 pub struct IoWaiter {
     remaining_budget: u32,
@@ -126,5 +128,11 @@ impl IoResponseHandle {
 }
 
 async fn handle_task(task: AsyncCall) -> Result<String> {
-    Ok("42".into())
+    match task {
+        AsyncCall::SetTimeout(n) => {
+            let dur = Duration::from_millis(n);
+            tokio::time::sleep(dur).await;
+            Ok("null".into())
+        }
+    }
 }

@@ -82,6 +82,86 @@ export function dispatchEvent(event) {
 }
 
 /**
+ * @type {Map<number, boolean>}
+ */
+let inflightTimeouts = new Map();
+let nextTimeoutId = 1;
+
+/**
+ * 
+ * @param {function} callback 
+ * @param {number} ms 
+ * @param {any[]} args 
+ * @param {boolean} isInterval 
+ * @returns {number}
+ */
+function scheduleTimeoutOrInterval(callback, ms, args, isInterval) {
+    let id = nextTimeoutId;
+    nextTimeoutId++;
+    inflightTimeouts.set(id, isInterval);
+
+    function onFire() {
+        if(inflightTimeouts.has(id)) {
+            let isInterval = inflightTimeouts.get(id);
+            if(isInterval) {
+                schedule(ms, onFire);
+            } else {
+                inflightTimeouts.delete(id);
+            }
+            callback.call(this, args);
+        }
+    }
+
+    function schedule(ms, callback) {
+        _callService({
+            Async: {
+                SetTimeout: ms,
+            }
+        }, callback);
+    }
+
+    schedule(ms, onFire);
+    return id;
+}
+
+/**
+ * 
+ * @param {function} callback 
+ * @param {number} ms 
+ * @param  {...any} args 
+ * @returns {number}
+ */
+export function setTimeout(callback, ms, ...args) {
+    return scheduleTimeoutOrInterval(callback, ms, args, false);
+}
+/**
+ * 
+ * @param {function} callback 
+ * @param {number} ms 
+ * @param  {...any} args 
+ * @returns {number}
+ */
+export function setInterval(callback, ms, ...args) {
+    return scheduleTimeoutOrInterval(callback, ms, args, true);
+}
+
+/**
+ * 
+ * @param {number} id 
+ */
+export function clearTimeout(id) {
+    inflightTimeouts.delete(id);
+}
+
+/**
+ * 
+ * @param {number} id 
+ */
+export function clearInterval(id) {
+    inflightTimeouts.delete(id);
+}
+
+/**
  * 
  * @param {Object} ev 
  */

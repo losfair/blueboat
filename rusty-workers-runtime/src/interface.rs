@@ -16,7 +16,7 @@ pub enum SyncCall {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum AsyncCall {
-    Ping,
+    SetTimeout(u64),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
