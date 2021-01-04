@@ -252,7 +252,9 @@ impl Instance {
                     try_catch.reset(); // Clear exception
                     maybe_error = Some(e);
                 } else if let Some(e) = PROMISE_REJECTION.with(|x| x.replace(None)) {
-                    maybe_error = Some(e);
+                    // Ignore it
+                    debug!("promise rejection: {}", e);
+                    maybe_error = None;
                 } else {
                     maybe_error = None;
                 }
