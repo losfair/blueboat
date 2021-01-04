@@ -1,4 +1,4 @@
-all: runtime cli
+all: runtime cli fetchd
 
 runtime:
 	cd librt && npm run build
@@ -7,4 +7,7 @@ runtime:
 cli:
 	cd rusty-workers-cli && cargo build --release
 
-.PHONY: runtime cli
+fetchd:
+	cd rusty-workers-fetchd && cargo build --release
+
+.PHONY: runtime cli fetchd
