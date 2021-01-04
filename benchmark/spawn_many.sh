@@ -1,11 +1,17 @@
 #!/bin/bash
 
 BINARY="$(dirname $0)/../target/release/rusty-workers-cli"
+SCRIPT="$1"
+
+if [ -z "$SCRIPT" ]; then
+    echo "[-] Missing script"
+    exit 1
+fi
 
 bench_once()
 {
     #echo "bench $1"
-    worker_id=`("$BINARY" runtime spawn "$(dirname $0)/hello_world.js" | jq --raw-output ".Ok.id") || return 1`
+    worker_id=`("$BINARY" runtime spawn "$SCRIPT" | jq --raw-output ".Ok.id") || return 1`
     for j in {1..50}; do
         #echo "bench $1: worker_id $worker_id"
         output=`"$BINARY" runtime fetch "$worker_id" || return 1`
@@ -24,8 +30,9 @@ bench_once()
 while [ "1" = "1" ]; do
     start_time=$SECONDS
     for k in {1..10}; do
-        for i in {1..90}; do
+        for i in {1..150}; do
             bench_once $i &
+            sleep 0.05
         done
         wait
     done
