@@ -26,6 +26,15 @@ class FetchEvent {
     }
 
     async respondWith(res) {
+        try {
+            await this._respondWith(res);
+        } catch(e) {
+            console.log(e);
+            throw e;
+        }
+    }
+
+    async _respondWith(res) {
         if(res instanceof Promise) {
             res = await res;
         }
@@ -205,7 +214,11 @@ export function _dispatchEvent(ev) {
                 headers: headers,
                 body: body,
             });
-            dispatchEvent(new FetchEvent(req))
+            try {
+                dispatchEvent(new FetchEvent(req))
+            } catch(e) {
+                console.log("dispatchEvent exception: " + e);
+            }
             break;
         }
         default: {
