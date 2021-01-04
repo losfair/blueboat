@@ -204,11 +204,12 @@ impl Scheduler {
         };
 
         let apps = self.apps.read().await;
-        let mut app = apps.get(&appid).ok_or(SchedError::NoRouteMapping)?.lock().await;
 
         // Backend retries.
         for _ in 0..3usize {
+            let mut app = apps.get(&appid).ok_or(SchedError::NoRouteMapping)?.lock().await;
             let mut instance = app.get_instance(&self.config, &self.clients).await?;
+            drop(app);
     
             let mut fetch_context = tarpc::context::current();
             fetch_context.deadline = std::time::SystemTime::now() + Duration::from_millis(self.config.request_timeout_ms);
@@ -226,6 +227,7 @@ impl Scheduler {
             };
 
             // Pool it back.
+            let mut app = apps.get(&appid).ok_or(SchedError::NoRouteMapping)?.lock().await;
             app.pool_instance(instance);
 
             // Build response.
