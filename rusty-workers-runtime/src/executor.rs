@@ -58,7 +58,7 @@ pub struct InstanceTimeControl {
 }
 
 enum Task {
-    Fetch(RequestObject, tokio::sync::oneshot::Sender<ResponseObject>),
+    Fetch(RequestObject, tokio::sync::oneshot::Sender<ResponseObject>, IoScopeConsumer),
 }
 
 struct DoubleMleGuard {
@@ -68,7 +68,7 @@ struct DoubleMleGuard {
 impl Task {
     fn make_event(&self) -> ServiceEvent {
         match self {
-            Task::Fetch(ref req, _) => ServiceEvent::Fetch(FetchEvent {
+            Task::Fetch(ref req, _, _) => ServiceEvent::Fetch(FetchEvent {
                 request: req.clone(),
             }),
         }
@@ -85,7 +85,8 @@ impl InstanceHandle {
 
     pub async fn fetch(&self, req: RequestObject) -> GenericResult<ResponseObject> {
         let (result_tx, result_rx) = tokio::sync::oneshot::channel();
-        self.task_tx.try_send(Task::Fetch(req, result_tx)).map_err(|_| GenericError::TryAgain)?;
+        let (_io_scope, io_scope_consumer) = IoScope::new();
+        self.task_tx.try_send(Task::Fetch(req, result_tx, io_scope_consumer)).map_err(|_| GenericError::TryAgain)?;
         result_rx.await.map_err(|_| GenericError::TryAgain)
     }
 }
@@ -213,12 +214,12 @@ impl Instance {
                 }
             };
             let event = task.make_event();
-            state.populate_with_task(task)?;
+            let io_scope = state.populate_with_task(task)?;
             state.start_timer();
 
             // Start I/O processor (per-request)
             let (io_waiter, io_processor) = IoWaiter::new(state.conf.clone());
-            state.rt.spawn(io_processor.run());
+            state.rt.spawn(io_processor.run(io_scope));
             state.io_waiter = Some(io_waiter);
 
             let global = scope.get_current_context().global(scope);
@@ -313,13 +314,13 @@ impl InstanceState {
         Ok(())
     }
 
-    fn populate_with_task(&mut self, task: Task) -> GenericResult<()> {
+    fn populate_with_task(&mut self, task: Task) -> GenericResult<IoScopeConsumer> {
         match task {
-            Task::Fetch(_, res) => {
+            Task::Fetch(_, res, io_scope) => {
                 self.fetch_response_channel = Some(res);
+                Ok(io_scope)
             }
         }
-        Ok(())
     }
 }
 

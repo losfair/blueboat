@@ -21,6 +21,18 @@ pub struct IoProcessor {
     result: std::sync::mpsc::Sender<(usize, String)>,
 }
 
+/// An `IoScope` is a handle that a task sender holds to signal that I/O operations should
+/// continue. When an `IoScope` is dropped, all ongoing I/O operations that depend on it
+/// will be canceled.
+pub struct IoScope {
+    kill: oneshot::Sender<()>,
+}
+
+/// The Rx side of an `IoScope`.
+pub struct IoScopeConsumer {
+    kill: oneshot::Receiver<()>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 enum IoTask {
     Ping,
@@ -29,6 +41,13 @@ enum IoTask {
 struct IoResponseHandle {
     result: std::sync::mpsc::Sender<(usize, String)>,
     index: usize,
+}
+
+impl IoScope {
+    pub fn new() -> (Self, IoScopeConsumer) {
+        let (tx, rx) = oneshot::channel();
+        (Self { kill: tx }, IoScopeConsumer { kill: rx })
+    }
 }
 
 impl IoWaiter {
@@ -88,15 +107,22 @@ impl IoProcessor {
         }))
     }
 
-    pub async fn run(mut self) {
+    pub async fn run(mut self, mut scope: IoScopeConsumer) {
         use tokio::sync::watch;
         let (_kill_tx, kill_rx) = watch::channel(());
 
         loop {
-            let (task, res) = match self.next().await {
+            let next = tokio::select! {
+                _ = &mut scope.kill => {
+                    debug!("IoScope killed");
+                    break;
+                }
+                x = self.next() => x
+            };
+            let (task, res) = match next {
                 Some(x) => x,
                 None => {
-                    debug!("leaving IoProcessor::run");
+                    debug!("executor dropped IoWaiter");
                     break;
                 }
             };
@@ -104,7 +130,7 @@ impl IoProcessor {
             tokio::spawn(async move {
                 tokio::select! {
                     _ = kill_rx.changed() => {
-                        // killed
+                        debug!("in-flight I/O operation killed");
                     }
                     ret = handle_task(task) => {
                         match ret {
