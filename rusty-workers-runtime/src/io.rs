@@ -7,6 +7,8 @@ use anyhow::Result;
 use crate::interface::AsyncCall;
 use std::time::Duration;
 use serde_json::json;
+use crate::runtime::Runtime;
+use std::sync::Arc;
 
 pub struct IoWaiter {
     remaining_budget: u32,
@@ -17,6 +19,7 @@ pub struct IoWaiter {
 }
 
 pub struct IoProcessor {
+    worker_runtime: Arc<Runtime>,
     task: tokio::sync::mpsc::UnboundedReceiver<(usize, AsyncCall)>,
     result: std::sync::mpsc::Sender<(usize, String)>,
 }
@@ -51,7 +54,7 @@ impl IoScope {
 }
 
 impl IoWaiter {
-    pub fn new(conf: ExecutorConfiguration) -> (Self, IoProcessor) {
+    pub fn new(conf: ExecutorConfiguration, worker_runtime: Arc<Runtime>) -> (Self, IoProcessor) {
         let init_budget = conf.max_io_per_request;
         let (result_tx, result_rx) = std::sync::mpsc::channel();
         let (task_tx, task_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -65,6 +68,7 @@ impl IoWaiter {
         let processor = IoProcessor {
             task: task_rx,
             result: result_tx,
+            worker_runtime,
         };
         (waiter, processor)
     }
@@ -127,17 +131,18 @@ impl IoProcessor {
                 }
             };
             let mut kill_rx = kill_rx.clone();
+            let worker_runtime = self.worker_runtime.clone();
             tokio::spawn(async move {
                 tokio::select! {
                     _ = kill_rx.changed() => {
                         debug!("in-flight I/O operation killed");
                     }
-                    ret = handle_task(task) => {
+                    ret = handle_task(task, worker_runtime) => {
                         match ret {
                             Ok(x) => res.respond(format!("{{\"Ok\":{}}}", x)),
                             Err(e) => {
                                 debug!("io error: {:?}", e);
-                                res.respond(format!("{{\"Err\":{}}}", "io error"));
+                                res.respond(format!("{{\"Err\":{}}}", "\"io error\""));
                             }
                         }
                     }
@@ -153,12 +158,16 @@ impl IoResponseHandle {
     }
 }
 
-async fn handle_task(task: AsyncCall) -> Result<String> {
+async fn handle_task(task: AsyncCall, worker_runtime: Arc<Runtime>) -> Result<String> {
     match task {
         AsyncCall::SetTimeout(n) => {
             let dur = Duration::from_millis(n);
             tokio::time::sleep(dur).await;
             Ok("null".into())
+        }
+        AsyncCall::Fetch(req) => {
+            let res = worker_runtime.outgoing_fetch(req).await?;
+            Ok(serde_json::to_string(&res)?)
         }
     }
 }

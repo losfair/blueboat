@@ -26,6 +26,10 @@ struct Opt {
     /// RPC listen address.
     #[structopt(short = "l", long)]
     rpc_listen: SocketAddr,
+
+    /// Address of fetch service.
+    #[structopt(long)]
+    fetch_service: Option<SocketAddr>,
 }
 
 #[tokio::main]
@@ -36,9 +40,14 @@ async fn main() -> Result<()> {
     info!("rusty-workers-runtime starting");
 
     runtime::init();
-    info!("runtime initialized");
 
     let rt = runtime::Runtime::new();
+
+    if let Some(addr) = opt.fetch_service {
+        let mut client = rusty_workers::rpc::FetchServiceClient::connect(addr).await?;
+        rt.set_fetch_client(client).await;
+        info!("connected to fetch service");
+    }
 
     server::RuntimeServer::listen(&opt.rpc_listen, move || server::RuntimeServer {
         runtime: rt.clone(),

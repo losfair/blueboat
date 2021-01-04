@@ -12,6 +12,7 @@ use crate::engine::*;
 use crate::interface::*;
 use crate::io::*;
 use std::cell::Cell;
+use crate::runtime::Runtime;
 
 const SAFE_AREA_SIZE: usize = 1048576;
 static LIBRT: &'static str = include_str!("../../librt/dist/main.js");
@@ -34,6 +35,7 @@ pub enum TimerControl {
 
 struct InstanceState {
     rt: tokio::runtime::Handle,
+    worker_runtime: Arc<Runtime>,
     task_rx: mpsc::Receiver<Task>,
     script: String,
     timer_tx: tokio::sync::mpsc::UnboundedSender<TimerControl>,
@@ -98,7 +100,7 @@ impl Drop for InstanceHandle {
 }
 
 impl Instance {
-    pub fn new(rt: tokio::runtime::Handle, worker_handle: WorkerHandle, script: String, conf: &ExecutorConfiguration) -> GenericResult<(Self, InstanceHandle, InstanceTimeControl)> {
+    pub fn new(rt: tokio::runtime::Handle, worker_runtime: Arc<Runtime>, worker_handle: WorkerHandle, script: String, conf: &ExecutorConfiguration) -> GenericResult<(Self, InstanceHandle, InstanceTimeControl)> {
         let params = v8::Isolate::create_params()
             .heap_limits(0, conf.max_memory_mb as usize * 1048576);
         let mut isolate = Box::new(v8::Isolate::new(params));
@@ -136,6 +138,7 @@ impl Instance {
             isolate,
             state: Some(InstanceState {
                 rt,
+                worker_runtime,
                 task_rx,
                 script,
                 timer_tx,
@@ -218,7 +221,7 @@ impl Instance {
             state.start_timer();
 
             // Start I/O processor (per-request)
-            let (io_waiter, io_processor) = IoWaiter::new(state.conf.clone());
+            let (io_waiter, io_processor) = IoWaiter::new(state.conf.clone(), state.worker_runtime.clone());
             state.rt.spawn(io_processor.run(io_scope));
             state.io_waiter = Some(io_waiter);
 
