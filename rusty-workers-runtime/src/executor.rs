@@ -158,7 +158,6 @@ impl Instance {
         let mut state = self.state.take().unwrap();
 
         // Init resources
-        state.start_timer();
         let mut isolate_scope = v8::HandleScope::new(&mut *self.isolate);
         let context = v8::Context::new(&mut isolate_scope);
         let mut context_scope = v8::ContextScope::new(&mut isolate_scope, context);
@@ -171,9 +170,13 @@ impl Instance {
             let mut try_catch = &mut v8::TryCatch::new(scope);
             let scope: &mut v8::HandleScope<'_> = try_catch.as_mut();
             state.init_global_env(scope)?;
-    
+
+            // TODO: Compiler bombs?
             let librt = Self::compile(scope, LIBRT)?;
             let script = Self::compile(scope, &state.script)?;
+
+            // Now start the timer, since we are starting to run user code.
+            state.start_timer();
     
             scope.set_slot(state);
             try_catch.check()?;

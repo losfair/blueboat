@@ -74,7 +74,7 @@ async fn main() -> Result<()> {
                         WorkerConfiguration {
                             executor: ExecutorConfiguration {
                                 max_memory_mb: 32,
-                                max_time_ms: 500,
+                                max_time_ms: 50,
                                 max_io_concurrency: 10,
                                 max_io_per_request: 50,
                             }
