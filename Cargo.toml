@@ -6,3 +6,6 @@ members = [
     "rusty-workers",
     "rusty-workers-cli",
 ]
+
+[profile.release]
+debug = true
