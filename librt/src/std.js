@@ -45,13 +45,13 @@ class FetchEvent {
             headers[k].push(v);
         }
 
-        let body = await res.text();
+        let body = await res.arrayBuffer();
         _callService({
             Sync: {
                 SendFetchResponse: {
                     status: res.status,
                     body: {
-                        Text: body,
+                        Binary: Array.from(new Uint8Array(body)),
                     },
                     headers: headers,
                 }
@@ -184,7 +184,27 @@ export function _dispatchEvent(ev) {
     switch(ty) {
         case "Fetch": {
             let rawReq = ev[ty].request;
-            let req = new workerFetch.Request(rawReq.url);
+
+            let headers = new Headers(
+                Object.keys(rawReq.headers)
+                    .map(k => rawReq.headers[k].map(v => [k, v]))
+                    .flat()
+            );
+            
+            let body = null;
+            if(rawReq.body) {
+                if(rawReq.body.Text) {
+                    body = rawReq.body.Text;
+                } else {
+                    body = new Uint8Array(rawReq.body.Binary).buffer;
+                }
+            }
+
+            let req = new workerFetch.Request(rawReq.url, {
+                method: rawReq.method,
+                headers: headers,
+                body: body,
+            });
             dispatchEvent(new FetchEvent(req))
             break;
         }
@@ -197,4 +217,5 @@ export function _dispatchEvent(ev) {
 export const console = new Console();
 export const Request = workerFetch.Request;
 export const Response = workerFetch.Response;
+export const Headers = workerFetch.Headers;
 export const fetch = workerFetch.fetch;
