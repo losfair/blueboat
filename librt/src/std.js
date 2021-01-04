@@ -33,6 +33,18 @@ class FetchEvent {
             throw new TypeError("respondWith: expecting a Response");
         }
 
+        /**
+         * @type {Object.<string, string[]>}
+         */
+        let headers = {};
+
+        for(let pair of res.headers.entries()) {
+            let k = pair[0];
+            let v = pair[1];
+            if(!headers[k]) headers[k] = [];
+            headers[k].push(v);
+        }
+
         let body = await res.text();
         _callService({
             Sync: {
@@ -41,6 +53,7 @@ class FetchEvent {
                     body: {
                         Text: body,
                     },
+                    headers: headers,
                 }
             }
         });
@@ -184,3 +197,4 @@ export function _dispatchEvent(ev) {
 export const console = new Console();
 export const Request = workerFetch.Request;
 export const Response = workerFetch.Response;
+export const fetch = workerFetch.fetch;
