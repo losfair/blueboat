@@ -1,4 +1,4 @@
-all: runtime cli fetchd
+all: runtime cli fetchd proxy
 
 runtime:
 	cd librt && npm run build
@@ -9,5 +9,8 @@ cli:
 
 fetchd:
 	cd rusty-workers-fetchd && cargo build --release
+
+proxy:
+	cd rusty-workers-proxy && cargo build --release
 
 .PHONY: runtime cli fetchd

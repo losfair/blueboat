@@ -1,0 +1,16 @@
+runtime_cluster = [
+    "127.0.0.1:1208",
+]
+
+[[apps]]
+id = "afb38b70-d0bb-4102-8248-765e6c1d7dde"
+routes = [
+    { domain = "localhost:6080", path_prefix = "/" },
+]
+script = "http://127.0.0.1/dev/test.js"
+
+[apps.worker.executor]
+max_memory_mb = 16
+max_time_ms = 100
+max_io_concurrency = 10
+max_io_per_request = 50

@@ -1115,6 +1115,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "rusty-workers-proxy"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "hyper",
+ "log",
+ "once_cell",
+ "pretty_env_logger",
+ "rand 0.8.0",
+ "reqwest",
+ "rusty-workers",
+ "serde",
+ "serde_json",
+ "structopt",
+ "thiserror",
+ "tokio",
+ "toml",
+]
+
+[[package]]
 name = "rusty-workers-runtime"
 version = "0.0.0"
 dependencies = [
@@ -1515,6 +1536,15 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tokio-stream",
+]
+
+[[package]]
+name = "toml"
+version = "0.4.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "758664fc71a3a69038656bee8b6be6477d2a6c315a6b81f7081f591bffa4111f"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

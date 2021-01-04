@@ -5,6 +5,7 @@ members = [
     "rusty-workers-fetchd",
     "rusty-workers",
     "rusty-workers-cli",
+    "rusty-workers-proxy",
 ]
 
 [profile.release]
