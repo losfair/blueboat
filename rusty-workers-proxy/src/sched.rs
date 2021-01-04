@@ -148,13 +148,16 @@ impl Scheduler {
         Ok(scheduler)
     }
 
-    pub async fn handle_request(&self, req: hyper::Request<hyper::Body>) -> Result<hyper::Response<hyper::Body>> {
+    pub async fn handle_request(&self, mut req: hyper::Request<hyper::Body>) -> Result<hyper::Response<hyper::Body>> {
         let route_mappings = self.route_mappings.read().await;
 
-        let uri = req.uri();
-        let host = req.headers().get("host").and_then(|x| x.to_str().ok()).unwrap_or("");
+        // Rewrite host to remove port.
+        let host = req.headers().get("host").and_then(|x| x.to_str().ok()).unwrap_or("").split(":").nth(0).unwrap().to_string();
         debug!("host: {}", host);
-        let submappings = route_mappings.get(host).ok_or(SchedError::NoRouteMapping)?;
+        req.headers_mut().insert("host", hyper::header::HeaderValue::from_bytes(host.as_bytes())?);
+
+        let uri = req.uri();
+        let submappings = route_mappings.get(&host).ok_or(SchedError::NoRouteMapping)?;
 
         // Match in reverse order.
         let mut appid = None;
@@ -171,7 +174,7 @@ impl Scheduler {
 
         let method = req.method().as_str().to_string();
         let mut headers = BTreeMap::new();
-        let url = format!("{}", uri);
+        let url = format!("https://{}{}", host.split(":").nth(0).unwrap(), uri); // TODO: detect https
         let mut full_body = vec![];
 
         for (k, v) in req.headers() {
