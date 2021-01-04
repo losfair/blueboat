@@ -1,3 +1,5 @@
 # rusty-workers
 
-[WIP] A Rust reimplementation of the Cloudflare Workers platform.
+WIP.
+
+Serverless workers platform implemented in Rust.
