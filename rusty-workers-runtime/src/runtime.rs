@@ -20,7 +20,7 @@ pub fn init() {
 impl Runtime {
     pub fn new() -> Arc<Self> {
         Arc::new(Runtime {
-            instances: AsyncMutex::new(LruCache::with_expiry_duration_and_capacity(Duration::from_secs(600), 100)), // arbitrary choices
+            instances: AsyncMutex::new(LruCache::with_expiry_duration_and_capacity(Duration::from_secs(600), 500)), // arbitrary choices
         })
     }
 

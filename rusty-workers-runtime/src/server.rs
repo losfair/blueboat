@@ -27,4 +27,4 @@ impl rusty_workers::rpc::RuntimeService for RuntimeServer {
     }
 }
 
-rusty_workers::impl_listen!(RuntimeServer, rusty_workers::rpc::RuntimeService);
+rusty_workers::impl_listen!(RuntimeServer, rusty_workers::rpc::RuntimeService, 200);

@@ -17,7 +17,7 @@ macro_rules! impl_connect {
 
 #[macro_export]
 macro_rules! impl_listen {
-    ($ty:ident, $interface:path) => {
+    ($ty:ident, $interface:path, $concurrency:expr) => {
         impl $ty {
             pub async fn listen<A: $crate::tokio::net::ToSocketAddrs, F: FnMut() -> $ty>(addr: A, mut init: F) -> $crate::types::GenericResult<()> {
                 use $interface;
@@ -32,7 +32,7 @@ macro_rules! impl_listen {
                         let server = init();
                         channel.respond_with(server.serve()).execute()
                     })
-                    .buffer_unordered(100) // Max 100 channels.
+                    .buffer_unordered($concurrency)
                     .for_each(|_| async {})
                     .await;
                 Ok(())
