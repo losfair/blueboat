@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
             match scheduler.handle_request(req).await {
                 Ok(x) => Ok::<_, hyper::Error>(x),
                 Err(e) => {
-                    debug!("handle_request failed: {:?}", e);
+                    warn!("handle_request failed: {:?}", e);
                     let mut res = Response::new(Body::from("internal server error"));
                     *res.status_mut() = hyper::StatusCode::INTERNAL_SERVER_ERROR;
                     Ok::<_, hyper::Error>(res)
