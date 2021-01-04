@@ -118,6 +118,8 @@ impl AppState {
         let index = rand::thread_rng().gen_range(0..clients.len());
         let (addr, mut rt) = clients.iter().nth(index).map(|(k, v)| (*k, v.clone())).unwrap();
 
+        info!("spawning new worker for app {}", self.id.0);
+
         // TODO: Re-select and retry on failure
         let handle = rt.client.spawn_worker(
             tarpc::context::current(),
@@ -159,6 +161,7 @@ impl Scheduler {
         for (k, v) in submappings.iter().rev() {
             if uri.path().starts_with(k) {
                 appid = Some(v.clone());
+                break;
             }
         }
         drop(route_mappings);
