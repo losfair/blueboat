@@ -231,6 +231,7 @@ impl Instance {
 
             // Drive to completion.
             loop {
+                check_termination(try_catch)?;
                 let maybe_error;
     
                 if let Some(e) = try_catch.exception_description() {
