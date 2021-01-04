@@ -81,22 +81,22 @@ async fn main() -> Result<()> {
                         }
                     };
                     let script = read_file(&script).await?;
-                    let result = client.spawn_worker(tarpc::context::current(), appid, config, script).await?;
+                    let result = client.spawn_worker(make_context(), appid, config, script).await?;
                     println!("{}", serde_json::to_string(&result).unwrap());
                 }
                 RuntimeCmd::Terminate { handle } => {
                     let worker_handle = WorkerHandle { id: handle };
-                    let result = client.terminate_worker(tarpc::context::current(), worker_handle).await?;
+                    let result = client.terminate_worker(make_context(), worker_handle).await?;
                     println!("{}", serde_json::to_string(&result).unwrap());
                 }
                 RuntimeCmd::List => {
-                    let result = client.list_workers(tarpc::context::current()).await?;
+                    let result = client.list_workers(make_context()).await?;
                     println!("{}", serde_json::to_string(&result).unwrap());
                 }
                 RuntimeCmd::Fetch { handle } => {
                     let worker_handle = WorkerHandle { id: handle };
                     let req = RequestObject::default();
-                    let result = client.fetch(tarpc::context::current(), worker_handle, req).await?;
+                    let result = client.fetch(make_context(), worker_handle, req).await?;
                     println!("{}", serde_json::to_string(&result).unwrap());
                 }
             }
@@ -110,4 +110,10 @@ async fn read_file(path: &str) -> Result<String> {
     let mut buf = String::new();
     f.read_to_string(&mut buf).await?;
     Ok(buf)
+}
+
+fn make_context() -> tarpc::context::Context {
+    let mut current = tarpc::context::current();
+    current.deadline = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+    current
 }
