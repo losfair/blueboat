@@ -14,3 +14,16 @@ max_memory_mb = 16
 max_time_ms = 100
 max_io_concurrency = 10
 max_io_per_request = 50
+
+[[apps]]
+id = "d0d8a04a-b12c-49a1-b29c-37e1bd97fe50"
+routes = [
+    { domain = "localhost:6080", path_prefix = "/delay" },
+]
+script = "http://127.0.0.1/dev/delay.js"
+
+[apps.worker.executor]
+max_memory_mb = 16
+max_time_ms = 100
+max_io_concurrency = 10
+max_io_per_request = 50
