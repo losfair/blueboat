@@ -1,6 +1,6 @@
 use rusty_v8 as v8;
 use rusty_workers::types::*;
-use std::sync::mpsc;
+use tokio::sync::mpsc;
 use std::ffi::c_void;
 use std::time::Duration;
 use std::collections::BTreeMap;
@@ -50,13 +50,13 @@ struct InstanceState {
 
 pub struct InstanceHandle {
     isolate_handle: v8::IsolateHandle,
-    task_tx: mpsc::SyncSender<Task>,
+    task_tx: mpsc::Sender<Task>,
     termination_reason: TerminationReasonBox,
 }
 
 pub struct InstanceTimeControl {
     pub budget: Duration,
-    pub timer_rx: tokio::sync::mpsc::UnboundedReceiver<TimerControl>,
+    pub timer_rx: mpsc::UnboundedReceiver<TimerControl>,
 }
 
 enum Task {
@@ -88,8 +88,14 @@ impl InstanceHandle {
     pub async fn fetch(&self, req: RequestObject) -> GenericResult<ResponseObject> {
         let (result_tx, result_rx) = tokio::sync::oneshot::channel();
         let (_io_scope, io_scope_consumer) = IoScope::new();
-        self.task_tx.try_send(Task::Fetch(req, result_tx, io_scope_consumer)).map_err(|_| GenericError::TryAgain)?;
-        result_rx.await.map_err(|_| GenericError::TryAgain)
+
+        // Send fails if the instance has terminated
+        self.task_tx.send(Task::Fetch(req, result_tx, io_scope_consumer)).await
+            .map_err(|_| GenericError::NoSuchWorker)?;
+
+        // This errors if the instance terminates without sending a response
+        result_rx.await
+            .map_err(|_| GenericError::RuntimeThrowsException)
     }
 }
 
@@ -122,8 +128,12 @@ impl Instance {
             isolate_ptr as _,
         );
 
-        let (task_tx, task_rx) = mpsc::sync_channel(128); // TODO: backlog size
-        let (timer_tx, timer_rx) = tokio::sync::mpsc::unbounded_channel();
+        // Allocate a channel of size 1. We don't want to put back pressure here.
+        // The (async) sending side would block.
+        let (task_tx, task_rx) = mpsc::channel(1);
+
+        // TODO: unbounded ok here?
+        let (timer_tx, timer_rx) = mpsc::unbounded_channel();
 
         let time_control = InstanceTimeControl {
             timer_rx,
@@ -209,9 +219,9 @@ impl Instance {
             state.io_waiter = None; // drop it
             state.done = false;
 
-            let task = match state.task_rx.recv() {
-                Ok(x) => x,
-                Err(_) => {
+            let task = match state.task_rx.blocking_recv() {
+                Some(x) => x,
+                None => {
                     // channel closed
                     break;
                 }
