@@ -22,35 +22,26 @@ pub struct WorkerHandle {
 
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]
 pub struct RequestObject {
-    pub cache: String,
-    pub context: String,
-    pub credentials: String,
-    pub destination: String,
     pub headers: BTreeMap<String, Vec<String>>,
     pub method: String,
-    pub mode: String,
-    pub redirect: String,
-    pub referrer: String,
-
-    #[serde(rename = "referrerPolicy")]
-    pub referrer_policy: String,
-
     pub url: String,
+    pub body: Option<HttpBody>,
 }
 
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]
 pub struct ResponseObject {
+    pub headers: BTreeMap<String, Vec<String>>,
     pub status: u16,
-    pub body: ResponseBody,
+    pub body: HttpBody,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum ResponseBody {
+pub enum HttpBody {
     Binary(Vec<u8>),
     Text(String),
 }
 
-impl Default for ResponseBody {
+impl Default for HttpBody {
     fn default() -> Self {
         Self::Text("".into())
     }

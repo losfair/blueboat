@@ -3,6 +3,7 @@ use rusty_workers::tarpc;
 use std::sync::Arc;
 use anyhow::Result;
 use thiserror::Error;
+use std::collections::BTreeMap;
 
 const MAX_RESPONSE_BODY_SIZE: usize = 1048576 * 8; // 8M
 
@@ -58,7 +59,7 @@ impl FetchState {
 }
 
 async fn run_fetch(state: &FetchState, req: RequestObject) -> Result<ResponseObject> {
-    use reqwest::{Method, Url, Request, header::{HeaderName, HeaderValue}};
+    use reqwest::{Body, Method, Url, Request, header::{HeaderName, HeaderValue}};
 
     let url = Url::parse(&req.url)?;
     let method = Method::from_bytes(&req.method.as_bytes())?;
@@ -69,6 +70,14 @@ async fn run_fetch(state: &FetchState, req: RequestObject) -> Result<ResponseObj
         for item in v {
             headers.append(HeaderName::from_bytes(k.as_bytes())?, HeaderValue::from_str(&item)?);
         }
+    }
+
+    if let Some(body) = req.body {
+        let body = match body {
+            HttpBody::Text(s) => Body::from(s),
+            HttpBody::Binary(bytes) => Body::from(bytes),
+        };
+        *target_req.body_mut() = Some(body);
     }
 
     let mut res = state.client.execute(target_req).await?;
@@ -82,12 +91,17 @@ async fn run_fetch(state: &FetchState, req: RequestObject) -> Result<ResponseObj
         }
     }
     let body = match String::from_utf8(body) {
-        Ok(x) => ResponseBody::Text(x),
-        Err(e) => ResponseBody::Binary(e.into_bytes()),
+        Ok(x) => HttpBody::Text(x),
+        Err(e) => HttpBody::Binary(e.into_bytes()),
     };
-    let mut target_res = ResponseObject {
+    let mut headers = BTreeMap::new();
+    for (k, v) in res.headers() {
+        headers.entry(k.as_str().to_string()).or_insert(vec![]).push(v.to_str()?.to_string());
+    }
+    let target_res = ResponseObject {
         status: res.status().as_u16(),
         body,
+        headers,
     };
     Ok(target_res)
 }
