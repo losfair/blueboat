@@ -154,7 +154,7 @@ impl Instance {
         Ok(script)
     }
 
-    pub fn run(mut self) -> GenericResult<()> {
+    pub fn run(mut self, ready_callback: impl FnOnce()) -> GenericResult<()> {
         let mut state = self.state.take().unwrap();
 
         // Init resources
@@ -174,6 +174,9 @@ impl Instance {
             // TODO: Compiler bombs?
             let librt = Self::compile(scope, LIBRT)?;
             let script = Self::compile(scope, &state.script)?;
+
+            // Notify that we are ready so that timing etc. can start
+            ready_callback();
 
             // Now start the timer, since we are starting to run user code.
             state.start_timer();

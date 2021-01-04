@@ -33,8 +33,9 @@ impl Runtime {
     ) {
         match Instance::new(rt, worker_handle.clone(), code, &configuration.executor) {
             Ok((instance, handle, timectl)) => {
-                drop(result_tx.send(Ok((handle, timectl))));
-                let run_result = instance.run();
+                let run_result = instance.run(move || {
+                    drop(result_tx.send(Ok((handle, timectl))))
+                });
                 match run_result {
                     Ok(()) => {
                         info!("worker instance {} exited", worker_handle.id);
@@ -123,15 +124,19 @@ impl Runtime {
         std::thread::spawn(move || {
             Self::instance_thread(rt, worker_handle_2, code, &configuration, result_tx)
         });
-        let result = result_rx.await.unwrap(); // unwrap() works here since `instance_thread` will always send a result
+        let result = result_rx.await;
         match result {
-            Ok((handle, timectl)) => {
+            Ok(Ok((handle, timectl))) => {
                 self.instances.lock().await.insert(worker_handle.clone(), Arc::new(handle));
                 tokio::spawn(self.clone().monitor_task(worker_handle.clone(), timectl));
                 Ok(worker_handle)
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 Err(e)
+            }
+            Err(_) => {
+                // result_tx dropped: initialization failed.
+                Err(GenericError::ScriptCompileException)
             }
         }
     }
