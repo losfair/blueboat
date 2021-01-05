@@ -2,23 +2,23 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   namespace: rusty-workers
-  name: runtime-2
+  name: runtime-X
   labels:
-    app: runtime-2
+    app: runtime-X
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: runtime-2
+      app: runtime-X
   template:
     metadata:
       namespace: rusty-workers
-      name: runtime-2
+      name: runtime-X
       labels:
-        app: runtime-2
+        app: runtime-X
     spec:
       containers:
-      - name: runtime-2
+      - name: runtime-X
         image: __IMAGE_PREFIX__rusty-workers-runtime__IMAGE_SUFFIX__
         resources:
           requests:

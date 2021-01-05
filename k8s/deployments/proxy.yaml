@@ -43,6 +43,6 @@ spec:
         - name: RW_MAX_TIME_MS
           value: "100"
         - name: RUNTIMES
-          value: __NET_PREFIX__.2.1:3000,__NET_PREFIX__.2.2:3000
+          value: __RUNTIME_ADDRESSES__
         ports:
         - containerPort: 8080

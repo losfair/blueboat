@@ -1,4 +1,36 @@
-#!/bin/sh
+#!/bin/bash
+
+generate_runtime_deployments()
+{
+    for (( i=1; i<=$NUM_RUNTIMES; ++i)); do
+        cp "./k8s.$SUFFIX/deployments/runtime-X.yaml" "./k8s.$SUFFIX/deployments/runtime-$i.yaml" || exit 1
+        sed -i "s/runtime-X/runtime-$i/g" "./k8s.$SUFFIX/deployments/runtime-$i.yaml" || exit 1
+    done
+    rm "./k8s.$SUFFIX/deployments/runtime-X.yaml" || exit 1
+}
+
+generate_runtime_services()
+{
+    for (( i=1; i<=$NUM_RUNTIMES; ++i)); do
+        cp "./k8s.$SUFFIX/services/runtime-X.yaml" "./k8s.$SUFFIX/services/runtime-$i.yaml" || exit 1
+        sed -i "s/runtime-X/runtime-$i/g" "./k8s.$SUFFIX/services/runtime-$i.yaml" || exit 1
+        sed -i "s/__RUNTIME_IP__/$NET_PREFIX.2.$i/g" "./k8s.$SUFFIX/services/runtime-$i.yaml" || exit 1
+    done
+    rm "./k8s.$SUFFIX/services/runtime-X.yaml" || exit 1
+}
+
+rewrite_proxy()
+{
+    local ADDRLIST=""
+    for (( i=1; i<=$NUM_RUNTIMES; ++i)); do
+        if [ "$i" != "1" ]; then
+            ADDRLIST="$ADDRLIST,"
+        fi
+        ADDRLIST="$ADDRLIST$NET_PREFIX.2.$i:3000"
+    done
+
+    sed -i "s/__RUNTIME_ADDRESSES__/$ADDRLIST/g" "./k8s.$SUFFIX/deployments/proxy.yaml" || exit 1
+}
 
 CONFIG="$1"
 SUFFIX="$2"
@@ -35,6 +67,11 @@ if [ -z "$IMAGE_PREFIX" ]; then
     exit 1
 fi
 
+if [ -z "$NUM_RUNTIMES" ]; then
+    echo "[-] NUM_RUNTIMES not defined"
+    exit 1
+fi
+
 # Allow empty suffix
 #if [ -z "$IMAGE_SUFFIX" ]; then
 #    echo "[-] IMAGE_SUFFIX not defined"
@@ -50,3 +87,6 @@ find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__EXTERNAL_IP__#$EXTERNAL_IP
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__IMAGE_PREFIX__#$IMAGE_PREFIX#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__IMAGE_SUFFIX__#$IMAGE_SUFFIX#g" '{}' ';'
 
+generate_runtime_deployments 
+generate_runtime_services
+rewrite_proxy

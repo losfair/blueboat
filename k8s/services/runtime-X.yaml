@@ -2,10 +2,10 @@ apiVersion: v1
 kind: Service
 metadata:
   namespace: rusty-workers
-  name: runtime-2-service
+  name: runtime-X-service
 spec:
   selector:
-    app: runtime-2
-  clusterIP: __NET_PREFIX__.2.2
+    app: runtime-X
+  clusterIP: __RUNTIME_IP__
   ports:
   - port: 3000
