@@ -13,8 +13,11 @@ fetchd:
 proxy:
 	cd rusty-workers-proxy && cargo build --release
 
+librt-deps:
+	cd librt && npm install
+
 # Split docker build from the `all` target for now since I build them on two different VMs
 docker:
 	./build_docker.sh
 
-.PHONY: runtime cli fetchd
+.PHONY: runtime cli fetchd proxy librt-deps docker

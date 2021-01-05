@@ -17,6 +17,8 @@ jobs:
           profile: minimal
           toolchain: nightly
           override: true
+      - name: Install librt dependencies
+        run: make librt-deps
       - name: Build Services
         run: make all
       - name: Build Docker Images
