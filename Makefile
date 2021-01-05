@@ -13,4 +13,8 @@ fetchd:
 proxy:
 	cd rusty-workers-proxy && cargo build --release
 
+# Split docker build from the `all` target for now since I build them on two different VMs
+docker:
+	./build_docker.sh
+
 .PHONY: runtime cli fetchd
