@@ -13,6 +13,7 @@ use rusty_workers::types::*;
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 use once_cell::sync::OnceCell;
+use std::collections::BTreeSet;
 
 use hyper::{Body, Response, Server};
 use hyper::service::{make_service_fn, service_fn};
@@ -36,6 +37,10 @@ struct Opt {
 
     #[structopt(long, env = "RW_FETCH_SERVICE")]
     fetch_service: SocketAddr,
+
+    /// Runtime service backends, comma-separated.
+    #[structopt(long, env = "RUNTIMES")]
+    runtimes: String,
 
     /// Max memory per worker, in MB
     #[structopt(long, env = "RW_MAX_MEMORY_MB", default_value = "16")]
@@ -71,10 +76,15 @@ async fn main() -> Result<()> {
         fetch_service: opt.fetch_service,
     })).unwrap_or_else(|_| panic!("cannot set scheduler"));
 
+    let mut additional_runtimes: BTreeSet<SocketAddr> = BTreeSet::new();
+    for elem in opt.runtimes.split(",") {
+        additional_runtimes.insert(elem.parse()?);
+    }
+
     let config_url = opt.config;
     tokio::spawn(async move {
         loop {
-            if let Err(e) = SCHEDULER.get().unwrap().check_config_update(&config_url).await {
+            if let Err(e) = SCHEDULER.get().unwrap().check_config_update(&config_url, &additional_runtimes).await {
                 warn!("check_config_update: {:?}", e);
             }
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;

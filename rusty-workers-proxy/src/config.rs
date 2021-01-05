@@ -5,7 +5,9 @@ use rusty_workers::types::*;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct Config {
+    #[serde(default)]
     pub runtime_cluster: BTreeSet<SocketAddr>,
+
     pub apps: Vec<AppConfig>,
 
     #[serde(default = "default_instance_expiration_time_ms")]

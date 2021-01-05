@@ -277,14 +277,17 @@ impl Scheduler {
         Err(SchedError::RequestFailedAfterRetries.into())
     }
 
-    pub async fn check_config_update(&self, url: &str) -> Result<()> {
+    pub async fn check_config_update(&self, url: &str, runtime_cluster_append: &BTreeSet<SocketAddr>) -> Result<()> {
         let res = reqwest::get(url)
             .await?;
         if !res.status().is_success() {
             return Err(ConfigurationError::FetchConfig.into());
         }
         let body = res.text().await?;
-        let config: Config = toml::from_str(&body)?;
+        let mut config: Config = toml::from_str(&body)?;
+        for addr in runtime_cluster_append.iter() {
+            config.runtime_cluster.insert(*addr);
+        }
         if config != **self.config.load() {
             self.config.store(Arc::new(config));
             self.populate_config().await;
