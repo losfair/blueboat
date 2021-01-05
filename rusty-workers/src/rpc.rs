@@ -6,8 +6,12 @@ macro_rules! impl_connect {
     ($ty:ident) => {
         impl $ty {
             pub async fn connect<A: tokio::net::ToSocketAddrs + Clone + Send + Sync + Unpin + 'static>(addr: A) -> GenericResult<Self> {
-                use stubborn_io::{StubbornTcpStream};
-                let tcp_stream = StubbornTcpStream::connect(addr).await?;
+                use stubborn_io::{StubbornTcpStream, ReconnectOptions};
+                use std::time::Duration;
+                let opts = ReconnectOptions::new()
+                    .with_exit_if_first_connect_fails(false)
+                    .with_retries_generator(|| std::iter::repeat(Duration::from_secs(5)));
+                let tcp_stream = StubbornTcpStream::connect_with_options(addr, opts).await?;
                 let transport = tarpc::serde_transport::Transport::from((tcp_stream, crate::SerdeFormat::default()));
                 let client = $ty::new(tarpc::client::Config::default(), transport).spawn()?;
                 Ok(client)
