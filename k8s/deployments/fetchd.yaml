@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: fetchd
-        image: host.minikube.internal:5000/losfair/rusty-workers-fetchd
+        image: __IMAGE_PREFIX__rusty-workers-fetchd__IMAGE_SUFFIX__
         resources:
           requests:
             cpu: 0.15

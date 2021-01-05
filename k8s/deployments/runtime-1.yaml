@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: runtime-1
-        image: host.minikube.internal:5000/losfair/rusty-workers-runtime
+        image: __IMAGE_PREFIX__rusty-workers-runtime__IMAGE_SUFFIX__
         resources:
           requests:
             cpu: 1

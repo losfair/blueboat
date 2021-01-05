@@ -6,6 +6,6 @@ metadata:
 spec:
   selector:
     app: runtime-2
-  clusterIP: 10.96.2.2
+  clusterIP: __NET_PREFIX__.2.2
   ports:
   - port: 3000

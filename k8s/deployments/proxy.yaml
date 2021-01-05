@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: proxy
-        image: host.minikube.internal:5000/losfair/rusty-workers-proxy
+        image: __IMAGE_PREFIX__rusty-workers-proxy__IMAGE_SUFFIX__
         resources:
           requests:
             cpu: 0.5
@@ -31,9 +31,9 @@ spec:
         - name: RUST_LOG
           value: info
         - name: RW_CONFIG_URL
-          value: http://192.168.122.88/dev/rw-proxy.deploy.toml
+          value: __PROXY_CONFIG_URL__
         - name: RW_FETCH_SERVICE
-          value: 10.96.1.3:3000
+          value: __NET_PREFIX__.1.3:3000
         - name: RW_MAX_IO_CONCURRENCY
           value: "10"
         - name: RW_MAX_IO_PER_REQUEST
@@ -43,6 +43,6 @@ spec:
         - name: RW_MAX_TIME_MS
           value: "100"
         - name: RUNTIMES
-          value: 10.96.2.1:3000,10.96.2.2:3000
+          value: __NET_PREFIX__.2.1:3000,__NET_PREFIX__.2.2:3000
         ports:
         - containerPort: 8080
