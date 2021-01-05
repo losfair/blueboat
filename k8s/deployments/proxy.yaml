@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: rusty-workers
+  name: proxy
+  labels:
+    app: proxy
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: proxy
+  template:
+    metadata:
+      namespace: rusty-workers
+      name: proxy
+      labels:
+        app: proxy
+    spec:
+      containers:
+      - name: proxy
+        image: host.minikube.internal:5000/losfair/rusty-workers-proxy
+        resources:
+          requests:
+            cpu: 0.5
+            memory: 64Mi
+          limits:
+            cpu: 1
+            memory: 256Mi
+        env:
+        - name: RUST_LOG
+          value: info
+        - name: RW_CONFIG_URL
+          value: http://192.168.122.88/dev/rw-proxy.deploy.toml
+        - name: RW_FETCH_SERVICE
+          value: 10.96.1.3:3000
+        - name: RW_MAX_IO_CONCURRENCY
+          value: "10"
+        - name: RW_MAX_IO_PER_REQUEST
+          value: "50"
+        - name: RW_MAX_MEMORY_MB
+          value: "16"
+        - name: RW_MAX_TIME_MS
+          value: "100"
+        - name: RUNTIMES
+          value: 10.96.2.1:3000,10.96.2.2:3000
+        ports:
+        - containerPort: 8080

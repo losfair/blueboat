@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: rusty-workers
+  name: fetchd
+  labels:
+    app: fetchd
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: fetchd
+  template:
+    metadata:
+      namespace: rusty-workers
+      name: fetchd
+      labels:
+        app: fetchd
+    spec:
+      containers:
+      - name: fetchd
+        image: host.minikube.internal:5000/losfair/rusty-workers-fetchd
+        resources:
+          requests:
+            cpu: 0.15
+            memory: 32Mi
+          limits:
+            cpu: 1
+            memory: 80Mi
+        env:
+        - name: RUST_LOG
+          value: info
+        - name: RW_MAX_CONCURRENCY
+          value: "1000"
+        ports:
+        - containerPort: 3000

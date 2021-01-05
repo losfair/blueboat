@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: rusty-workers
+  name: runtime-1
+  labels:
+    app: runtime-1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: runtime-1
+  template:
+    metadata:
+      namespace: rusty-workers
+      name: runtime-1
+      labels:
+        app: runtime-1
+    spec:
+      containers:
+      - name: runtime-1
+        image: host.minikube.internal:5000/losfair/rusty-workers-runtime
+        resources:
+          requests:
+            cpu: 1
+            memory: 1536Mi
+          limits:
+            cpu: 1
+            memory: 2048Mi
+        env:
+        - name: RUST_LOG
+          value: debug
+        - name: RW_HIGH_MEMORY_THRESHOLD_BYTES
+          value: "1073741824"
+        - name: RW_MAX_NUM_OF_INSTANCES
+          value: "100"
+        - name: RW_MAX_CONCURRENT_REQUESTS
+          value: "20"
+        - name: RW_MAX_INACTIVE_TIME_MS
+          value: "180000"
+        ports:
+        - containerPort: 3000
