@@ -39,7 +39,7 @@ struct InstanceState {
     task_rx: mpsc::Receiver<Task>,
     script: String,
     timer_tx: tokio::sync::mpsc::UnboundedSender<TimerControl>,
-    conf: ExecutorConfiguration,
+    conf: Arc<WorkerConfiguration>,
     handle: WorkerHandle,
     io_waiter: Option<IoWaiter>,
 
@@ -106,9 +106,9 @@ impl Drop for InstanceHandle {
 }
 
 impl Instance {
-    pub fn new(rt: tokio::runtime::Handle, worker_runtime: Arc<Runtime>, worker_handle: WorkerHandle, script: String, conf: &ExecutorConfiguration) -> GenericResult<(Self, InstanceHandle, InstanceTimeControl)> {
+    pub fn new(rt: tokio::runtime::Handle, worker_runtime: Arc<Runtime>, worker_handle: WorkerHandle, script: String, conf: &WorkerConfiguration) -> GenericResult<(Self, InstanceHandle, InstanceTimeControl)> {
         let params = v8::Isolate::create_params()
-            .heap_limits(0, conf.max_memory_mb as usize * 1048576);
+            .heap_limits(0, conf.executor.max_memory_mb as usize * 1048576);
         let mut isolate = Box::new(v8::Isolate::new(params));
         let isolate_ptr = &mut *isolate as *mut v8::OwnedIsolate;
 
@@ -137,7 +137,7 @@ impl Instance {
 
         let time_control = InstanceTimeControl {
             timer_rx,
-            budget: Duration::from_millis(conf.max_time_ms as u64),
+            budget: Duration::from_millis(conf.executor.max_time_ms as u64),
         };
         let handle = InstanceHandle {
             isolate_handle: isolate.thread_safe_handle(),
@@ -152,7 +152,7 @@ impl Instance {
                 task_rx,
                 script,
                 timer_tx,
-                conf: conf.clone(),
+                conf: Arc::new(conf.clone()),
                 handle: worker_handle,
                 io_waiter: None,
                 done: false,

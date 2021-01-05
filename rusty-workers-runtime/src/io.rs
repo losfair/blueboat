@@ -9,19 +9,28 @@ use std::time::Duration;
 use serde_json::json;
 use crate::runtime::Runtime;
 use std::sync::Arc;
+use rusty_workers::tarpc;
+use tokio::sync::Mutex as AsyncMutex;
+use rusty_workers::rpc::FetchServiceClient;
 
 pub struct IoWaiter {
     remaining_budget: u32,
     inflight: Slab<v8::Global<v8::Function>>,
     task: tokio::sync::mpsc::UnboundedSender<(usize, AsyncCall)>,
     result: std::sync::mpsc::Receiver<(usize, String)>,
-    conf: ExecutorConfiguration,
+    conf: Arc<WorkerConfiguration>,
 }
 
 pub struct IoProcessor {
     worker_runtime: Arc<Runtime>,
     task: tokio::sync::mpsc::UnboundedReceiver<(usize, AsyncCall)>,
     result: std::sync::mpsc::Sender<(usize, String)>,
+    shared: Arc<IoProcessorSharedState>,
+}
+
+struct IoProcessorSharedState {
+    conf: Arc<WorkerConfiguration>,
+    fetch_client: AsyncMutex<Option<FetchServiceClient>>,
 }
 
 /// An `IoScope` is a handle that a task sender holds to signal that I/O operations should
@@ -54,8 +63,8 @@ impl IoScope {
 }
 
 impl IoWaiter {
-    pub fn new(conf: ExecutorConfiguration, worker_runtime: Arc<Runtime>) -> (Self, IoProcessor) {
-        let init_budget = conf.max_io_per_request;
+    pub fn new(conf: Arc<WorkerConfiguration>, worker_runtime: Arc<Runtime>) -> (Self, IoProcessor) {
+        let init_budget = conf.executor.max_io_per_request;
         let (result_tx, result_rx) = std::sync::mpsc::channel();
         let (task_tx, task_rx) = tokio::sync::mpsc::unbounded_channel();
         let waiter = IoWaiter {
@@ -63,12 +72,16 @@ impl IoWaiter {
             inflight: Slab::new(),
             task: task_tx,
             result: result_rx,
-            conf,
+            conf: conf.clone(),
         };
         let processor = IoProcessor {
             task: task_rx,
             result: result_tx,
             worker_runtime,
+            shared: Arc::new(IoProcessorSharedState {
+                conf,
+                fetch_client: AsyncMutex::new(None),
+            }),
         };
         (waiter, processor)
     }
@@ -81,7 +94,7 @@ impl IoWaiter {
             self.remaining_budget -= 1;
         }
 
-        if self.inflight.len() >= self.conf.max_io_concurrency as usize {
+        if self.inflight.len() >= self.conf.executor.max_io_concurrency as usize {
             return Err(GenericError::IoLimitExceeded);
         }
 
@@ -131,13 +144,13 @@ impl IoProcessor {
                 }
             };
             let mut kill_rx = kill_rx.clone();
-            let worker_runtime = self.worker_runtime.clone();
+            let shared = self.shared.clone();
             tokio::spawn(async move {
                 tokio::select! {
                     _ = kill_rx.changed() => {
                         debug!("in-flight I/O operation killed");
                     }
-                    ret = handle_task(task, worker_runtime) => {
+                    ret = shared.handle_task(task) => {
                         match ret {
                             Ok(x) => res.respond(format!("{{\"Ok\":{}}}", x)),
                             Err(e) => {
@@ -152,22 +165,34 @@ impl IoProcessor {
     }
 }
 
-impl IoResponseHandle {
-    fn respond(self, data: String) {
-        drop(self.result.send((self.index, data)));
+impl IoProcessorSharedState {
+    async fn handle_task(self: Arc<Self>, task: AsyncCall) -> Result<String> {
+        match task {
+            AsyncCall::SetTimeout(n) => {
+                let dur = Duration::from_millis(n);
+                tokio::time::sleep(dur).await;
+                Ok("null".into())
+            }
+            AsyncCall::Fetch(req) => {
+                let mut fetch_client_locked = self.fetch_client.lock().await;
+                let mut fetch_client = if let Some(ref inner) = *fetch_client_locked {
+                    inner.clone()
+                } else {
+                    let client = FetchServiceClient::connect(self.conf.fetch_service).await?;
+                    *fetch_client_locked = Some(client.clone());
+                    client
+                };
+                drop(fetch_client_locked);
+
+                let fetch_result: Result<ResponseObject, String> = fetch_client.fetch(tarpc::context::current(), req).await??;
+                Ok(serde_json::to_string(&fetch_result)?)
+            }
+        }
     }
 }
 
-async fn handle_task(task: AsyncCall, worker_runtime: Arc<Runtime>) -> Result<String> {
-    match task {
-        AsyncCall::SetTimeout(n) => {
-            let dur = Duration::from_millis(n);
-            tokio::time::sleep(dur).await;
-            Ok("null".into())
-        }
-        AsyncCall::Fetch(req) => {
-            let res = worker_runtime.outgoing_fetch(req).await?;
-            Ok(serde_json::to_string(&res)?)
-        }
+impl IoResponseHandle {
+    fn respond(self, data: String) {
+        drop(self.result.send((self.index, data)));
     }
 }

@@ -1,10 +1,12 @@
 use serde::{Serialize, Deserialize};
 use thiserror::Error;
 use std::collections::BTreeMap;
+use std::net::SocketAddr;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct WorkerConfiguration {
     pub executor: ExecutorConfiguration,
+    pub fetch_service: SocketAddr,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]

@@ -11,7 +11,6 @@ use rusty_workers::tarpc;
 
 pub struct Runtime {
     instances: AsyncMutex<LruCache<WorkerHandle, Arc<InstanceHandle>>>,
-    fetch_client: AsyncRwLock<Option<FetchServiceClient>>,
 }
 
 pub fn init() {
@@ -24,12 +23,7 @@ impl Runtime {
     pub fn new() -> Arc<Self> {
         Arc::new(Runtime {
             instances: AsyncMutex::new(LruCache::with_expiry_duration_and_capacity(Duration::from_secs(600), 500)), // arbitrary choices
-            fetch_client: AsyncRwLock::new(None),
         })
-    }
-
-    pub async fn set_fetch_client(&self, client: FetchServiceClient) {
-        *self.fetch_client.write().await = Some(client);
     }
 
     fn instance_thread(
@@ -40,7 +34,7 @@ impl Runtime {
         configuration: &WorkerConfiguration,
         result_tx: oneshot::Sender<Result<(InstanceHandle, InstanceTimeControl), GenericError>>,
     ) {
-        match Instance::new(rt, worker_runtime, worker_handle.clone(), code, &configuration.executor) {
+        match Instance::new(rt, worker_runtime, worker_handle.clone(), code, configuration) {
             Ok((instance, handle, timectl)) => {
                 let run_result = instance.run(move || {
                     drop(result_tx.send(Ok((handle, timectl))))
@@ -148,16 +142,6 @@ impl Runtime {
                 Err(GenericError::ScriptCompileException)
             }
         }
-    }
-
-    pub async fn outgoing_fetch(&self, req: RequestObject) -> GenericResult<Result<ResponseObject, String>> {
-        let mut client = if let Some(x) = self.fetch_client.read().await.clone() {
-            x
-        } else {
-            return Err(GenericError::Other("fetch client not available".into()));
-        };
-        let fetch_result = client.fetch(tarpc::context::current(), req).await?;
-        fetch_result
     }
 }
 

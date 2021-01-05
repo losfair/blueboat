@@ -39,7 +39,6 @@ pub struct AppConfig {
     pub id: AppId,
     pub routes: Vec<AppRoute>,
     pub script: String,
-    pub worker: WorkerConfiguration,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]

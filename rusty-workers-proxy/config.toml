@@ -9,12 +9,6 @@ routes = [
 ]
 script = "http://127.0.0.1/dev/test.js"
 
-[apps.worker.executor]
-max_memory_mb = 16
-max_time_ms = 100
-max_io_concurrency = 10
-max_io_per_request = 50
-
 [[apps]]
 id = "d0d8a04a-b12c-49a1-b29c-37e1bd97fe50"
 routes = [
@@ -22,21 +16,9 @@ routes = [
 ]
 script = "http://127.0.0.1/dev/delay.js"
 
-[apps.worker.executor]
-max_memory_mb = 16
-max_time_ms = 100
-max_io_concurrency = 10
-max_io_per_request = 50
-
 [[apps]]
 id = "4bade245-bcc5-4ada-adc9-350656cf7614"
 routes = [
     { domain = "en.wikipedia.org", path_prefix = "/" },
 ]
 script = "http://127.0.0.1/dev/rp.js"
-
-[apps.worker.executor]
-max_memory_mb = 16
-max_time_ms = 100
-max_io_concurrency = 10
-max_io_per_request = 50

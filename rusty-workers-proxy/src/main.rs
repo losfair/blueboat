@@ -9,6 +9,7 @@ use anyhow::Result;
 use std::net::SocketAddr;
 use rusty_workers::tarpc;
 use config::*;
+use rusty_workers::types::*;
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 use once_cell::sync::OnceCell;
@@ -32,6 +33,25 @@ struct Opt {
     /// Path to configuration
     #[structopt(short = "c", long, env = "RW_CONFIG_URL")]
     config: String,
+
+    #[structopt(long, env = "RW_FETCH_SERVICE")]
+    fetch_service: SocketAddr,
+
+    /// Max memory per worker, in MB
+    #[structopt(long, env = "RW_MAX_MEMORY_MB", default_value = "16")]
+    max_memory_mb: u32,
+
+    /// Max CPU time, in milliseconds
+    #[structopt(long, env = "RW_MAX_TIME_MS", default_value = "100")]
+    max_time_ms: u32,
+
+    /// Max number of concurrent I/O operations
+    #[structopt(long, env = "RW_MAX_IO_CONCURRENCY", default_value = "10")]
+    max_io_concurrency: u32,
+
+    /// Max number of I/O operations per request
+    #[structopt(long, env = "RW_MAX_IO_PER_REQUEST", default_value = "50")]
+    max_io_per_request: u32,
 }
 
 #[tokio::main]
@@ -41,7 +61,15 @@ async fn main() -> Result<()> {
     let opt = Opt::from_args();
     info!("rusty-workers-proxy starting");
 
-    SCHEDULER.set(sched::Scheduler::new()).unwrap_or_else(|_| panic!("cannot set scheduler"));
+    SCHEDULER.set(sched::Scheduler::new(WorkerConfiguration {
+        executor: ExecutorConfiguration {
+            max_memory_mb: opt.max_memory_mb,
+            max_time_ms: opt.max_time_ms,
+            max_io_concurrency: opt.max_io_concurrency,
+            max_io_per_request: opt.max_io_per_request,
+        },
+        fetch_service: opt.fetch_service,
+    })).unwrap_or_else(|_| panic!("cannot set scheduler"));
 
     let config_url = opt.config;
     tokio::spawn(async move {

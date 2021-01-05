@@ -37,6 +37,7 @@ pub enum ConfigurationError {
 
 pub struct Scheduler {
     config: ArcSwap<Config>,
+    worker_config: WorkerConfiguration,
     clients: AsyncRwLock<BTreeMap<SocketAddr, RtState>>,
     apps: AsyncRwLock<BTreeMap<AppId, AppState>>,
     route_mappings: AsyncRwLock<BTreeMap<String, BTreeMap<String, AppId>>>, // domain -> (prefix -> appid)
@@ -143,9 +144,10 @@ impl AppState {
 }
 
 impl Scheduler {
-    pub fn new() -> Self {
+    pub fn new(worker_config: WorkerConfiguration) -> Self {
         Self {
             config: ArcSwap::new(Arc::new(Config::default())),
+            worker_config,
             clients: AsyncRwLock::new(BTreeMap::new()),
             apps: AsyncRwLock::new(BTreeMap::new()),
             route_mappings: AsyncRwLock::new(BTreeMap::new()),
@@ -374,7 +376,7 @@ impl Scheduler {
 
             let state = AppState {
                 id: id.clone(),
-                config: app_config.worker.clone(),
+                config: self.worker_config.clone(),
                 script,
                 ready_instances: AsyncMutex::new(VecDeque::new()),
             };

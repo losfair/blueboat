@@ -41,6 +41,9 @@ enum RuntimeCmd {
         #[structopt(long)]
         config: Option<String>,
 
+        #[structopt(long)]
+        fetch_service: SocketAddr,
+
         script: String,
     },
 
@@ -66,7 +69,7 @@ async fn main() -> Result<()> {
         Cmd::Runtime { remote, op } => {
             let mut client = rusty_workers::rpc::RuntimeServiceClient::connect(remote).await?;
             match op {
-                RuntimeCmd::Spawn { appid, config, script } => {
+                RuntimeCmd::Spawn { appid, config, script, fetch_service } => {
                     let config = if let Some(config) = config {
                         let text = read_file(&config).await?;
                         serde_json::from_str(&text)?
@@ -77,7 +80,8 @@ async fn main() -> Result<()> {
                                 max_time_ms: 50,
                                 max_io_concurrency: 10,
                                 max_io_per_request: 50,
-                            }
+                            },
+                            fetch_service,
                         }
                     };
                     let script = read_file(&script).await?;
