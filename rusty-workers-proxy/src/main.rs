@@ -30,7 +30,7 @@ struct Opt {
     http_listen: SocketAddr,
 
     /// Path to configuration
-    #[structopt(short = "c", long)]
+    #[structopt(short = "c", long, env = "RW_CONFIG_URL")]
     config: String,
 }
 
@@ -41,11 +41,17 @@ async fn main() -> Result<()> {
     let opt = Opt::from_args();
     info!("rusty-workers-proxy starting");
 
-    let config = read_file(&opt.config).await?;
-    let config: Arc<Config> = Arc::new(toml::from_str(&config)?);
+    SCHEDULER.set(sched::Scheduler::new()).unwrap_or_else(|_| panic!("cannot set scheduler"));
 
-    let scheduler = sched::Scheduler::new(config).await?;
-    SCHEDULER.set(scheduler).unwrap_or_else(|_| panic!("cannot set scheduler"));
+    let config_url = opt.config;
+    tokio::spawn(async move {
+        loop {
+            if let Err(e) = SCHEDULER.get().unwrap().check_config_update(&config_url).await {
+                warn!("check_config_update: {:?}", e);
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        }
+    });
 
     let make_svc = make_service_fn(|_| async move {
         Ok::<_, hyper::Error>(service_fn(|req| async move {
@@ -70,11 +76,4 @@ async fn main() -> Result<()> {
 
     Server::bind(&opt.http_listen).serve(make_svc).await?;
     Ok(())
-}
-
-async fn read_file(path: &str) -> Result<String> {
-    let mut f = tokio::fs::File::open(path).await?;
-    let mut buf = String::new();
-    f.read_to_string(&mut buf).await?;
-    Ok(buf)
 }

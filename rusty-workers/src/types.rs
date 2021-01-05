@@ -2,12 +2,12 @@ use serde::{Serialize, Deserialize};
 use thiserror::Error;
 use std::collections::BTreeMap;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct WorkerConfiguration {
     pub executor: ExecutorConfiguration,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct ExecutorConfiguration {
     pub max_memory_mb: u32,
     pub max_time_ms: u32,

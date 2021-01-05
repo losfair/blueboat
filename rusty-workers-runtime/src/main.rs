@@ -28,7 +28,7 @@ struct Opt {
     rpc_listen: SocketAddr,
 
     /// Address of fetch service.
-    #[structopt(long)]
+    #[structopt(long, env = "RW_FETCH_SERVICE_ADDR")]
     fetch_service: Option<SocketAddr>,
 }
 

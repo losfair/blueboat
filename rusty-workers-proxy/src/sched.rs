@@ -12,6 +12,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use rand::Rng;
 use futures::StreamExt;
+use arc_swap::ArcSwap;
 
 #[derive(Debug, Error)]
 pub enum SchedError {
@@ -28,10 +29,16 @@ pub enum SchedError {
     RequestFailedAfterRetries,
 }
 
+#[derive(Debug, Error)]
+pub enum ConfigurationError {
+    #[error("cannot fetch config")]
+    FetchConfig,
+}
+
 pub struct Scheduler {
-    config: Arc<Config>,
+    config: ArcSwap<Config>,
     clients: AsyncRwLock<BTreeMap<SocketAddr, RtState>>,
-    apps: AsyncRwLock<BTreeMap<AppId, AsyncMutex<AppState>>>,
+    apps: AsyncRwLock<BTreeMap<AppId, AppState>>,
     route_mappings: AsyncRwLock<BTreeMap<String, BTreeMap<String, AppId>>>, // domain -> (prefix -> appid)
 }
 
@@ -54,7 +61,7 @@ struct AppState {
     script: String,
 
     /// Instances that are ready to run this app.
-    ready_instances: VecDeque<ReadyInstance>,
+    ready_instances: AsyncMutex<VecDeque<ReadyInstance>>,
 }
 
 /// State of an instance ready for an app.
@@ -93,18 +100,20 @@ impl ReadyInstance {
 }
 
 impl AppState {
-    fn pool_instance(&mut self, inst: ReadyInstance) {
-        self.ready_instances.push_back(inst);
+    async fn pool_instance(&self, inst: ReadyInstance) {
+        self.ready_instances.lock().await.push_back(inst);
     }
 
-    async fn get_instance(&mut self, config: &Config, clients: &AsyncRwLock<BTreeMap<SocketAddr, RtState>>) -> Result<ReadyInstance> {
-        while let Some(mut instance) = self.ready_instances.pop_front() {
+    async fn get_instance(&self, config: &Config, clients: &AsyncRwLock<BTreeMap<SocketAddr, RtState>>) -> Result<ReadyInstance> {
+        let mut ready_instances = self.ready_instances.lock().await;
+        while let Some(mut instance) = ready_instances.pop_front() {
             // TODO: Maintain load data for each client and select based on load.
             if instance.is_usable(config) {
                 instance.update_last_active();
                 return Ok(instance);
             }
         }
+        drop(ready_instances);
 
         let clients = clients.read().await;
 
@@ -134,15 +143,13 @@ impl AppState {
 }
 
 impl Scheduler {
-    pub async fn new(config: Arc<Config>) -> Result<Self> {
-        let mut scheduler = Self {
-            config,
+    pub fn new() -> Self {
+        Self {
+            config: ArcSwap::new(Arc::new(Config::default())),
             clients: AsyncRwLock::new(BTreeMap::new()),
             apps: AsyncRwLock::new(BTreeMap::new()),
             route_mappings: AsyncRwLock::new(BTreeMap::new()),
-        };
-        scheduler.populate_config().await;
-        Ok(scheduler)
+        }
     }
 
     pub async fn handle_request(&self, mut req: hyper::Request<hyper::Body>) -> Result<hyper::Response<hyper::Body>> {
@@ -179,10 +186,11 @@ impl Scheduler {
         }
 
         let mut body_error: Result<()> = Ok(());
+        let config = self.config.load();
         req.into_body().for_each(|bytes| {
             match bytes {
                 Ok(x) => {
-                    if full_body.len() + x.len() > self.config.max_request_body_size_bytes as usize {
+                    if full_body.len() + x.len() > config.max_request_body_size_bytes as usize {
                         body_error = Err(SchedError::RequestBodyTooLarge.into());
                     }
                     full_body.extend_from_slice(&x);
@@ -204,15 +212,16 @@ impl Scheduler {
         };
 
         let apps = self.apps.read().await;
+        let mut app = apps.get(&appid).ok_or(SchedError::NoRouteMapping)?;
+
+        let config = self.config.load();
 
         // Backend retries.
         for _ in 0..3usize {
-            let mut app = apps.get(&appid).ok_or(SchedError::NoRouteMapping)?.lock().await;
-            let mut instance = app.get_instance(&self.config, &self.clients).await?;
-            drop(app);
+            let mut instance = app.get_instance(&config, &self.clients).await?;
     
             let mut fetch_context = tarpc::context::current();
-            fetch_context.deadline = std::time::SystemTime::now() + Duration::from_millis(self.config.request_timeout_ms);
+            fetch_context.deadline = std::time::SystemTime::now() + Duration::from_millis(config.request_timeout_ms);
 
             let fetch_res = instance.client.fetch(fetch_context, instance.handle.clone(), target_req.clone())
                 .await?; // Don't retry in case of network errors.
@@ -238,8 +247,7 @@ impl Scheduler {
             };
 
             // Pool it back.
-            let mut app = apps.get(&appid).ok_or(SchedError::NoRouteMapping)?.lock().await;
-            app.pool_instance(instance);
+            app.pool_instance(instance).await;
 
             // Build response.
             let mut res = hyper::Response::new(match fetch_res.body {
@@ -263,15 +271,30 @@ impl Scheduler {
         Err(SchedError::RequestFailedAfterRetries.into())
     }
 
-    async fn flush_route_mappings(&self) {
+    pub async fn check_config_update(&self, url: &str) -> Result<()> {
+        let res = reqwest::get(url)
+            .await?;
+        if !res.status().is_success() {
+            return Err(ConfigurationError::FetchConfig.into());
+        }
+        let body = res.text().await?;
+        let config: Config = toml::from_str(&body)?;
+        if config != **self.config.load() {
+            self.config.store(Arc::new(config));
+            self.populate_config().await;
+            info!("configuration updated");
+        }
+        Ok(())
     }
 
     async fn populate_config(&self) {
+        let config = self.config.load();
+
         // TODO: Finer-grained locking
         let mut clients = self.clients.write().await;
 
         // Add new clients.
-        for service_addr in self.config.runtime_cluster.iter() {
+        for service_addr in config.runtime_cluster.iter() {
             if !clients.contains_key(service_addr) {
                 match RuntimeServiceClient::connect(*service_addr).await {
                     Ok(client) => {
@@ -289,7 +312,7 @@ impl Scheduler {
         // Drop removed clients.
         let mut clients_to_remove = vec![];
         for (k, _) in clients.iter() {
-            if !self.config.runtime_cluster.contains(k) {
+            if !config.runtime_cluster.contains(k) {
                 clients_to_remove.push(*k);
             }
         }
@@ -302,7 +325,7 @@ impl Scheduler {
         // Update app list.
         let apps = self.apps.read().await;
 
-        let mut new_apps_config: BTreeMap<AppId, &AppConfig> = self.config.apps.iter().map(|x| (x.id.clone(), x)).collect();
+        let mut new_apps_config: BTreeMap<AppId, &AppConfig> = config.apps.iter().map(|x| (x.id.clone(), x)).collect();
 
         // Figure out newly added apps
         let mut unseen_appids: BTreeSet<AppId> = new_apps_config.iter().map(|(k, _)| k.clone()).collect();
@@ -353,7 +376,7 @@ impl Scheduler {
                 id: id.clone(),
                 config: app_config.worker.clone(),
                 script,
-                ready_instances: VecDeque::new(),
+                ready_instances: AsyncMutex::new(VecDeque::new()),
             };
             unseen_apps.push((id, state));
         }
@@ -363,7 +386,7 @@ impl Scheduler {
 
         // Add new apps.
         for (id, state) in unseen_apps {
-            apps.insert(id, AsyncMutex::new(state));
+            apps.insert(id, state);
         }
 
         // Drop removed apps.
