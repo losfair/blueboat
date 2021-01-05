@@ -72,6 +72,8 @@ async fn run_fetch(state: &FetchState, req: RequestObject) -> Result<ResponseObj
         }
     }
 
+    headers.remove(HeaderName::from_bytes(b"host")?); // No override
+
     if let Some(body) = req.body {
         let body = match body {
             HttpBody::Text(s) => Body::from(s),
