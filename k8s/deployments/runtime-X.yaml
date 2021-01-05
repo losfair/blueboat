@@ -22,18 +22,15 @@ spec:
         image: __IMAGE_PREFIX__rusty-workers-runtime__IMAGE_SUFFIX__
         resources:
           requests:
-            cpu: 1
-            memory: 1536Mi
-          limits:
-            cpu: 1
-            memory: 2048Mi
+            cpu: 0.6
+            memory: 800Mi
         env:
         - name: RUST_LOG
           value: debug
         - name: RW_HIGH_MEMORY_THRESHOLD_BYTES
           value: "1073741824"
         - name: RW_MAX_NUM_OF_INSTANCES
-          value: "100"
+          value: "50"
         - name: RW_MAX_CONCURRENT_REQUESTS
           value: "20"
         - name: RW_MAX_INACTIVE_TIME_MS

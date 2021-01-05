@@ -6,7 +6,7 @@ metadata:
   labels:
     app: fetchd
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: fetchd
@@ -22,14 +22,11 @@ spec:
         image: __IMAGE_PREFIX__rusty-workers-fetchd__IMAGE_SUFFIX__
         resources:
           requests:
-            cpu: 0.15
+            cpu: 0.1
             memory: 32Mi
-          limits:
-            cpu: 1
-            memory: 80Mi
         env:
         - name: RUST_LOG
-          value: info
+          value: debug
         - name: RW_MAX_CONCURRENCY
           value: "1000"
         ports:

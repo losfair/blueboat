@@ -22,11 +22,8 @@ spec:
         image: __IMAGE_PREFIX__rusty-workers-proxy__IMAGE_SUFFIX__
         resources:
           requests:
-            cpu: 0.5
+            cpu: 0.1
             memory: 64Mi
-          limits:
-            cpu: 1
-            memory: 256Mi
         env:
         - name: RUST_LOG
           value: info
@@ -41,7 +38,7 @@ spec:
         - name: RW_MAX_MEMORY_MB
           value: "16"
         - name: RW_MAX_TIME_MS
-          value: "100"
+          value: "200"
         - name: RUNTIMES
           value: __RUNTIME_ADDRESSES__
         ports:
