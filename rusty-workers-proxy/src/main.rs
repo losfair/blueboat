@@ -15,6 +15,7 @@ use once_cell::sync::OnceCell;
 
 use hyper::{Body, Response, Server};
 use hyper::service::{make_service_fn, service_fn};
+use sched::SchedError;
 
 static SCHEDULER: OnceCell<sched::Scheduler> = OnceCell::new();
 
@@ -53,8 +54,14 @@ async fn main() -> Result<()> {
                 Ok(x) => Ok::<_, hyper::Error>(x),
                 Err(e) => {
                     warn!("handle_request failed: {:?}", e);
-                    let mut res = Response::new(Body::from("internal server error"));
-                    *res.status_mut() = hyper::StatusCode::INTERNAL_SERVER_ERROR;
+                    let res = match e.downcast::<SchedError>() {
+                        Ok(e) => e.build_response(),
+                        Err(e) => {
+                            let mut res = Response::new(Body::from("internal server error"));
+                            *res.status_mut() = hyper::StatusCode::INTERNAL_SERVER_ERROR;
+                            res
+                        }
+                    };
                     Ok::<_, hyper::Error>(res)
                 }
             }

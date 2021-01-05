@@ -18,9 +18,6 @@ pub enum SchedError {
     #[error("no available instance")]
     NoAvailableInstance,
 
-    #[error("initialization timoeut")]
-    InitializationTimeout,
-
     #[error("no route mapping found")]
     NoRouteMapping,
 
@@ -222,10 +219,21 @@ impl Scheduler {
             let fetch_res = match fetch_res {
                 Ok(x) => x,
                 Err(e) => {
+                    debug!("backend returns error: {:?}", e);
+
                     // Don't pool it back.
                     // Runtime would give us a 500 instead of an error when it is recoverable.
-                    debug!("backend returns error: {:?}", e);
-                    continue;
+                    match e {
+                        GenericError::NoSuchWorker => {
+                            // Backend terminated our worker.
+                            // Re-select another instance.
+                            continue;
+                        }
+                        _ => {
+                            // Don't attempt to recover otherwise.
+                            break;
+                        }
+                    }
                 }
             };
 
@@ -382,5 +390,19 @@ impl Scheduler {
         }
 
         *self.route_mappings.write().await = routing_table;
+    }
+}
+
+impl SchedError {
+    pub fn build_response(&self) -> hyper::Response<hyper::Body> {
+        let status = match self {
+            SchedError::NoAvailableInstance => hyper::StatusCode::SERVICE_UNAVAILABLE,
+            SchedError::NoRouteMapping => hyper::StatusCode::BAD_GATEWAY,
+            SchedError::RequestBodyTooLarge => hyper::StatusCode::PAYLOAD_TOO_LARGE,
+            SchedError::RequestFailedAfterRetries => hyper::StatusCode::SERVICE_UNAVAILABLE,
+        };
+        let mut res = hyper::Response::new(hyper::Body::from(status.canonical_reason().unwrap_or("unknown error")));
+        *res.status_mut() = status;
+        res
     }
 }
