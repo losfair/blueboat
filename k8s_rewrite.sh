@@ -90,3 +90,9 @@ find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__IMAGE_SUFFIX__#$IMAGE_SUFF
 generate_runtime_deployments 
 generate_runtime_services
 rewrite_proxy
+
+cd "./k8s.$SUFFIX" || exit 1
+echo "#!/bin/sh" > apply.sh || exit 1
+echo "cd \"\`dirname \$0\`\"" >> apply.sh || exit 1
+find . -name "*.yaml" -exec 'echo' 'kubectl apply -f' '{}' ';' >> apply.sh || exit 1
+chmod +x apply.sh || exit 1
