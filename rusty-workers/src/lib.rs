@@ -10,4 +10,5 @@ pub use tokio_serde;
 pub use tokio;
 pub use futures;
 
+// FIXME: MessagePack doesn't work (connection resets). Why?
 pub use tokio_serde::formats::Bincode as SerdeFormat;
