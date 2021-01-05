@@ -193,6 +193,12 @@ impl Runtime {
         // Allow send to fail since this isn't critical
         drop(self.statistics_update_tx.try_send((worker_handle.clone(), stats)));
     }
+
+    /// This function is added to avoid too long drop time in extreme cases.
+    pub async fn lru_gc(&self) {
+        // iter() calls remove_expired()
+        drop(self.instances.write().await.iter());
+    }
 }
 
 async fn wait_until(deadline: Option<tokio::time::Instant>) {

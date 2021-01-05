@@ -44,9 +44,18 @@ async fn main() -> Result<()> {
     let max_concurrency = opt.config.max_concurrent_requests;
     let rt = runtime::Runtime::new(opt.config);
 
+    let rt2 = rt.clone();
     server::RuntimeServer::listen(&opt.rpc_listen, max_concurrency, move || server::RuntimeServer {
-        runtime: rt.clone(),
+        runtime: rt2.clone(),
     }).await?;
+
+    // GC thread
+    tokio::spawn(async move {
+        loop {
+            rt.lru_gc().await;
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+    });
 
     Ok(())
 }

@@ -14,7 +14,7 @@ pub struct Config {
     #[structopt(long, env = "RW_MAX_CONCURRENT_REQUESTS", default_value = "200")]
     pub max_concurrent_requests: usize,
 
-    /// Cache period for inactive workers. Defaults to 5 minutes.
-    #[structopt(long, env = "RW_MAX_INACTIVE_TIME_MS", default_value = "300000")]
+    /// Cache period for inactive workers. Defaults to 2 minutes.
+    #[structopt(long, env = "RW_MAX_INACTIVE_TIME_MS", default_value = "120000")]
     pub max_inactive_time_ms: u64,
 }
