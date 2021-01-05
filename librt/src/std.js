@@ -29,8 +29,8 @@ class FetchEvent {
         try {
             await this._respondWith(res);
         } catch(e) {
-            console.log(e);
-            throw e;
+            console.log("respondWith exception: " + e);
+            await this._respondWith(new Response("caught exception when handling request", { status: 500 }));
         }
     }
 
@@ -214,10 +214,12 @@ export function _dispatchEvent(ev) {
                 headers: headers,
                 body: body,
             });
+            let targetEvent = new FetchEvent(req);
             try {
-                dispatchEvent(new FetchEvent(req))
+                dispatchEvent(targetEvent);
             } catch(e) {
                 console.log("dispatchEvent exception: " + e);
+                targetEvent._respondWith(new Response("caught exception when dispatching request", { status: 500 }));
             }
             break;
         }
