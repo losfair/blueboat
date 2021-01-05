@@ -22,9 +22,9 @@ macro_rules! impl_connect {
 
 #[macro_export]
 macro_rules! impl_listen {
-    ($ty:ident, $interface:path, $concurrency:expr) => {
+    ($ty:ident, $interface:path) => {
         impl $ty {
-            pub async fn listen<A: $crate::tokio::net::ToSocketAddrs, F: FnMut() -> $ty>(addr: A, mut init: F) -> $crate::types::GenericResult<()> {
+            pub async fn listen<A: $crate::tokio::net::ToSocketAddrs, F: FnMut() -> $ty>(addr: A, concurrency: usize, mut init: F) -> $crate::types::GenericResult<()> {
                 use $interface;
                 use $crate::futures::StreamExt;
                 use $crate::tarpc::server::Channel;
@@ -36,7 +36,7 @@ macro_rules! impl_listen {
                         let server = init();
                         channel.respond_with(server.serve()).execute()
                     })
-                    .buffer_unordered($concurrency)
+                    .buffer_unordered(concurrency)
                     .for_each(|_| async {})
                     .await;
                 Ok(())
@@ -59,6 +59,9 @@ pub trait RuntimeService {
 
     /// Issue a "fetch" event.
     async fn fetch(handle: WorkerHandle, req: RequestObject) -> GenericResult<ResponseObject>;
+
+    /// The current load of this runtime instance. 0-65535.
+    async fn load() -> GenericResult<u16>;
 }
 
 impl_connect!(RuntimeServiceClient);

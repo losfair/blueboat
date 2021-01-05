@@ -25,6 +25,10 @@ impl rusty_workers::rpc::RuntimeService for RuntimeServer {
     async fn fetch(self, _: tarpc::context::Context, handle: WorkerHandle, req: RequestObject) -> GenericResult<ResponseObject> {
         self.runtime.fetch(&handle, req).await
     }
+
+    async fn load(self, _: tarpc::context::Context) -> GenericResult<u16> {
+        self.runtime.load().await
+    }
 }
 
-rusty_workers::impl_listen!(RuntimeServer, rusty_workers::rpc::RuntimeService, 200);
+rusty_workers::impl_listen!(RuntimeServer, rusty_workers::rpc::RuntimeService);

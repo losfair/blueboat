@@ -12,7 +12,7 @@ use crate::engine::*;
 use crate::interface::*;
 use crate::io::*;
 use std::cell::Cell;
-use crate::runtime::Runtime;
+use crate::runtime::{InstanceStatistics, Runtime};
 
 const SAFE_AREA_SIZE: usize = 1048576;
 static LIBRT: &'static str = include_str!("../../librt/dist/main.js");
@@ -170,6 +170,7 @@ impl Instance {
 
     pub fn run(mut self, ready_callback: impl FnOnce()) -> GenericResult<()> {
         let mut state = self.state.take().unwrap();
+        let worker_runtime = state.worker_runtime.clone();
 
         // Init resources
         let mut isolate_scope = v8::HandleScope::new(&mut *self.isolate);
@@ -208,6 +209,8 @@ impl Instance {
 
         // Wait for tasks.
         loop {
+            update_stats(&worker_runtime, &worker_handle, &mut context_scope);
+
             let mut scope = &mut v8::HandleScope::new(&mut context_scope);
             let mut try_catch = &mut v8::TryCatch::new(scope);
             let scope: &mut v8::HandleScope<'_> = try_catch.as_mut();
@@ -273,6 +276,13 @@ impl Instance {
 
                 // Waiting for I/O now. Stop the timer.
                 state.stop_timer();
+
+                // A nice point to update statistics!
+                update_stats(&worker_runtime, &worker_handle, scope);
+
+                // Renew lifetime
+                let state = InstanceState::get(scope);
+
                 let (callback, data) = state.io_waiter.as_mut().unwrap().wait()?;
                 state.start_timer();
 
@@ -337,6 +347,14 @@ impl InstanceState {
             }
         }
     }
+}
+
+fn update_stats(worker_runtime: &Runtime, worker_handle: &WorkerHandle, scope: &mut v8::Isolate) {
+    let mut stats = v8::HeapStatistics::default();
+    scope.get_heap_statistics(&mut stats);
+    worker_runtime.update_stats(worker_handle, InstanceStatistics {
+        used_memory_bytes: stats.total_heap_size(),
+    });
 }
 
 extern "C" fn on_memory_limit_exceeded(data: *mut c_void, current_heap_limit: usize, _initial_heap_limit: usize) -> usize {

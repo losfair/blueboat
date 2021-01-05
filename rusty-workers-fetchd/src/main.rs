@@ -17,6 +17,10 @@ struct Opt {
     /// RPC listen address.
     #[structopt(short = "l", long)]
     rpc_listen: SocketAddr,
+
+    /// Max concurrency.
+    #[structopt(long, env = "RW_MAX_CONCURRENCY", default_value = "1000")]
+    max_concurrency: usize,
 }
 
 #[tokio::main]
@@ -27,7 +31,7 @@ async fn main() -> Result<()> {
     info!("rusty-workers-fetchd starting");
 
     let state = server::FetchState::new()?;
-    server::FetchServer::listen(&opt.rpc_listen, move || server::FetchServer::new(state.clone())).await?;
+    server::FetchServer::listen(&opt.rpc_listen, opt.max_concurrency, move || server::FetchServer::new(state.clone())).await?;
 
     Ok(())
 }

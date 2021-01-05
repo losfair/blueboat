@@ -46,7 +46,7 @@ impl rusty_workers::rpc::FetchService for FetchServer {
     }
 }
 
-rusty_workers::impl_listen!(FetchServer, rusty_workers::rpc::FetchService, 1000);
+rusty_workers::impl_listen!(FetchServer, rusty_workers::rpc::FetchService);
 
 impl FetchState {
     pub fn new() -> Result<Arc<Self>> {

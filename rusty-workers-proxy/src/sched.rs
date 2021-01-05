@@ -13,6 +13,7 @@ use std::sync::Arc;
 use rand::Rng;
 use futures::StreamExt;
 use arc_swap::ArcSwap;
+use std::sync::atomic::{AtomicU16, Ordering};
 
 #[derive(Debug, Error)]
 pub enum SchedError {
@@ -48,6 +49,9 @@ pub struct Scheduler {
 struct RtState {
     /// The client.
     client: RuntimeServiceClient,
+
+    /// Load.
+    load: Arc<AtomicU16>,
 }
 
 /// Scheduling state of an app.
@@ -289,6 +293,17 @@ impl Scheduler {
         Ok(())
     }
 
+    pub async fn query_runtime_loads(&self) {
+        let clients = self.clients.read().await;
+        for (addr, rt) in clients.iter() {
+            if let Ok(Ok(load)) = rt.client.clone().load(tarpc::context::current()).await {
+                let load_float = (load as f64) / (u16::MAX as f64);
+                info!("updating load for backend {:?}: {}", addr, load_float);
+                rt.load.store(load, Ordering::Relaxed);
+            }
+        }
+    }
+
     async fn populate_config(&self) {
         let config = self.config.load();
 
@@ -302,6 +317,7 @@ impl Scheduler {
                     Ok(client) => {
                         clients.insert(*service_addr, RtState {
                             client,
+                            load: Arc::new(AtomicU16::new(0)),
                         });
                     },
                     Err(e) => {

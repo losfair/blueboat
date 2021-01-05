@@ -4,13 +4,26 @@ use rusty_workers::types::*;
 use std::time::Duration;
 use crate::executor::{Instance, InstanceHandle, InstanceTimeControl, TimerControl};
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use tokio::sync::oneshot;
 use rusty_workers::rpc::FetchServiceClient;
 use rusty_workers::tarpc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::config::Config;
 
 pub struct Runtime {
-    instances: AsyncMutex<LruCache<WorkerHandle, Arc<InstanceHandle>>>,
+    instances: AsyncRwLock<LruCache<WorkerHandle, WorkerState>>,
+    statistics_update_tx: tokio::sync::mpsc::Sender<(WorkerHandle, InstanceStatistics)>,
+    config: Config,
+}
+
+struct WorkerState {
+    handle: Arc<InstanceHandle>,
+    memory_bytes: AtomicUsize,
+}
+
+pub struct InstanceStatistics {
+    pub used_memory_bytes: usize,
 }
 
 pub fn init() {
@@ -20,10 +33,18 @@ pub fn init() {
 }
 
 impl Runtime {
-    pub fn new() -> Arc<Self> {
-        Arc::new(Runtime {
-            instances: AsyncMutex::new(LruCache::with_expiry_duration_and_capacity(Duration::from_secs(600), 500)), // arbitrary choices
-        })
+    pub fn new(config: Config) -> Arc<Self> {
+        let (statistics_update_tx, statistics_update_rx) = tokio::sync::mpsc::channel(100);
+        let max_num_of_instances = config.max_num_of_instances;
+        let max_inactive_time_ms = config.max_inactive_time_ms;
+        let rt = Arc::new(Runtime {
+            instances: AsyncRwLock::new(LruCache::with_expiry_duration_and_capacity(Duration::from_millis(max_inactive_time_ms), max_num_of_instances)), // arbitrary choices
+            statistics_update_tx,
+            config,
+        });
+        let rt_weak = Arc::downgrade(&rt);
+        tokio::spawn(statistics_update_worker(rt_weak, statistics_update_rx));
+        rt
     }
 
     fn instance_thread(
@@ -83,7 +104,7 @@ impl Runtime {
                         info!("stopping monitor for worker {}", worker_handle.id);
 
                         // May fail if removed by LRU policy / other code
-                        self.instances.lock().await.remove(&worker_handle);
+                        self.instances.write().await.remove(&worker_handle);
 
                         break;
                     }
@@ -91,8 +112,8 @@ impl Runtime {
                 _ = wait_until(deadline) => {
                     info!("worker {} timed out", worker_handle.id);
 
-                    if let Some(handle) = self.instances.lock().await.remove(&worker_handle) {
-                        handle.terminate_for_time_limit().await;
+                    if let Some(handle) = self.instances.write().await.remove(&worker_handle) {
+                        handle.handle.terminate_for_time_limit().await;
                     }
 
                     break;
@@ -102,18 +123,20 @@ impl Runtime {
     }
 
     pub async fn list(&self) -> GenericResult<Vec<WorkerHandle>> {
-        Ok(self.instances.lock().await.iter().map(|x| x.0.clone()).collect())
+        Ok(self.instances.read().await.peek_iter().map(|x| x.0.clone()).collect())
     }
 
     pub async fn terminate(&self, worker_handle: &WorkerHandle) -> GenericResult<()> {
-        match self.instances.lock().await.remove(&worker_handle) {
-            Some(x) => Ok(()),
+        match self.instances.write().await.remove(&worker_handle) {
+            Some(_) => Ok(()),
             None => Err(GenericError::NoSuchWorker),
         }
     }
 
     pub async fn fetch(&self, worker_handle: &WorkerHandle, req: RequestObject) -> GenericResult<ResponseObject> {
-        let instance = self.instances.lock().await.get(&worker_handle).cloned().ok_or_else(|| GenericError::NoSuchWorker)?;
+        // write() lock for LRU update
+        let instance = self.instances.write().await
+            .get(&worker_handle).map(|x| x.handle.clone()).ok_or_else(|| GenericError::NoSuchWorker)?;
         instance.fetch(req).await
     }
 
@@ -130,7 +153,10 @@ impl Runtime {
         let result = result_rx.await;
         match result {
             Ok(Ok((handle, timectl))) => {
-                self.instances.lock().await.insert(worker_handle.clone(), Arc::new(handle));
+                self.instances.write().await.insert(worker_handle.clone(), WorkerState {
+                    handle: Arc::new(handle),
+                    memory_bytes: AtomicUsize::new(0),
+                });
                 tokio::spawn(self.clone().monitor_task(worker_handle.clone(), timectl));
                 Ok(worker_handle)
             }
@@ -143,6 +169,30 @@ impl Runtime {
             }
         }
     }
+
+    pub async fn load(&self) -> GenericResult<u16> {
+        let instances = self.instances.read().await;
+        let num_instances = instances.len();
+        let total_memory: usize = instances.peek_iter().map(|(_, v)| v.memory_bytes.load(Ordering::Relaxed)).sum();
+        drop(instances);
+
+        let memory_usage = compute_usage_saturating(
+            total_memory as f64,
+            self.config.high_memory_threshold_bytes as f64,
+            30000,
+        );
+        let instance_usage = compute_usage_saturating(
+            num_instances as f64,
+            self.config.max_num_of_instances as f64,
+            30000,
+        );
+        Ok(memory_usage + instance_usage)
+    }
+
+    pub fn update_stats(&self, worker_handle: &WorkerHandle, stats: InstanceStatistics) {
+        // Allow send to fail since this isn't critical
+        drop(self.statistics_update_tx.try_send((worker_handle.clone(), stats)));
+    }
 }
 
 async fn wait_until(deadline: Option<tokio::time::Instant>) {
@@ -151,4 +201,34 @@ async fn wait_until(deadline: Option<tokio::time::Instant>) {
     } else {
         futures::future::pending::<()>().await;
     }
+}
+
+async fn statistics_update_worker(rt: Weak<Runtime>, mut rx: tokio::sync::mpsc::Receiver<(WorkerHandle, InstanceStatistics)>) {
+    loop {
+        let (handle, stats) = if let Some(x) = rx.recv().await {
+            x
+        } else {
+            break;
+        };
+        let rt = if let Some(x) = rt.upgrade() {
+            x
+        } else {
+            break;
+        };
+        let instances = rt.instances.read().await;
+        if let Some(state) = instances.peek(&handle) {
+            state.memory_bytes.store(stats.used_memory_bytes, Ordering::Relaxed);
+        }
+    }
+}
+
+fn compute_usage_saturating(used: f64, total: f64, mul: u16) -> u16 {
+    let usage = used / total;
+    let usage = if !usage.is_finite() || usage > 1.0 {
+        1.0
+    } else {
+        usage
+    };
+
+    (usage * (mul as f64)) as u16
 }

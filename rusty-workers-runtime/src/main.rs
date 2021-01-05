@@ -10,6 +10,7 @@ mod error;
 mod engine;
 mod interface;
 mod io;
+mod config;
 
 use structopt::StructOpt;
 use anyhow::Result;
@@ -26,6 +27,9 @@ struct Opt {
     /// RPC listen address.
     #[structopt(short = "l", long)]
     rpc_listen: SocketAddr,
+
+    #[structopt(flatten)]
+    config: config::Config,
 }
 
 #[tokio::main]
@@ -37,9 +41,10 @@ async fn main() -> Result<()> {
 
     runtime::init();
 
-    let rt = runtime::Runtime::new();
+    let max_concurrency = opt.config.max_concurrent_requests;
+    let rt = runtime::Runtime::new(opt.config);
 
-    server::RuntimeServer::listen(&opt.rpc_listen, move || server::RuntimeServer {
+    server::RuntimeServer::listen(&opt.rpc_listen, max_concurrency, move || server::RuntimeServer {
         runtime: rt.clone(),
     }).await?;
 

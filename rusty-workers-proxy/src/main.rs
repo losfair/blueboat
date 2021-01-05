@@ -80,6 +80,12 @@ async fn main() -> Result<()> {
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
     });
+    tokio::spawn(async move {
+        loop {
+            SCHEDULER.get().unwrap().query_runtime_loads().await;
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        }
+    });
 
     let make_svc = make_service_fn(|_| async move {
         Ok::<_, hyper::Error>(service_fn(|req| async move {
