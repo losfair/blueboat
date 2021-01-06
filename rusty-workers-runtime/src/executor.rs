@@ -193,14 +193,14 @@ impl Instance {
             // Notify that we are ready so that timing etc. can start
             ready_callback();
 
-            // Now start the timer, since we are starting to run user code.
-            state.start_timer();
-    
             scope.set_slot(state);
             try_catch.check()?;
 
             librt.run(try_catch.as_mut());
             try_catch.check()?;
+
+            // Now start the timer, since we are starting to run user code.
+            InstanceState::get(try_catch).start_timer();
 
             script.run(try_catch.as_mut());
             try_catch.check()?;
