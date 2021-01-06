@@ -1,12 +1,10 @@
 use serde::{Serialize, Deserialize};
 use std::net::SocketAddr;
-use std::collections::BTreeSet;
-use rusty_workers::types::*;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct Config {
     #[serde(default)]
-    pub runtime_cluster: BTreeSet<SocketAddr>,
+    pub runtime_cluster: Vec<SocketAddr>,
 
     pub apps: Vec<AppConfig>,
 

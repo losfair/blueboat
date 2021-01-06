@@ -10,7 +10,6 @@ use rusty_workers::tarpc;
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use rand::Rng;
 use futures::StreamExt;
 use arc_swap::ArcSwap;
 use std::sync::atomic::{AtomicU16, Ordering};
@@ -39,7 +38,7 @@ pub enum ConfigurationError {
 pub struct Scheduler {
     config: ArcSwap<Config>,
     worker_config: WorkerConfiguration,
-    clients: AsyncRwLock<BTreeMap<SocketAddr, RtState>>,
+    clients: AsyncRwLock<BTreeMap<RuntimeId, RtState>>,
     apps: AsyncRwLock<BTreeMap<AppId, AppState>>,
     route_mappings: AsyncRwLock<BTreeMap<String, BTreeMap<String, AppId>>>, // domain -> (prefix -> appid)
 }
@@ -72,8 +71,8 @@ struct AppState {
 /// State of an instance ready for an app.
 #[derive(Clone)]
 struct ReadyInstance {
-    /// Address of the runtime.
-    addr: SocketAddr,
+    /// Identifier of this runtime.
+    rtid: RuntimeId,
 
     /// Last active time.
     last_active: Instant,
@@ -109,7 +108,7 @@ impl AppState {
         self.ready_instances.lock().await.push_back(inst);
     }
 
-    async fn get_instance(&self, config: &Config, clients: &AsyncRwLock<BTreeMap<SocketAddr, RtState>>) -> Result<ReadyInstance> {
+    async fn get_instance(&self, config: &Config, clients: &AsyncRwLock<BTreeMap<RuntimeId, RtState>>) -> Result<ReadyInstance> {
         let mut ready_instances = self.ready_instances.lock().await;
         while let Some(mut instance) = ready_instances.pop_front() {
             // TODO: Maintain load data for each client and select based on load.
@@ -123,12 +122,13 @@ impl AppState {
         let clients = clients.read().await;
 
         // No cached instance now. Create one.
-        let (&addr, mut rt) = clients.iter()
+        let (rtid, rt) = clients.iter()
             .min_by_key(|x| x.1.load.load(Ordering::Relaxed))
             .ok_or(SchedError::NoAvailableInstance)?;
 
-        info!("spawning new worker for app {} on runtime {:?} with load {}", self.id.0, addr, rt.load.load(Ordering::Relaxed) as f64 / std::u16::MAX as f64);
+        info!("spawning new worker for app {} on runtime {} with load {}", self.id.0, rtid.0, rt.load.load(Ordering::Relaxed) as f64 / std::u16::MAX as f64);
 
+        let rtid = rtid.clone();
         let mut client = rt.client.clone();
         let handle = client.spawn_worker(
             tarpc::context::current(),
@@ -137,7 +137,7 @@ impl AppState {
             self.script.clone()
         ).await??;
         Ok(ReadyInstance {
-            addr,
+            rtid,
             last_active: Instant::now(),
             handle,
             client,
@@ -215,20 +215,29 @@ impl Scheduler {
         };
 
         let apps = self.apps.read().await;
-        let mut app = apps.get(&appid).ok_or(SchedError::NoRouteMapping)?;
+        let app = apps.get(&appid).ok_or(SchedError::NoRouteMapping)?;
 
         let config = self.config.load();
 
         // Backend retries.
         for _ in 0..3usize {
             let mut instance = app.get_instance(&config, &self.clients).await?;
-            info!("routing request {}{} to app {}, instance {:?}", host, uri, appid.0, instance.addr);
+            info!("routing request {}{} to app {}, instance {}", host, uri, appid.0, instance.rtid.0);
     
             let mut fetch_context = tarpc::context::current();
             fetch_context.deadline = std::time::SystemTime::now() + Duration::from_millis(config.request_timeout_ms);
 
             let fetch_res = instance.client.fetch(fetch_context, instance.handle.clone(), target_req.clone())
-                .await?; // Don't retry in case of network errors.
+                .await;
+            let fetch_res = match fetch_res {
+                Ok(x) => x,
+                Err(e) => {
+                    // Network error. Drop this and select another instance.
+                    self.clients.write().await.remove(&instance.rtid);
+                    info!("network error for instance {}: {:?}", instance.rtid.0, e);
+                    continue;
+                }
+            };
             let fetch_res = match fetch_res {
                 Ok(x) => x,
                 Err(e) => {
@@ -275,7 +284,7 @@ impl Scheduler {
         Err(SchedError::RequestFailedAfterRetries.into())
     }
 
-    pub async fn check_config_update(&self, url: &str, runtime_cluster_append: &BTreeSet<SocketAddr>) -> Result<()> {
+    pub async fn check_config_update(&self, url: &str, runtime_cluster_append: &Vec<SocketAddr>) -> Result<()> {
         let res = reqwest::get(url)
             .await?;
         if !res.status().is_success() {
@@ -284,7 +293,7 @@ impl Scheduler {
         let body = res.text().await?;
         let mut config: Config = toml::from_str(&body)?;
         for addr in runtime_cluster_append.iter() {
-            config.runtime_cluster.insert(*addr);
+            config.runtime_cluster.push(*addr);
         }
         if config != **self.config.load() {
             self.config.store(Arc::new(config));
@@ -294,57 +303,78 @@ impl Scheduler {
         Ok(())
     }
 
-    pub async fn query_runtime_loads(&self) {
+    /// Query each runtime for its health/load status, etc.
+    pub async fn query_runtimes(&self) {
+        let mut to_drop = vec![];
         let clients = self.clients.read().await;
-        for (addr, rt) in clients.iter() {
+        for (rtid, rt) in clients.iter() {
             if let Ok(Ok(load)) = rt.client.clone().load(tarpc::context::current()).await {
                 let load_float = (load as f64) / (u16::MAX as f64);
-                info!("updating load for backend {:?}: {}", addr, load_float);
+                info!("updating load for backend {}: {}", rtid.0, load_float);
                 rt.load.store(load, Ordering::Relaxed);
+            } else {
+                // Something is wrong. Drop it.
+                to_drop.push(rtid.clone());
             }
         }
+        drop(clients);
+
+        // Remove all clients that don't respond to our load query.
+        if to_drop.len() > 0 {
+            let mut clients = self.clients.write().await;
+            for rtid in to_drop {
+                info!("dropping backend {}", rtid.0);
+                clients.remove(&rtid);
+            }
+        }
+    }
+
+    /// Discover new runtimes behind each specified address. (with load balancing)
+    pub async fn discover_runtimes(&self) {
+        let config = self.config.load();
+        let new_clients = config.runtime_cluster.iter().map(|addr| async move {
+            match RuntimeServiceClient::connect_noretry(addr).await {
+                Ok(mut client) => {
+                    match client.id(tarpc::context::current()).await {
+                        Ok(id) => Some((id, client)),
+                        Err(e) => {
+                            info!("cannot fetch id from backend {:?}: {:?}", addr, e);
+                            None
+                        }
+                    }
+                }
+                Err(e) => {
+                    info!("cannot connect to backend {:?}: {:?}", addr, e);
+                    None
+                }
+            }
+        });
+        let new_clients: Vec<Option<(RuntimeId, RuntimeServiceClient)>> =
+            futures::future::join_all(new_clients).await;
+        drop(config);
+
+        let mut clients = self.clients.write().await;
+        for item in new_clients {
+            if let Some((id, client)) = item {
+                if !clients.contains_key(&id) {
+                    info!("discovered new backend: {}", id.0);
+                    clients.insert(id, RtState {
+                        client,
+                        load: Arc::new(AtomicU16::new(0)),
+                    });
+                }
+            }
+        }
+        drop(clients);
     }
 
     async fn populate_config(&self) {
         let config = self.config.load();
 
-        // TODO: Finer-grained locking
-        let mut clients = self.clients.write().await;
-
-        // Add new clients.
-        for service_addr in config.runtime_cluster.iter() {
-            if !clients.contains_key(service_addr) {
-                match RuntimeServiceClient::connect(*service_addr).await {
-                    Ok(client) => {
-                        clients.insert(*service_addr, RtState {
-                            client,
-                            load: Arc::new(AtomicU16::new(0)),
-                        });
-                    },
-                    Err(e) => {
-                        error!("populate_config: cannot connect to runtime service {:?}: {:?}", service_addr, e);
-                    }
-                }
-            }
-        }
-
-        // Drop removed clients.
-        let mut clients_to_remove = vec![];
-        for (k, _) in clients.iter() {
-            if !config.runtime_cluster.contains(k) {
-                clients_to_remove.push(*k);
-            }
-        }
-        for k in clients_to_remove {
-            clients.remove(&k);
-        }
-
-        drop(clients);
-
         // Update app list.
         let apps = self.apps.read().await;
 
-        let mut new_apps_config: BTreeMap<AppId, &AppConfig> = config.apps.iter().map(|x| (x.id.clone(), x)).collect();
+        let new_apps_config: BTreeMap<AppId, &AppConfig> = config.apps.iter().map(|x| (x.id.clone(), x)).collect();
 
         // Figure out newly added apps
         let mut unseen_appids: BTreeSet<AppId> = new_apps_config.iter().map(|(k, _)| k.clone()).collect();
@@ -432,6 +462,14 @@ impl Scheduler {
         }
 
         *self.route_mappings.write().await = routing_table;
+        
+        drop(config);
+
+        // Trigger a runtime discovery with new configuration
+        self.discover_runtimes().await;
+
+        // ... and query their status.
+        self.query_runtimes().await;
     }
 }
 

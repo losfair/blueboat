@@ -7,13 +7,8 @@ mod sched;
 use structopt::StructOpt;
 use anyhow::Result;
 use std::net::SocketAddr;
-use rusty_workers::tarpc;
-use config::*;
 use rusty_workers::types::*;
-use std::sync::Arc;
-use tokio::io::AsyncReadExt;
 use once_cell::sync::OnceCell;
-use std::collections::BTreeSet;
 
 use hyper::{Body, Response, Server};
 use hyper::service::{make_service_fn, service_fn};
@@ -76,9 +71,9 @@ async fn main() -> Result<()> {
         fetch_service: opt.fetch_service,
     })).unwrap_or_else(|_| panic!("cannot set scheduler"));
 
-    let mut additional_runtimes: BTreeSet<SocketAddr> = BTreeSet::new();
+    let mut additional_runtimes: Vec<SocketAddr> = Vec::new();
     for elem in opt.runtimes.split(",") {
-        additional_runtimes.insert(elem.parse()?);
+        additional_runtimes.push(elem.parse()?);
     }
 
     let config_url = opt.config;
@@ -87,13 +82,15 @@ async fn main() -> Result<()> {
             if let Err(e) = SCHEDULER.get().unwrap().check_config_update(&config_url, &additional_runtimes).await {
                 warn!("check_config_update: {:?}", e);
             }
-            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(53)).await;
         }
     });
     tokio::spawn(async move {
         loop {
-            SCHEDULER.get().unwrap().query_runtime_loads().await;
-            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            let scheduler = SCHEDULER.get().unwrap();
+            scheduler.discover_runtimes().await;
+            scheduler.query_runtimes().await;
+            tokio::time::sleep(std::time::Duration::from_secs(7)).await;
         }
     });
 
@@ -106,7 +103,7 @@ async fn main() -> Result<()> {
                     warn!("handle_request failed: {:?}", e);
                     let res = match e.downcast::<SchedError>() {
                         Ok(e) => e.build_response(),
-                        Err(e) => {
+                        Err(_) => {
                             let mut res = Response::new(Body::from("internal server error"));
                             *res.status_mut() = hyper::StatusCode::INTERNAL_SERVER_ERROR;
                             res

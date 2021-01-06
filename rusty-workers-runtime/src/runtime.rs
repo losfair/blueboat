@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::config::Config;
 
 pub struct Runtime {
+    id: RuntimeId,
     instances: AsyncRwLock<LruCache<WorkerHandle, WorkerState>>,
     statistics_update_tx: tokio::sync::mpsc::Sender<(WorkerHandle, InstanceStatistics)>,
     config: Config,
@@ -38,6 +39,7 @@ impl Runtime {
         let max_num_of_instances = config.max_num_of_instances;
         let max_inactive_time_ms = config.max_inactive_time_ms;
         let rt = Arc::new(Runtime {
+            id: RuntimeId::generate(),
             instances: AsyncRwLock::new(LruCache::with_expiry_duration_and_capacity(Duration::from_millis(max_inactive_time_ms), max_num_of_instances)), // arbitrary choices
             statistics_update_tx,
             config,
@@ -45,6 +47,10 @@ impl Runtime {
         let rt_weak = Arc::downgrade(&rt);
         tokio::spawn(statistics_update_worker(rt_weak, statistics_update_rx));
         rt
+    }
+
+    pub fn id(&self) -> RuntimeId {
+        self.id.clone()
     }
 
     fn instance_thread(

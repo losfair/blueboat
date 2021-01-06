@@ -10,6 +10,10 @@ pub struct RuntimeServer {
 
 #[tarpc::server]
 impl rusty_workers::rpc::RuntimeService for RuntimeServer {
+    async fn id(self, _: tarpc::context::Context) -> RuntimeId {
+        self.runtime.id()
+    }
+
     async fn spawn_worker(self, _: tarpc::context::Context, appid: String, configuration: WorkerConfiguration, code: String) -> GenericResult<WorkerHandle> {
         self.runtime.spawn(appid, code, &configuration).await
     }

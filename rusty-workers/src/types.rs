@@ -99,6 +99,9 @@ pub enum GenericError {
 
 pub type GenericResult<T> = Result<T, GenericError>;
 
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct RuntimeId(pub String);
+
 impl From<std::io::Error> for GenericError {
     fn from(other: std::io::Error) -> Self {
         Self::Io(format!("{:?}", other))
@@ -110,5 +113,11 @@ impl WorkerHandle {
         Self {
             id: crate::util::rand_hex(16),
         }
+    }
+}
+
+impl RuntimeId {
+    pub fn generate() -> Self {
+        Self(crate::util::rand_hex(16))
     }
 }

@@ -16,6 +16,12 @@ macro_rules! impl_connect {
                 let client = $ty::new(tarpc::client::Config::default(), transport).spawn()?;
                 Ok(client)
             }
+
+            pub async fn connect_noretry<A: tokio::net::ToSocketAddrs>(addr: A) -> GenericResult<Self> {
+                let mut transport = tarpc::serde_transport::tcp::connect(addr, crate::SerdeFormat::default);
+                let client = $ty::new(tarpc::client::Config::default(), transport.await?).spawn()?;
+                Ok(client)
+            }
         }
     };
 }
@@ -48,6 +54,9 @@ macro_rules! impl_listen {
 /// The Workers runtime.
 #[tarpc::service]
 pub trait RuntimeService {
+    /// Unique identifier. Specific to each instance and is not permanent.
+    async fn id() -> RuntimeId;
+
     /// Spawn a worker.
     async fn spawn_worker(appid: String, configuration: WorkerConfiguration, code: String) -> GenericResult<WorkerHandle>;
 
