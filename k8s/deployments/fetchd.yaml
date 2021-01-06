@@ -20,6 +20,7 @@ spec:
       containers:
       - name: fetchd
         image: __IMAGE_PREFIX__rusty-workers-fetchd__IMAGE_SUFFIX__
+        imagePullPolicy: Always
         resources:
           requests:
             cpu: 0.1

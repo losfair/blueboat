@@ -20,6 +20,7 @@ spec:
       containers:
       - name: runtime-X
         image: __IMAGE_PREFIX__rusty-workers-runtime__IMAGE_SUFFIX__
+        imagePullPolicy: Always
         resources:
           requests:
             cpu: 0.6

@@ -20,6 +20,7 @@ spec:
       containers:
       - name: proxy
         image: __IMAGE_PREFIX__rusty-workers-proxy__IMAGE_SUFFIX__
+        imagePullPolicy: Always
         resources:
           requests:
             cpu: 0.1
