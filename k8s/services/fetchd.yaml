@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  namespace: rusty-workers
+  namespace: __NAMESPACE__
   name: fetchd-service
 spec:
   selector:

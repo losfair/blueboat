@@ -72,6 +72,11 @@ if [ -z "$NUM_RUNTIMES" ]; then
     exit 1
 fi
 
+if [ -z "$NAMESPACE" ]; then
+    echo "[-] NAMESPACE not defined"
+    exit 1
+fi
+
 # Allow empty suffix
 #if [ -z "$IMAGE_SUFFIX" ]; then
 #    echo "[-] IMAGE_SUFFIX not defined"
@@ -86,6 +91,7 @@ find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__PROXY_CONFIG_URL__#$PROXY_
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__EXTERNAL_IPS__#$EXTERNAL_IPS#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__IMAGE_PREFIX__#$IMAGE_PREFIX#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__IMAGE_SUFFIX__#$IMAGE_SUFFIX#g" '{}' ';'
+find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__NAMESPACE__#$NAMESPACE#g" '{}' ';'
 
 generate_runtime_deployments 
 generate_runtime_services

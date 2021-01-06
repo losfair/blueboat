@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  namespace: rusty-workers
+  namespace: __NAMESPACE__
   name: proxy
   labels:
     app: proxy
@@ -12,7 +12,7 @@ spec:
       app: proxy
   template:
     metadata:
-      namespace: rusty-workers
+      namespace: __NAMESPACE__
       name: proxy
       labels:
         app: proxy
