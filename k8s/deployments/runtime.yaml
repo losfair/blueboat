@@ -27,7 +27,7 @@ spec:
             memory: 800Mi
         env:
         - name: RUST_LOG
-          value: debug
+          value: info
         - name: RW_HIGH_MEMORY_THRESHOLD_BYTES
           value: "1073741824"
         - name: RW_MAX_NUM_OF_INSTANCES

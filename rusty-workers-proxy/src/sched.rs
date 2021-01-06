@@ -161,7 +161,7 @@ impl Scheduler {
 
         // Rewrite host to remove port.
         let host = req.headers().get("host").and_then(|x| x.to_str().ok()).unwrap_or("").split(":").nth(0).unwrap().to_string();
-        debug!("host: {}", host);
+        trace!("host: {}", host);
         req.headers_mut().insert("host", hyper::header::HeaderValue::from_bytes(host.as_bytes())?);
 
         let uri = req.uri().clone();
@@ -222,7 +222,7 @@ impl Scheduler {
         // Backend retries.
         for _ in 0..3usize {
             let mut instance = app.get_instance(&config, &self.clients).await?;
-            info!("routing request {}{} to app {}, instance {}", host, uri, appid.0, instance.rtid.0);
+            debug!("routing request {}{} to app {}, instance {}", host, uri, appid.0, instance.rtid.0);
     
             let mut fetch_context = tarpc::context::current();
             fetch_context.deadline = std::time::SystemTime::now() + Duration::from_millis(config.request_timeout_ms);
