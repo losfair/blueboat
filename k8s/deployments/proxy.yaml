@@ -27,7 +27,7 @@ spec:
             memory: 64Mi
         env:
         - name: RUST_LOG
-          value: rusty_workers_proxy=info
+          value: rusty_workers_proxy=info,rusty_workers=info
         - name: RW_CONFIG_URL
           value: __PROXY_CONFIG_URL__
         - name: RW_FETCH_SERVICE
