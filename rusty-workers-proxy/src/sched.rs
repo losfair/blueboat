@@ -127,7 +127,7 @@ impl AppState {
             .min_by_key(|x| x.1.load.load(Ordering::Relaxed))
             .ok_or(SchedError::NoAvailableInstance)?;
 
-        info!("spawning new worker for app {} on runtime {:?} with load {}", self.id.0, addr, rt.load.load(Ordering::Relaxed));
+        info!("spawning new worker for app {} on runtime {:?} with load {}", self.id.0, addr, rt.load.load(Ordering::Relaxed) as f64 / std::u16::MAX as f64);
 
         let mut client = rt.client.clone();
         let handle = client.spawn_worker(
