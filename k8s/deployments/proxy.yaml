@@ -31,7 +31,7 @@ spec:
         - name: RW_CONFIG_URL
           value: __PROXY_CONFIG_URL__
         - name: RW_FETCH_SERVICE
-          value: __NET_PREFIX__.1.3:3000
+          value: __NET_PREFIX__.3:3000
         - name: RW_MAX_IO_CONCURRENCY
           value: "10"
         - name: RW_MAX_IO_PER_REQUEST

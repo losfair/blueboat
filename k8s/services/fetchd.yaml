@@ -6,6 +6,6 @@ metadata:
 spec:
   selector:
     app: fetchd
-  clusterIP: __NET_PREFIX__.1.3
+  clusterIP: __NET_PREFIX__.3
   ports:
   - port: 3000

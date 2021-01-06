@@ -12,9 +12,10 @@ generate_runtime_deployments()
 generate_runtime_services()
 {
     for (( i=1; i<=$NUM_RUNTIMES; ++i)); do
+        local ip_last=$(($i + 128))
         cp "./k8s.$SUFFIX/services/runtime-X.yaml" "./k8s.$SUFFIX/services/runtime-$i.yaml" || exit 1
         sed -i "s/runtime-X/runtime-$i/g" "./k8s.$SUFFIX/services/runtime-$i.yaml" || exit 1
-        sed -i "s/__RUNTIME_IP__/$NET_PREFIX.2.$i/g" "./k8s.$SUFFIX/services/runtime-$i.yaml" || exit 1
+        sed -i "s/__RUNTIME_IP__/$NET_PREFIX.$ip_last/g" "./k8s.$SUFFIX/services/runtime-$i.yaml" || exit 1
     done
     rm "./k8s.$SUFFIX/services/runtime-X.yaml" || exit 1
 }
@@ -23,10 +24,11 @@ rewrite_proxy()
 {
     local ADDRLIST=""
     for (( i=1; i<=$NUM_RUNTIMES; ++i)); do
+        local ip_last=$(($i + 128))
         if [ "$i" != "1" ]; then
             ADDRLIST="$ADDRLIST,"
         fi
-        ADDRLIST="$ADDRLIST$NET_PREFIX.2.$i:3000"
+        ADDRLIST="$ADDRLIST$NET_PREFIX.$ip_last:3000"
     done
 
     sed -i "s/__RUNTIME_ADDRESSES__/$ADDRLIST/g" "./k8s.$SUFFIX/deployments/proxy.yaml" || exit 1
