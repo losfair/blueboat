@@ -13,6 +13,8 @@ cleanup()
 
 trap cleanup EXIT
 
+cd "`dirname $0`"
+
 cp ./target/release/rusty-workers-{proxy,runtime,fetchd} "$TMP/" || exit 1
 
 cp ./baseenv.Dockerfile "$TMP/Dockerfile" || exit 1
