@@ -2,23 +2,23 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   namespace: __NAMESPACE__
-  name: runtime-X
+  name: runtime
   labels:
-    app: runtime-X
+    app: runtime
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
-      app: runtime-X
+      app: runtime
   template:
     metadata:
       namespace: __NAMESPACE__
-      name: runtime-X
+      name: runtime
       labels:
-        app: runtime-X
+        app: runtime
     spec:
       containers:
-      - name: runtime-X
+      - name: runtime
         image: __IMAGE_PREFIX__rusty-workers-runtime__IMAGE_SUFFIX__
         imagePullPolicy: Always
         resources:

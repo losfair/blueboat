@@ -27,7 +27,7 @@ spec:
             memory: 64Mi
         env:
         - name: RUST_LOG
-          value: info
+          value: rusty_workers_proxy=info
         - name: RW_CONFIG_URL
           value: __PROXY_CONFIG_URL__
         - name: RW_FETCH_SERVICE
@@ -41,6 +41,7 @@ spec:
         - name: RW_MAX_TIME_MS
           value: "200"
         - name: RUNTIMES
-          value: __RUNTIME_ADDRESSES__
+          # Query it 4 times when doing discovery
+          value: __NET_PREFIX__.4:3000,__NET_PREFIX__.4:3000,__NET_PREFIX__.4:3000,__NET_PREFIX__.4:3000
         ports:
         - containerPort: 8080
