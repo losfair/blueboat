@@ -166,7 +166,7 @@ impl Scheduler {
         debug!("host: {}", host);
         req.headers_mut().insert("host", hyper::header::HeaderValue::from_bytes(host.as_bytes())?);
 
-        let uri = req.uri();
+        let uri = req.uri().clone();
         let submappings = route_mappings.get(&host).ok_or(SchedError::NoRouteMapping)?;
 
         // Match in reverse order.
@@ -180,7 +180,6 @@ impl Scheduler {
         drop(route_mappings);
 
         let appid = appid.ok_or(SchedError::NoRouteMapping)?;
-        debug!("routing request to app {}", appid.0);
 
         let method = req.method().as_str().to_string();
         let mut headers = BTreeMap::new();
@@ -225,6 +224,7 @@ impl Scheduler {
         // Backend retries.
         for _ in 0..3usize {
             let mut instance = app.get_instance(&config, &self.clients).await?;
+            info!("routing request {}{} to app {}, instance {:?}", host, uri, appid.0, instance.addr);
     
             let mut fetch_context = tarpc::context::current();
             fetch_context.deadline = std::time::SystemTime::now() + Duration::from_millis(config.request_timeout_ms);
@@ -365,7 +365,7 @@ impl Scheduler {
         let app_scripts: Vec<_> = unseen_appids.iter().map(|id| {
             new_apps_config.get(&id).unwrap().script.clone()
         }).map(|script_url| async move {
-            debug!("fetching script for app {}", script_url);
+            info!("fetching script for app {}", script_url);
             // TODO: limit body size
             let res = reqwest::get(&script_url)
                 .await?;
@@ -379,16 +379,16 @@ impl Scheduler {
         let app_scripts = futures::future::join_all(app_scripts).await;
 
         for (id, fetch_result) in unseen_appids.into_iter().zip(app_scripts.into_iter()) {
-            debug!("loading app {}", id.0);
+            info!("loading app {}", id.0);
             let app_config = new_apps_config.get(&id).unwrap(); 
             let script = match fetch_result {
                 Ok(Some(x)) => x,
                 Ok(None) => {
-                    debug!("fetch failed: app {} ({})", id.0, app_config.script);
+                    info!("fetch failed: app {} ({})", id.0, app_config.script);
                     continue;
                 }
                 Err(e) => {
-                    debug!("fetch failed: app {} ({}): {:?}", id.0, app_config.script, e);
+                    info!("fetch failed: app {} ({}): {:?}", id.0, app_config.script, e);
                     continue;
                 }
             };
@@ -427,7 +427,7 @@ impl Scheduler {
         let mut routing_table: BTreeMap<String, BTreeMap<String, AppId>> = BTreeMap::new();
         for (id, &app_config) in new_apps_config.iter() {
             for route in &app_config.routes {
-                debug!("inserting route: {:?}", route);
+                info!("inserting route: {:?}", route);
                 routing_table.entry(route.domain.clone()).or_insert(BTreeMap::new())
                     .insert(route.path_prefix.clone(), id.clone());
             }
