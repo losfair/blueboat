@@ -25,3 +25,5 @@ jobs:
         run: make all
       - name: Build Docker Images
         run: make docker
+      - name: Run Tests in Docker
+        run: docker run --rm -e RUST_LOG=debug losfair/rusty-workers-all:latest
