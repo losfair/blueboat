@@ -122,17 +122,15 @@ impl AppState {
 
         let clients = clients.read().await;
 
-        // No available instance now. Create one.
-        if clients.len() == 0 {
-            return Err(SchedError::NoAvailableInstance.into());
-        }
-        let index = rand::thread_rng().gen_range(0..clients.len());
-        let (addr, mut rt) = clients.iter().nth(index).map(|(k, v)| (*k, v.clone())).unwrap();
+        // No cached instance now. Create one.
+        let (&addr, mut rt) = clients.iter()
+            .min_by_key(|x| x.1.load.load(Ordering::Relaxed))
+            .ok_or(SchedError::NoAvailableInstance)?;
 
-        info!("spawning new worker for app {}", self.id.0);
+        info!("spawning new worker for app {} on runtime {:?} with load {}", self.id.0, addr, rt.load.load(Ordering::Relaxed));
 
-        // TODO: Re-select and retry on failure
-        let handle = rt.client.spawn_worker(
+        let mut client = rt.client.clone();
+        let handle = client.spawn_worker(
             tarpc::context::current(),
             self.id.0.clone(),
             self.config.clone(),
@@ -142,7 +140,7 @@ impl AppState {
             addr,
             last_active: Instant::now(),
             handle,
-            client: rt.client,
+            client,
         })
     }
 }
