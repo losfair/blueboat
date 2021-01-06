@@ -310,7 +310,7 @@ impl Scheduler {
         for (rtid, rt) in clients.iter() {
             if let Ok(Ok(load)) = rt.client.clone().load(tarpc::context::current()).await {
                 let load_float = (load as f64) / (u16::MAX as f64);
-                info!("updating load for backend {}: {}", rtid.0, load_float);
+                debug!("updating load for backend {}: {}", rtid.0, load_float);
                 rt.load.store(load, Ordering::Relaxed);
             } else {
                 // Something is wrong. Drop it.
