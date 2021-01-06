@@ -220,7 +220,9 @@ impl Scheduler {
         let config = self.config.load();
 
         // Backend retries.
-        for _ in 0..3usize {
+        // Retries are only performed when we believe this error can be recovered by retrying. So
+        // retry limit is high here.
+        for _ in 0..200usize {
             let mut instance = app.get_instance(&config, &self.clients).await?;
             debug!("routing request {}{} to app {}, instance {}", host, uri, appid.0, instance.rtid.0);
     
