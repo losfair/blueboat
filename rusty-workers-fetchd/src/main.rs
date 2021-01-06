@@ -25,10 +25,10 @@ struct Opt {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    pretty_env_logger::init();
+    pretty_env_logger::init_timed();
+    rusty_workers::init();
 
     let opt = Opt::from_args();
-    info!("rusty-workers-fetchd starting");
 
     let state = server::FetchState::new()?;
     server::FetchServer::listen(&opt.rpc_listen, opt.max_concurrency, move || server::FetchServer::new(state.clone())).await?;

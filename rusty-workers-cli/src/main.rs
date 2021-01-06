@@ -63,7 +63,8 @@ enum RuntimeCmd {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    pretty_env_logger::init();
+    pretty_env_logger::init_timed();
+    rusty_workers::init();
     let opt = Opt::from_args();
     match opt.cmd {
         Cmd::Runtime { remote, op } => {

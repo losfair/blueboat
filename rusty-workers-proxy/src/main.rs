@@ -61,10 +61,10 @@ struct Opt {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    pretty_env_logger::init();
+    pretty_env_logger::init_timed();
+    rusty_workers::init();
 
     let opt = Opt::from_args();
-    info!("rusty-workers-proxy starting");
 
     SCHEDULER.set(sched::Scheduler::new(WorkerConfiguration {
         executor: ExecutorConfiguration {

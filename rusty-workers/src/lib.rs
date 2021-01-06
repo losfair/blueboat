@@ -12,3 +12,7 @@ pub use futures;
 
 // FIXME: MessagePack doesn't work (connection resets). Why?
 pub use tokio_serde::formats::Bincode as SerdeFormat;
+
+pub fn init() {
+    info!("rusty-workers version {}", git_version::git_version!());
+}
