@@ -3,16 +3,13 @@ extern crate log;
 
 mod server;
 
-use structopt::StructOpt;
 use anyhow::Result;
-use std::net::SocketAddr;
 use rusty_workers::tarpc;
+use std::net::SocketAddr;
+use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
-#[structopt(
-    name = "rusty-workers-fetchd",
-    about = "Rusty Workers (fetchd)"
-)]
+#[structopt(name = "rusty-workers-fetchd", about = "Rusty Workers (fetchd)")]
 struct Opt {
     /// RPC listen address.
     #[structopt(short = "l", long)]
@@ -31,7 +28,10 @@ async fn main() -> Result<()> {
     let opt = Opt::from_args();
 
     let state = server::FetchState::new()?;
-    server::FetchServer::listen(&opt.rpc_listen, opt.max_concurrency, move || server::FetchServer::new(state.clone())).await?;
+    server::FetchServer::listen(&opt.rpc_listen, opt.max_concurrency, move || {
+        server::FetchServer::new(state.clone())
+    })
+    .await?;
 
     Ok(())
 }

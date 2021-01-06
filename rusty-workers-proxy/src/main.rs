@@ -4,23 +4,20 @@ extern crate log;
 mod config;
 mod sched;
 
-use structopt::StructOpt;
 use anyhow::Result;
-use std::net::SocketAddr;
-use rusty_workers::types::*;
 use once_cell::sync::OnceCell;
+use rusty_workers::types::*;
+use std::net::SocketAddr;
+use structopt::StructOpt;
 
-use hyper::{Body, Response, Server};
 use hyper::service::{make_service_fn, service_fn};
+use hyper::{Body, Response, Server};
 use sched::SchedError;
 
 static SCHEDULER: OnceCell<sched::Scheduler> = OnceCell::new();
 
 #[derive(Debug, StructOpt)]
-#[structopt(
-    name = "rusty-workers-proxy",
-    about = "Rusty Workers (frontend proxy)"
-)]
+#[structopt(name = "rusty-workers-proxy", about = "Rusty Workers (frontend proxy)")]
 struct Opt {
     /// HTTP listen address.
     #[structopt(short = "l", long)]
@@ -61,15 +58,17 @@ async fn main() -> Result<()> {
 
     let opt = Opt::from_args();
 
-    SCHEDULER.set(sched::Scheduler::new(WorkerConfiguration {
-        executor: ExecutorConfiguration {
-            max_memory_mb: opt.max_memory_mb,
-            max_time_ms: opt.max_time_ms,
-            max_io_concurrency: opt.max_io_concurrency,
-            max_io_per_request: opt.max_io_per_request,
-        },
-        fetch_service: opt.fetch_service,
-    })).unwrap_or_else(|_| panic!("cannot set scheduler"));
+    SCHEDULER
+        .set(sched::Scheduler::new(WorkerConfiguration {
+            executor: ExecutorConfiguration {
+                max_memory_mb: opt.max_memory_mb,
+                max_time_ms: opt.max_time_ms,
+                max_io_concurrency: opt.max_io_concurrency,
+                max_io_per_request: opt.max_io_per_request,
+            },
+            fetch_service: opt.fetch_service,
+        }))
+        .unwrap_or_else(|_| panic!("cannot set scheduler"));
 
     let mut additional_runtimes: Vec<SocketAddr> = Vec::new();
     for elem in opt.runtimes.split(",") {
@@ -79,7 +78,12 @@ async fn main() -> Result<()> {
     let config_url = opt.config;
     tokio::spawn(async move {
         loop {
-            if let Err(e) = SCHEDULER.get().unwrap().check_config_update(&config_url, &additional_runtimes).await {
+            if let Err(e) = SCHEDULER
+                .get()
+                .unwrap()
+                .check_config_update(&config_url, &additional_runtimes)
+                .await
+            {
                 warn!("check_config_update: {:?}", e);
             }
             tokio::time::sleep(std::time::Duration::from_secs(53)).await;

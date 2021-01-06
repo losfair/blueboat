@@ -1,9 +1,9 @@
-use rusty_workers::types::*;
-use rusty_workers::tarpc;
-use std::sync::Arc;
 use anyhow::Result;
-use thiserror::Error;
+use rusty_workers::tarpc;
+use rusty_workers::types::*;
 use std::collections::BTreeMap;
+use std::sync::Arc;
+use thiserror::Error;
 
 const MAX_RESPONSE_BODY_SIZE: usize = 1048576 * 8; // 8M
 
@@ -24,24 +24,22 @@ pub struct FetchServer {
 
 impl FetchServer {
     pub fn new(state: Arc<FetchState>) -> Self {
-        FetchServer {
-            state,
-        }
+        FetchServer { state }
     }
 }
 
 #[tarpc::server]
 impl rusty_workers::rpc::FetchService for FetchServer {
-    async fn fetch(self, _: tarpc::context::Context, req: RequestObject) -> GenericResult<Result<ResponseObject, String>> {
+    async fn fetch(
+        self,
+        _: tarpc::context::Context,
+        req: RequestObject,
+    ) -> GenericResult<Result<ResponseObject, String>> {
         debug!("fetch request: {:?}", req);
         let res = run_fetch(&self.state, req).await;
         match res {
-            Ok(x) => {
-                Ok(Ok(x))
-            }
-            Err(e) => {
-                Ok(Err(format!("fetch error: {:?}", e)))
-            }
+            Ok(x) => Ok(Ok(x)),
+            Err(e) => Ok(Err(format!("fetch error: {:?}", e))),
         }
     }
 }
@@ -53,13 +51,16 @@ impl FetchState {
         Ok(Arc::new(Self {
             client: reqwest::Client::builder()
                 .user_agent("rusty-workers")
-                .build()?
+                .build()?,
         }))
     }
 }
 
 async fn run_fetch(state: &FetchState, req: RequestObject) -> Result<ResponseObject> {
-    use reqwest::{Body, Method, Url, Request, header::{HeaderName, HeaderValue}};
+    use reqwest::{
+        header::{HeaderName, HeaderValue},
+        Body, Method, Request, Url,
+    };
 
     let url = Url::parse(&req.url)?;
     let method = Method::from_bytes(&req.method.as_bytes())?;
@@ -68,7 +69,10 @@ async fn run_fetch(state: &FetchState, req: RequestObject) -> Result<ResponseObj
     let headers = target_req.headers_mut();
     for (k, v) in req.headers {
         for item in v {
-            headers.append(HeaderName::from_bytes(k.as_bytes())?, HeaderValue::from_str(&item)?);
+            headers.append(
+                HeaderName::from_bytes(k.as_bytes())?,
+                HeaderValue::from_str(&item)?,
+            );
         }
     }
 
@@ -98,7 +102,10 @@ async fn run_fetch(state: &FetchState, req: RequestObject) -> Result<ResponseObj
     };
     let mut headers = BTreeMap::new();
     for (k, v) in res.headers() {
-        headers.entry(k.as_str().to_string()).or_insert(vec![]).push(v.to_str()?.to_string());
+        headers
+            .entry(k.as_str().to_string())
+            .or_insert(vec![])
+            .push(v.to_str()?.to_string());
     }
     let target_res = ResponseObject {
         status: res.status().as_u16(),

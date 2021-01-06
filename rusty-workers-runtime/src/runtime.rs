@@ -1,15 +1,15 @@
-use rusty_v8 as v8;
-use lru_time_cache::LruCache;
-use rusty_workers::types::*;
-use std::time::Duration;
+use crate::config::Config;
 use crate::executor::{Instance, InstanceHandle, InstanceTimeControl, TimerControl};
-use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
-use std::sync::{Arc, Weak};
-use tokio::sync::oneshot;
+use lru_time_cache::LruCache;
+use rusty_v8 as v8;
 use rusty_workers::rpc::FetchServiceClient;
 use rusty_workers::tarpc;
+use rusty_workers::types::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use crate::config::Config;
+use std::sync::{Arc, Weak};
+use std::time::Duration;
+use tokio::sync::oneshot;
+use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
 
 pub struct Runtime {
     id: RuntimeId,
@@ -40,7 +40,10 @@ impl Runtime {
         let max_inactive_time_ms = config.max_inactive_time_ms;
         let rt = Arc::new(Runtime {
             id: RuntimeId::generate(),
-            instances: AsyncRwLock::new(LruCache::with_expiry_duration_and_capacity(Duration::from_millis(max_inactive_time_ms), max_num_of_instances)), // arbitrary choices
+            instances: AsyncRwLock::new(LruCache::with_expiry_duration_and_capacity(
+                Duration::from_millis(max_inactive_time_ms),
+                max_num_of_instances,
+            )), // arbitrary choices
             statistics_update_tx,
             config,
         });
@@ -61,17 +64,24 @@ impl Runtime {
         configuration: &WorkerConfiguration,
         result_tx: oneshot::Sender<Result<(InstanceHandle, InstanceTimeControl), GenericError>>,
     ) {
-        match Instance::new(rt, worker_runtime, worker_handle.clone(), code, configuration) {
+        match Instance::new(
+            rt,
+            worker_runtime,
+            worker_handle.clone(),
+            code,
+            configuration,
+        ) {
             Ok((instance, handle, timectl)) => {
-                let run_result = instance.run(move || {
-                    drop(result_tx.send(Ok((handle, timectl))))
-                });
+                let run_result = instance.run(move || drop(result_tx.send(Ok((handle, timectl)))));
                 match run_result {
                     Ok(()) => {
                         info!("worker instance {} exited", worker_handle.id);
                     }
                     Err(e) => {
-                        info!("worker instance {} exited with error: {:?}", worker_handle.id, e);
+                        info!(
+                            "worker instance {} exited with error: {:?}",
+                            worker_handle.id, e
+                        );
                     }
                 }
             }
@@ -80,7 +90,11 @@ impl Runtime {
             }
         }
     }
-    async fn monitor_task(self: Arc<Self>, worker_handle: WorkerHandle, mut timectl: InstanceTimeControl) {
+    async fn monitor_task(
+        self: Arc<Self>,
+        worker_handle: WorkerHandle,
+        mut timectl: InstanceTimeControl,
+    ) {
         let mut deadline = None;
         let initial_budget = timectl.budget;
 
@@ -129,7 +143,13 @@ impl Runtime {
     }
 
     pub async fn list(&self) -> GenericResult<Vec<WorkerHandle>> {
-        Ok(self.instances.read().await.peek_iter().map(|x| x.0.clone()).collect())
+        Ok(self
+            .instances
+            .read()
+            .await
+            .peek_iter()
+            .map(|x| x.0.clone())
+            .collect())
     }
 
     pub async fn terminate(&self, worker_handle: &WorkerHandle) -> GenericResult<()> {
@@ -139,14 +159,28 @@ impl Runtime {
         }
     }
 
-    pub async fn fetch(&self, worker_handle: &WorkerHandle, req: RequestObject) -> GenericResult<ResponseObject> {
+    pub async fn fetch(
+        &self,
+        worker_handle: &WorkerHandle,
+        req: RequestObject,
+    ) -> GenericResult<ResponseObject> {
         // write() lock for LRU update
-        let instance = self.instances.write().await
-            .get(&worker_handle).map(|x| x.handle.clone()).ok_or_else(|| GenericError::NoSuchWorker)?;
+        let instance = self
+            .instances
+            .write()
+            .await
+            .get(&worker_handle)
+            .map(|x| x.handle.clone())
+            .ok_or_else(|| GenericError::NoSuchWorker)?;
         instance.fetch(req).await
     }
 
-    pub async fn spawn(self: &Arc<Self>, _appid: String, code: String, configuration: &WorkerConfiguration) -> GenericResult<WorkerHandle> {
+    pub async fn spawn(
+        self: &Arc<Self>,
+        _appid: String,
+        code: String,
+        configuration: &WorkerConfiguration,
+    ) -> GenericResult<WorkerHandle> {
         let (result_tx, result_rx) = oneshot::channel();
         let worker_handle = WorkerHandle::generate();
         let this = self.clone();
@@ -159,16 +193,17 @@ impl Runtime {
         let result = result_rx.await;
         match result {
             Ok(Ok((handle, timectl))) => {
-                self.instances.write().await.insert(worker_handle.clone(), WorkerState {
-                    handle: Arc::new(handle),
-                    memory_bytes: AtomicUsize::new(0),
-                });
+                self.instances.write().await.insert(
+                    worker_handle.clone(),
+                    WorkerState {
+                        handle: Arc::new(handle),
+                        memory_bytes: AtomicUsize::new(0),
+                    },
+                );
                 tokio::spawn(self.clone().monitor_task(worker_handle.clone(), timectl));
                 Ok(worker_handle)
             }
-            Ok(Err(e)) => {
-                Err(e)
-            }
+            Ok(Err(e)) => Err(e),
             Err(_) => {
                 // result_tx dropped: initialization failed.
                 Err(GenericError::ScriptCompileException)
@@ -179,7 +214,10 @@ impl Runtime {
     pub async fn load(&self) -> GenericResult<u16> {
         let instances = self.instances.read().await;
         let num_instances = instances.len();
-        let total_memory: usize = instances.peek_iter().map(|(_, v)| v.memory_bytes.load(Ordering::Relaxed)).sum();
+        let total_memory: usize = instances
+            .peek_iter()
+            .map(|(_, v)| v.memory_bytes.load(Ordering::Relaxed))
+            .sum();
         drop(instances);
 
         let memory_usage = compute_usage_saturating(
@@ -197,7 +235,10 @@ impl Runtime {
 
     pub fn update_stats(&self, worker_handle: &WorkerHandle, stats: InstanceStatistics) {
         // Allow send to fail since this isn't critical
-        drop(self.statistics_update_tx.try_send((worker_handle.clone(), stats)));
+        drop(
+            self.statistics_update_tx
+                .try_send((worker_handle.clone(), stats)),
+        );
     }
 
     /// This function is added to avoid too long drop time in extreme cases.
@@ -215,7 +256,10 @@ async fn wait_until(deadline: Option<tokio::time::Instant>) {
     }
 }
 
-async fn statistics_update_worker(rt: Weak<Runtime>, mut rx: tokio::sync::mpsc::Receiver<(WorkerHandle, InstanceStatistics)>) {
+async fn statistics_update_worker(
+    rt: Weak<Runtime>,
+    mut rx: tokio::sync::mpsc::Receiver<(WorkerHandle, InstanceStatistics)>,
+) {
     loop {
         let (handle, stats) = if let Some(x) = rx.recv().await {
             x
@@ -229,7 +273,9 @@ async fn statistics_update_worker(rt: Weak<Runtime>, mut rx: tokio::sync::mpsc::
         };
         let instances = rt.instances.read().await;
         if let Some(state) = instances.peek(&handle) {
-            state.memory_bytes.store(stats.used_memory_bytes, Ordering::Relaxed);
+            state
+                .memory_bytes
+                .store(stats.used_memory_bytes, Ordering::Relaxed);
         }
     }
 }

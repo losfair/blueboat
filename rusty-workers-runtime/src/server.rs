@@ -1,6 +1,6 @@
-use rusty_workers::types::*;
-use rusty_workers::tarpc;
 use crate::runtime::Runtime;
+use rusty_workers::tarpc;
+use rusty_workers::types::*;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -14,11 +14,21 @@ impl rusty_workers::rpc::RuntimeService for RuntimeServer {
         self.runtime.id()
     }
 
-    async fn spawn_worker(self, _: tarpc::context::Context, appid: String, configuration: WorkerConfiguration, code: String) -> GenericResult<WorkerHandle> {
+    async fn spawn_worker(
+        self,
+        _: tarpc::context::Context,
+        appid: String,
+        configuration: WorkerConfiguration,
+        code: String,
+    ) -> GenericResult<WorkerHandle> {
         self.runtime.spawn(appid, code, &configuration).await
     }
 
-    async fn terminate_worker(self, _: tarpc::context::Context, handle: WorkerHandle) -> GenericResult<()> {
+    async fn terminate_worker(
+        self,
+        _: tarpc::context::Context,
+        handle: WorkerHandle,
+    ) -> GenericResult<()> {
         self.runtime.terminate(&handle).await
     }
 
@@ -26,7 +36,12 @@ impl rusty_workers::rpc::RuntimeService for RuntimeServer {
         self.runtime.list().await
     }
 
-    async fn fetch(self, _: tarpc::context::Context, handle: WorkerHandle, req: RequestObject) -> GenericResult<ResponseObject> {
+    async fn fetch(
+        self,
+        _: tarpc::context::Context,
+        handle: WorkerHandle,
+        req: RequestObject,
+    ) -> GenericResult<ResponseObject> {
         self.runtime.fetch(&handle, req).await
     }
 

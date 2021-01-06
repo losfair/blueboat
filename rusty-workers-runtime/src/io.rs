@@ -1,17 +1,17 @@
-use tokio::sync::oneshot;
-use rusty_v8 as v8;
-use rusty_workers::types::*;
-use slab::Slab;
-use serde::{Serialize, Deserialize};
-use anyhow::Result;
 use crate::interface::AsyncCall;
-use std::time::Duration;
-use serde_json::json;
 use crate::runtime::Runtime;
-use std::sync::Arc;
-use rusty_workers::tarpc;
-use tokio::sync::Mutex as AsyncMutex;
+use anyhow::Result;
+use rusty_v8 as v8;
 use rusty_workers::rpc::FetchServiceClient;
+use rusty_workers::tarpc;
+use rusty_workers::types::*;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use slab::Slab;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::oneshot;
+use tokio::sync::Mutex as AsyncMutex;
 
 pub struct IoWaiter {
     remaining_budget: u32,
@@ -63,7 +63,10 @@ impl IoScope {
 }
 
 impl IoWaiter {
-    pub fn new(conf: Arc<WorkerConfiguration>, worker_runtime: Arc<Runtime>) -> (Self, IoProcessor) {
+    pub fn new(
+        conf: Arc<WorkerConfiguration>,
+        worker_runtime: Arc<Runtime>,
+    ) -> (Self, IoProcessor) {
         let init_budget = conf.executor.max_io_per_request;
         let (result_tx, result_rx) = std::sync::mpsc::channel();
         let (task_tx, task_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -86,7 +89,12 @@ impl IoWaiter {
         (waiter, processor)
     }
 
-    pub fn issue(&mut self, count_budget: bool, task: AsyncCall, cb: v8::Global<v8::Function>) -> GenericResult<()> {
+    pub fn issue(
+        &mut self,
+        count_budget: bool,
+        task: AsyncCall,
+        cb: v8::Global<v8::Function>,
+    ) -> GenericResult<()> {
         if count_budget {
             if self.remaining_budget == 0 {
                 return Err(GenericError::IoLimitExceeded);
@@ -109,7 +117,10 @@ impl IoWaiter {
     }
 
     pub fn wait(&mut self) -> GenericResult<(v8::Global<v8::Function>, String)> {
-        let (index, result) = self.result.recv_timeout(std::time::Duration::from_secs(30)).map_err(|_| GenericError::IoTimeout)?;
+        let (index, result) = self
+            .result
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .map_err(|_| GenericError::IoTimeout)?;
         let req = self.inflight.remove(index);
         Ok((req, result))
     }
@@ -118,10 +129,13 @@ impl IoWaiter {
 impl IoProcessor {
     async fn next(&mut self) -> Option<(AsyncCall, IoResponseHandle)> {
         let (index, task) = self.task.recv().await?;
-        Some((task, IoResponseHandle {
-            result: self.result.clone(),
-            index,
-        }))
+        Some((
+            task,
+            IoResponseHandle {
+                result: self.result.clone(),
+                index,
+            },
+        ))
     }
 
     pub async fn run(mut self, mut scope: IoScopeConsumer) {
@@ -184,7 +198,8 @@ impl IoProcessorSharedState {
                 };
                 drop(fetch_client_locked);
 
-                let fetch_result: Result<ResponseObject, String> = fetch_client.fetch(tarpc::context::current(), req).await??;
+                let fetch_result: Result<ResponseObject, String> =
+                    fetch_client.fetch(tarpc::context::current(), req).await??;
                 Ok(serde_json::to_string(&fetch_result)?)
             }
         }

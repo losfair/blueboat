@@ -18,10 +18,7 @@ pub type JsResult<T> = Result<T, JsError>;
 
 impl JsError {
     pub fn new(kind: JsErrorKind, message: Option<String>) -> Self {
-        Self {
-            kind,
-            message,
-        }
+        Self { kind, message }
     }
 
     pub fn error() -> Self {
@@ -49,12 +46,16 @@ impl JsError {
     }
 }
 
-
 impl From<GenericError> for JsError {
     fn from(other: GenericError) -> Self {
         match other {
-            GenericError::Conversion => Self::new(JsErrorKind::TypeError, Some("conversion error".into())),
-            GenericError::Typeck { expected }=> Self::new(JsErrorKind::TypeError, Some(format!("typeck error: expected {}", expected))),
+            GenericError::Conversion => {
+                Self::new(JsErrorKind::TypeError, Some("conversion error".into()))
+            }
+            GenericError::Typeck { expected } => Self::new(
+                JsErrorKind::TypeError,
+                Some(format!("typeck error: expected {}", expected)),
+            ),
             _ => Self::new(JsErrorKind::Error, Some("generic error".into())),
         }
     }
@@ -63,8 +64,14 @@ impl From<GenericError> for JsError {
 impl From<v8::DataError> for JsError {
     fn from(other: v8::DataError) -> Self {
         match other {
-            v8::DataError::BadType { actual, expected } => Self::new(JsErrorKind::TypeError, Some(format!("expected {}, got {}", expected, actual))),
-            v8::DataError::NoData { expected } => Self::new(JsErrorKind::ReferenceError, Some(format!("expected {}", expected))),
+            v8::DataError::BadType { actual, expected } => Self::new(
+                JsErrorKind::TypeError,
+                Some(format!("expected {}, got {}", expected, actual)),
+            ),
+            v8::DataError::NoData { expected } => Self::new(
+                JsErrorKind::ReferenceError,
+                Some(format!("expected {}", expected)),
+            ),
         }
     }
 }

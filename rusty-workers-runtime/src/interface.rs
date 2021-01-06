@@ -1,5 +1,5 @@
-use serde::{Serialize, Deserialize};
 use rusty_workers::types::*;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ServiceCall {

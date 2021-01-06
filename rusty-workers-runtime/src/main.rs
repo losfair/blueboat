@@ -3,26 +3,23 @@
 #[macro_use]
 extern crate log;
 
-mod server;
-mod runtime;
-mod executor;
-mod error;
+mod config;
 mod engine;
+mod error;
+mod executor;
 mod interface;
 mod io;
-mod config;
+mod runtime;
+mod server;
 
-use structopt::StructOpt;
 use anyhow::Result;
-use std::net::SocketAddr;
-use rusty_workers::tarpc;
 use rusty_workers::rpc::RuntimeService;
+use rusty_workers::tarpc;
+use std::net::SocketAddr;
+use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
-#[structopt(
-    name = "rusty-workers-runtime",
-    about = "Rusty Workers (runtime)"
-)]
+#[structopt(name = "rusty-workers-runtime", about = "Rusty Workers (runtime)")]
 struct Opt {
     /// RPC listen address.
     #[structopt(short = "l", long)]
@@ -46,9 +43,12 @@ async fn main() -> Result<()> {
     info!("id: {}", rt.id().0);
 
     let rt2 = rt.clone();
-    server::RuntimeServer::listen(&opt.rpc_listen, max_concurrency, move || server::RuntimeServer {
-        runtime: rt2.clone(),
-    }).await?;
+    server::RuntimeServer::listen(&opt.rpc_listen, max_concurrency, move || {
+        server::RuntimeServer {
+            runtime: rt2.clone(),
+        }
+    })
+    .await?;
 
     // GC thread
     tokio::spawn(async move {

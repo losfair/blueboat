@@ -1,18 +1,15 @@
 #[macro_use]
 extern crate log;
 
-use std::net::SocketAddr;
-use structopt::StructOpt;
 use anyhow::Result;
 use rusty_workers::tarpc;
 use rusty_workers::types::*;
+use std::net::SocketAddr;
+use structopt::StructOpt;
 use tokio::io::AsyncReadExt;
 
 #[derive(Debug, StructOpt)]
-#[structopt(
-    name = "rusty-workers-cli",
-    about = "Rusty Workers (cli)"
-)]
+#[structopt(name = "rusty-workers-cli", about = "Rusty Workers (cli)")]
 struct Opt {
     #[structopt(subcommand)]
     cmd: Cmd,
@@ -28,7 +25,7 @@ enum Cmd {
 
         #[structopt(subcommand)]
         op: RuntimeCmd,
-    }
+    },
 }
 
 #[derive(Debug, StructOpt)]
@@ -48,17 +45,13 @@ enum RuntimeCmd {
     },
 
     #[structopt(name = "terminate")]
-    Terminate {
-        handle: String,
-    },
+    Terminate { handle: String },
 
     #[structopt(name = "list")]
     List,
 
     #[structopt(name = "fetch")]
-    Fetch {
-        handle: String,
-    },
+    Fetch { handle: String },
 }
 
 #[tokio::main]
@@ -70,7 +63,12 @@ async fn main() -> Result<()> {
         Cmd::Runtime { remote, op } => {
             let mut client = rusty_workers::rpc::RuntimeServiceClient::connect(remote).await?;
             match op {
-                RuntimeCmd::Spawn { appid, config, script, fetch_service } => {
+                RuntimeCmd::Spawn {
+                    appid,
+                    config,
+                    script,
+                    fetch_service,
+                } => {
                     let config = if let Some(config) = config {
                         let text = read_file(&config).await?;
                         serde_json::from_str(&text)?
@@ -86,12 +84,16 @@ async fn main() -> Result<()> {
                         }
                     };
                     let script = read_file(&script).await?;
-                    let result = client.spawn_worker(make_context(), appid, config, script).await?;
+                    let result = client
+                        .spawn_worker(make_context(), appid, config, script)
+                        .await?;
                     println!("{}", serde_json::to_string(&result).unwrap());
                 }
                 RuntimeCmd::Terminate { handle } => {
                     let worker_handle = WorkerHandle { id: handle };
-                    let result = client.terminate_worker(make_context(), worker_handle).await?;
+                    let result = client
+                        .terminate_worker(make_context(), worker_handle)
+                        .await?;
                     println!("{}", serde_json::to_string(&result).unwrap());
                 }
                 RuntimeCmd::List => {

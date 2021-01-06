@@ -5,10 +5,10 @@ pub mod rpc;
 pub mod types;
 pub mod util;
 
-pub use tarpc;
-pub use tokio_serde;
-pub use tokio;
 pub use futures;
+pub use tarpc;
+pub use tokio;
+pub use tokio_serde;
 
 // FIXME: MessagePack doesn't work (connection resets). Why?
 pub use tokio_serde::formats::Bincode as SerdeFormat;

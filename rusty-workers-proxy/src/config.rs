@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
@@ -18,9 +18,15 @@ pub struct Config {
     pub max_request_body_size_bytes: u64,
 }
 
-fn default_instance_expiration_time_ms() -> u64 { 540000 } // 9 minutes
-fn default_request_timeout_ms() -> u64 { 30000 } // 30 seconds
-fn default_max_request_body_size_bytes() -> u64 { 2 * 1024 * 1024 } // 2M
+fn default_instance_expiration_time_ms() -> u64 {
+    540000
+} // 9 minutes
+fn default_request_timeout_ms() -> u64 {
+    30000
+} // 30 seconds
+fn default_max_request_body_size_bytes() -> u64 {
+    2 * 1024 * 1024
+} // 2M
 
 impl Default for Config {
     fn default() -> Self {

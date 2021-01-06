@@ -1,18 +1,18 @@
-use rusty_v8 as v8;
-use rusty_workers::types::*;
-use tokio::sync::mpsc;
-use std::ffi::c_void;
-use std::time::Duration;
-use std::collections::BTreeMap;
-use std::convert::TryFrom;
-use std::sync::{Arc, Mutex};
-use crate::error::*;
-use maplit::btreemap;
 use crate::engine::*;
+use crate::error::*;
 use crate::interface::*;
 use crate::io::*;
-use std::cell::Cell;
 use crate::runtime::{InstanceStatistics, Runtime};
+use maplit::btreemap;
+use rusty_v8 as v8;
+use rusty_workers::types::*;
+use std::cell::Cell;
+use std::collections::BTreeMap;
+use std::convert::TryFrom;
+use std::ffi::c_void;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tokio::sync::mpsc;
 
 const SAFE_AREA_SIZE: usize = 1048576;
 static LIBRT: &'static str = include_str!("../../librt/dist/main.js");
@@ -60,7 +60,11 @@ pub struct InstanceTimeControl {
 }
 
 enum Task {
-    Fetch(RequestObject, tokio::sync::oneshot::Sender<ResponseObject>, IoScopeConsumer),
+    Fetch(
+        RequestObject,
+        tokio::sync::oneshot::Sender<ResponseObject>,
+        IoScopeConsumer,
+    ),
 }
 
 struct DoubleMleGuard {
@@ -90,11 +94,14 @@ impl InstanceHandle {
         let (_io_scope, io_scope_consumer) = IoScope::new();
 
         // Send fails if the instance has terminated
-        self.task_tx.send(Task::Fetch(req, result_tx, io_scope_consumer)).await
+        self.task_tx
+            .send(Task::Fetch(req, result_tx, io_scope_consumer))
+            .await
             .map_err(|_| GenericError::NoSuchWorker)?;
 
         // This errors if the instance terminates without sending a response
-        result_rx.await
+        result_rx
+            .await
             .map_err(|_| GenericError::RuntimeThrowsException)
     }
 }
@@ -106,7 +113,13 @@ impl Drop for InstanceHandle {
 }
 
 impl Instance {
-    pub fn new(rt: tokio::runtime::Handle, worker_runtime: Arc<Runtime>, worker_handle: WorkerHandle, script: String, conf: &WorkerConfiguration) -> GenericResult<(Self, InstanceHandle, InstanceTimeControl)> {
+    pub fn new(
+        rt: tokio::runtime::Handle,
+        worker_runtime: Arc<Runtime>,
+        worker_handle: WorkerHandle,
+        script: String,
+        conf: &WorkerConfiguration,
+    ) -> GenericResult<(Self, InstanceHandle, InstanceTimeControl)> {
         let params = v8::Isolate::create_params()
             .heap_limits(0, conf.executor.max_memory_mb as usize * 1048576);
         let mut isolate = Box::new(v8::Isolate::new(params));
@@ -120,13 +133,11 @@ impl Instance {
             triggered_mle: false,
         });
 
-        let termination_reason = TerminationReasonBox(Arc::new(Mutex::new(TerminationReason::Unknown)));
+        let termination_reason =
+            TerminationReasonBox(Arc::new(Mutex::new(TerminationReason::Unknown)));
         isolate.set_slot(termination_reason.clone());
 
-        isolate.add_near_heap_limit_callback(
-            on_memory_limit_exceeded,
-            isolate_ptr as _,
-        );
+        isolate.add_near_heap_limit_callback(on_memory_limit_exceeded, isolate_ptr as _);
 
         // Allocate a channel of size 1. We don't want to put back pressure here.
         // The (async) sending side would block.
@@ -162,9 +173,13 @@ impl Instance {
         Ok((instance, handle, time_control))
     }
 
-    fn compile<'s>(scope: &mut v8::HandleScope<'s>, script: &str) -> GenericResult<v8::Local<'s, v8::Script>> {
+    fn compile<'s>(
+        scope: &mut v8::HandleScope<'s>,
+        script: &str,
+    ) -> GenericResult<v8::Local<'s, v8::Script>> {
         let script = v8::String::new(scope, script).ok_or(GenericError::ScriptCompileException)?;
-        let script = v8::Script::compile(scope, script, None).ok_or(GenericError::ScriptCompileException)?;
+        let script =
+            v8::Script::compile(scope, script, None).ok_or(GenericError::ScriptCompileException)?;
         Ok(script)
     }
 
@@ -234,14 +249,16 @@ impl Instance {
             state.start_timer();
 
             // Start I/O processor (per-request)
-            let (io_waiter, io_processor) = IoWaiter::new(state.conf.clone(), state.worker_runtime.clone());
+            let (io_waiter, io_processor) =
+                IoWaiter::new(state.conf.clone(), state.worker_runtime.clone());
             state.rt.spawn(io_processor.run(io_scope));
             state.io_waiter = Some(io_waiter);
 
             let global = scope.get_current_context().global(scope);
             let callback_key = make_string(scope, "_dispatchEvent")?;
             let callback = global.get(scope, callback_key.into()).check(scope)?;
-            let callback = v8::Local::<'_, v8::Function>::try_from(callback).map_err(|_| GenericError::Other("bad _dispatchEvent".into()))?;
+            let callback = v8::Local::<'_, v8::Function>::try_from(callback)
+                .map_err(|_| GenericError::Other("bad _dispatchEvent".into()))?;
             let recv = v8::undefined(scope);
             let event_js = native_to_js(scope, &event)?;
             callback.call(scope, recv.into(), &[event_js]);
@@ -250,7 +267,7 @@ impl Instance {
             loop {
                 check_termination(try_catch)?;
                 let maybe_error;
-    
+
                 if let Some(e) = try_catch.exception_description() {
                     try_catch.reset(); // Clear exception
                     maybe_error = Some(e);
@@ -264,7 +281,7 @@ impl Instance {
 
                 let scope = &mut v8::HandleScope::new(try_catch);
                 let state = InstanceState::get(scope);
-    
+
                 if let Some(e) = maybe_error {
                     debug!("script throws exception: {}", e);
                     break;
@@ -287,10 +304,7 @@ impl Instance {
                 state.start_timer();
 
                 let callback = v8::Local::<'_, v8::Function>::new(scope, callback);
-                let json_text = v8::String::new(
-                    scope,
-                    data.as_str(),
-                ).check(scope)?;
+                let json_text = v8::String::new(scope, data.as_str()).check(scope)?;
                 let data = v8::json::parse(scope, json_text.into()).check(scope)?;
                 callback.call(scope, recv.into(), &[data]);
             }
@@ -313,7 +327,9 @@ impl InstanceState {
     }
 
     fn io_waiter(&mut self) -> JsResult<&mut IoWaiter> {
-        self.io_waiter.as_mut().ok_or_else(|| JsError::new(JsErrorKind::Error, Some("io service not available".into())))
+        self.io_waiter.as_mut().ok_or_else(|| {
+            JsError::new(JsErrorKind::Error, Some("io service not available".into()))
+        })
     }
 
     fn start_timer(&self) {
@@ -352,15 +368,20 @@ impl InstanceState {
 fn update_stats(worker_runtime: &Runtime, worker_handle: &WorkerHandle, scope: &mut v8::Isolate) {
     let mut stats = v8::HeapStatistics::default();
     scope.get_heap_statistics(&mut stats);
-    worker_runtime.update_stats(worker_handle, InstanceStatistics {
-        used_memory_bytes: stats.total_heap_size(),
-    });
+    worker_runtime.update_stats(
+        worker_handle,
+        InstanceStatistics {
+            used_memory_bytes: stats.total_heap_size(),
+        },
+    );
 }
 
-extern "C" fn on_memory_limit_exceeded(data: *mut c_void, current_heap_limit: usize, _initial_heap_limit: usize) -> usize {
-    let isolate = unsafe {
-        &mut *(data as *mut v8::OwnedIsolate)
-    };
+extern "C" fn on_memory_limit_exceeded(
+    data: *mut c_void,
+    current_heap_limit: usize,
+    _initial_heap_limit: usize,
+) -> usize {
+    let isolate = unsafe { &mut *(data as *mut v8::OwnedIsolate) };
     let double_mle_guard = isolate.get_slot_mut::<DoubleMleGuard>().unwrap();
     if double_mle_guard.triggered_mle {
         // Proceed as this isn't fatal
@@ -386,23 +407,21 @@ fn call_service_callback(
         let scope = &mut v8::HandleScope::new(scope);
         let call: ServiceCall = js_to_native(scope, args.get(0))?;
         match call {
-            ServiceCall::Sync(call) => {
-                match call {
-                    SyncCall::Log(s) => {
-                        debug!("log: {}", s);
-                    }
-                    SyncCall::Done => {
-                        let state = InstanceState::get(scope);
-                        state.done = true;
-                    }
-                    SyncCall::SendFetchResponse(res) => {
-                        let state = InstanceState::get(scope);
-                        if let Some(ch) = state.fetch_response_channel.take() {
-                            drop(ch.send(res));
-                        }
+            ServiceCall::Sync(call) => match call {
+                SyncCall::Log(s) => {
+                    debug!("log: {}", s);
+                }
+                SyncCall::Done => {
+                    let state = InstanceState::get(scope);
+                    state.done = true;
+                }
+                SyncCall::SendFetchResponse(res) => {
+                    let state = InstanceState::get(scope);
+                    if let Some(ch) = state.fetch_response_channel.take() {
+                        drop(ch.send(res));
                     }
                 }
-            }
+            },
             ServiceCall::Async(call) => {
                 let callback = v8::Local::<'_, v8::Function>::try_from(args.get(1))?;
                 let callback = v8::Global::new(scope, callback);

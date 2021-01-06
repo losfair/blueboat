@@ -3,7 +3,11 @@ use structopt::StructOpt;
 #[derive(StructOpt, Debug)]
 pub struct Config {
     /// Threshold for determining memory pressure. Defaults to 1G.
-    #[structopt(long, env = "RW_HIGH_MEMORY_THRESHOLD_BYTES", default_value = "1073741824")]
+    #[structopt(
+        long,
+        env = "RW_HIGH_MEMORY_THRESHOLD_BYTES",
+        default_value = "1073741824"
+    )]
     pub high_memory_threshold_bytes: usize,
 
     /// Max number of cached and active instances.
