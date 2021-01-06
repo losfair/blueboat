@@ -27,4 +27,4 @@ once_cell = "1.5"
 arc-swap = "1.2"
 
 # TODO: use crates.io version after the new version with Tokio 1.0 is published
-reqwest = { git = "https://github.com/seanmonstar/reqwest.git", rev = "1f425a0244bcd7b4565dceb9076450d951f2ec03"}
+reqwest = "0.11"
