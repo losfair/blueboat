@@ -108,11 +108,8 @@ impl ReadyInstance {
 }
 
 impl AppState {
-    async fn pool_instance(&self, scheduler: &Scheduler, inst: ReadyInstance) {
+    async fn gc_ready_instances(&self, scheduler: &Scheduler) {
         let mut ready = self.ready_instances.lock().await;
-        ready.push_back(inst);
-
-        // We've got too many instances
         while ready.len() > scheduler.local_config.max_ready_instances_per_app {
             drop(scheduler.terminate_queue.try_send(ready.pop_front().unwrap()));
         }
@@ -126,20 +123,23 @@ impl AppState {
         }
     }
 
+    async fn pool_instance(&self, scheduler: &Scheduler, inst: ReadyInstance) {
+        let mut ready = self.ready_instances.lock().await;
+        ready.push_back(inst);
+        drop(ready);
+
+        self.gc_ready_instances(scheduler).await;
+    }
+
     async fn get_instance(
         &self,
         scheduler: &Scheduler,
     ) -> Result<ReadyInstance> {
-        let mut ready_instances = self.ready_instances.lock().await;
-        while let Some(mut instance) = ready_instances.pop_front() {
-            if instance.is_usable(scheduler) {
-                instance.update_last_active();
-                return Ok(instance);
-            } else {
-                drop(scheduler.terminate_queue.try_send(instance));
-            }
+        self.gc_ready_instances(scheduler).await;
+        if let Some(mut inst) = self.ready_instances.lock().await.pop_front() {
+            inst.update_last_active();
+            return Ok(inst);
         }
-        drop(ready_instances);
 
         let clients = scheduler.clients.read().await;
 
@@ -295,9 +295,7 @@ impl Scheduler {
         let config = self.config.load();
 
         // Backend retries.
-        // Retries are only performed when we believe this error can be recovered by retrying. So
-        // retry limit is high here.
-        for _ in 0..200usize {
+        for _ in 0..3usize {
             let mut instance = app.get_instance(self).await?;
             debug!(
                 "routing request {}{} to app {}, instance {}",
