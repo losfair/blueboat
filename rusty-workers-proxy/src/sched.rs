@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
+use rand::distributions::{Distribution, WeightedIndex};
 
 #[derive(Debug, Error)]
 pub enum SchedError {
@@ -144,10 +145,18 @@ impl AppState {
         let clients = scheduler.clients.read().await;
 
         // No cached instance now. Create one.
-        let (rtid, rt) = clients
-            .iter()
-            .min_by_key(|x| x.1.load.load(Ordering::Relaxed))
-            .ok_or(SchedError::NoAvailableInstance)?;
+        if clients.len() == 0 {
+            return Err(SchedError::NoAvailableInstance.into());
+        }
+        let all_clients: Vec<(&RuntimeId, &RtState)> = clients.iter()
+            .collect();
+
+        // TODO: Overflow?
+        let distribution = WeightedIndex::new(all_clients.iter().map(|x| {
+            (u16::MAX - x.1.load.load(Ordering::Relaxed)) as u32 + 10000
+        })).expect("WeightedIndex::new failed");
+        let index = distribution.sample(&mut rand::thread_rng());
+        let (rtid, rt) = all_clients[index];
 
         info!(
             "spawning new worker for app {} on runtime {} with load {}",
