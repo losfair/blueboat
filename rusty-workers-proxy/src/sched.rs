@@ -37,10 +37,12 @@ pub enum ConfigurationError {
 
 pub struct Scheduler {
     config: ArcSwap<Config>,
+    local_config: LocalConfig,
     worker_config: WorkerConfiguration,
     clients: AsyncRwLock<BTreeMap<RuntimeId, RtState>>,
     apps: AsyncRwLock<BTreeMap<AppId, AppState>>,
     route_mappings: AsyncRwLock<BTreeMap<String, BTreeMap<String, AppId>>>, // domain -> (prefix -> appid)
+    terminate_queue: tokio::sync::mpsc::Sender<ReadyInstance>,
 }
 
 /// State of a backing runtime.
@@ -87,11 +89,11 @@ struct ReadyInstance {
 impl ReadyInstance {
     /// Returns whether the instance is usable.
     ///
-    /// A instance is no longer usable when `current_time - last_active > config.instance_expiration_time_ms`.
-    fn is_usable(&self, config: &Config) -> bool {
+    /// A instance is no longer usable when `current_time - last_active > config.ready_instance_expiration_ms`.
+    fn is_usable(&self, scheduler: &Scheduler) -> bool {
         let current = Instant::now();
         if current.duration_since(self.last_active)
-            > Duration::from_millis(config.instance_expiration_time_ms)
+            > Duration::from_millis(scheduler.local_config.ready_instance_expiration_ms)
         {
             false
         } else {
@@ -106,26 +108,40 @@ impl ReadyInstance {
 }
 
 impl AppState {
-    async fn pool_instance(&self, inst: ReadyInstance) {
-        self.ready_instances.lock().await.push_back(inst);
+    async fn pool_instance(&self, scheduler: &Scheduler, inst: ReadyInstance) {
+        let mut ready = self.ready_instances.lock().await;
+        ready.push_back(inst);
+
+        // We've got too many instances
+        while ready.len() > scheduler.local_config.max_ready_instances_per_app {
+            drop(scheduler.terminate_queue.try_send(ready.pop_front().unwrap()));
+        }
+
+        while let Some(x) = ready.front() {
+            if !x.is_usable(scheduler) {
+                drop(scheduler.terminate_queue.try_send(ready.pop_front().unwrap()));
+            } else {
+                break;
+            }
+        }
     }
 
     async fn get_instance(
         &self,
-        config: &Config,
-        clients: &AsyncRwLock<BTreeMap<RuntimeId, RtState>>,
+        scheduler: &Scheduler,
     ) -> Result<ReadyInstance> {
         let mut ready_instances = self.ready_instances.lock().await;
         while let Some(mut instance) = ready_instances.pop_front() {
-            // TODO: Maintain load data for each client and select based on load.
-            if instance.is_usable(config) {
+            if instance.is_usable(scheduler) {
                 instance.update_last_active();
                 return Ok(instance);
+            } else {
+                drop(scheduler.terminate_queue.try_send(instance));
             }
         }
         drop(ready_instances);
 
-        let clients = clients.read().await;
+        let clients = scheduler.clients.read().await;
 
         // No cached instance now. Create one.
         let (rtid, rt) = clients
@@ -160,13 +176,33 @@ impl AppState {
 }
 
 impl Scheduler {
-    pub fn new(worker_config: WorkerConfiguration) -> Self {
+    pub fn new(worker_config: WorkerConfiguration, local_config: LocalConfig) -> Self {
+        let (terminate_queue_tx, mut terminate_queue_rx): (tokio::sync::mpsc::Sender<ReadyInstance>, _) = tokio::sync::mpsc::channel(1000);
+
+        tokio::spawn(async move {
+            loop {
+                if let Some(mut inst) = terminate_queue_rx.recv().await {
+                    let mut ctx = tarpc::context::current();
+
+                    // This isn't critical so don't wait too long
+                    ctx.deadline = std::time::SystemTime::now() + Duration::from_secs(1);
+
+                    let res = inst.client.terminate_worker(ctx, inst.handle.clone()).await;
+                    info!("terminate_worker {}, instance {}, result = {:?}", inst.handle.id, inst.rtid.0, res);
+                } else {
+                    break;
+                }
+            }
+        });
+
         Self {
             config: ArcSwap::new(Arc::new(Config::default())),
+            local_config,
             worker_config,
             clients: AsyncRwLock::new(BTreeMap::new()),
             apps: AsyncRwLock::new(BTreeMap::new()),
             route_mappings: AsyncRwLock::new(BTreeMap::new()),
+            terminate_queue: terminate_queue_tx,
         }
     }
 
@@ -262,7 +298,7 @@ impl Scheduler {
         // Retries are only performed when we believe this error can be recovered by retrying. So
         // retry limit is high here.
         for _ in 0..200usize {
-            let mut instance = app.get_instance(&config, &self.clients).await?;
+            let mut instance = app.get_instance(self).await?;
             debug!(
                 "routing request {}{} to app {}, instance {}",
                 host, uri, appid.0, instance.rtid.0
@@ -302,7 +338,7 @@ impl Scheduler {
                             // Don't attempt to recover otherwise.
                             // Pool it back if possible.
                             if !e.terminates_worker() {
-                                app.pool_instance(instance).await;
+                                app.pool_instance(self, instance).await;
                             }
                             break;
                         }
@@ -311,7 +347,7 @@ impl Scheduler {
             };
 
             // Pool it back.
-            app.pool_instance(instance).await;
+            app.pool_instance(self, instance).await;
 
             // Build response.
             let mut res = hyper::Response::new(match fetch_res.body {

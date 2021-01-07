@@ -8,9 +8,6 @@ pub struct Config {
 
     pub apps: Vec<AppConfig>,
 
-    #[serde(default = "default_instance_expiration_time_ms")]
-    pub instance_expiration_time_ms: u64,
-
     #[serde(default = "default_request_timeout_ms")]
     pub request_timeout_ms: u64,
 
@@ -18,9 +15,6 @@ pub struct Config {
     pub max_request_body_size_bytes: u64,
 }
 
-fn default_instance_expiration_time_ms() -> u64 {
-    540000
-} // 9 minutes
 fn default_request_timeout_ms() -> u64 {
     30000
 } // 30 seconds
@@ -33,7 +27,6 @@ impl Default for Config {
         Config {
             runtime_cluster: Default::default(),
             apps: Default::default(),
-            instance_expiration_time_ms: default_instance_expiration_time_ms(),
             request_timeout_ms: default_request_timeout_ms(),
             max_request_body_size_bytes: default_max_request_body_size_bytes(),
         }
@@ -56,3 +49,9 @@ pub struct AppRoute {
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(transparent)]
 pub struct AppId(pub String);
+
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct LocalConfig {
+    pub max_ready_instances_per_app: usize,
+    pub ready_instance_expiration_ms: u64,
+}

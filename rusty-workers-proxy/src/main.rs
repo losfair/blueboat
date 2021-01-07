@@ -13,6 +13,7 @@ use structopt::StructOpt;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Response, Server};
 use sched::SchedError;
+use crate::config::*;
 
 static SCHEDULER: OnceCell<sched::Scheduler> = OnceCell::new();
 
@@ -49,6 +50,14 @@ struct Opt {
     /// Max number of I/O operations per request
     #[structopt(long, env = "RW_MAX_IO_PER_REQUEST", default_value = "50")]
     max_io_per_request: u32,
+
+    /// Max ready instances per app
+    #[structopt(long, env = "RW_MAX_READY_INSTANCES_PER_APP", default_value = "50")]
+    max_ready_instances_per_app: usize,
+
+    /// Expiration time for ready instances
+    #[structopt(long, env = "RW_READY_INSTANCE_EXPIRATION_MS", default_value = "120000")]
+    ready_instance_expiration_ms: u64,
 }
 
 #[tokio::main]
@@ -67,6 +76,9 @@ async fn main() -> Result<()> {
                 max_io_per_request: opt.max_io_per_request,
             },
             fetch_service: opt.fetch_service,
+        }, LocalConfig {
+            max_ready_instances_per_app: opt.max_ready_instances_per_app,
+            ready_instance_expiration_ms: opt.ready_instance_expiration_ms,
         }))
         .unwrap_or_else(|_| panic!("cannot set scheduler"));
 
