@@ -262,7 +262,10 @@ impl Instance {
             let io_scope = state.populate_with_task(task)?;
             state.start_timer();
 
-            // Start I/O processor (per-request)
+            // Start I/O processor (per-request).
+            //
+            // An `IoProcessor` receives the task's `IoScopeConsumer` as its argument, and stops when the
+            // corresponding `IoScope` is dropped.
             let (io_waiter, io_processor) =
                 IoWaiter::new(state.conf.clone(), state.worker_runtime.clone());
             state.rt.spawn(io_processor.run(io_scope));
@@ -313,9 +316,12 @@ impl Instance {
                 let (callback, data) = match state.io_waiter.as_mut().unwrap().wait() {
                     Some(x) => x,
                     None => {
-                        debug!("I/O timeout");
+                        // Doesn't necessarily need to terminate the instance but would need a lot of graceful
+                        // handling on both the proxy side and the script side.
+                        //
+                        // So just terminate it now.
                         InstanceState::try_send_fetch_response(scope, Err(ExecutionError::IoTimeout));
-                        break;
+                        return Err(GenericError::Execution(ExecutionError::IoTimeout));
                     }
                 };
                 state.start_timer();

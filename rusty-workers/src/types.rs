@@ -76,17 +76,17 @@ pub enum ExecutionError {
     #[error("memory limit exceeded")]
     MemoryLimitExceeded,
 
+    /// An I/O operation timed out.
+    /// 
+    /// Worker terminated.
+    #[error("I/O timed out")]
+    IoTimeout,
+
     /// An exception is thrown by the script during task execution.
     /// 
     /// This does not terminate the worker, and the same `WorkerHandle` is still valid.
     #[error("script throws exception")]
     ScriptThrowsException(String),
-
-    /// An I/O operation timed out.
-    /// 
-    /// This does not terminate the worker, and the same `WorkerHandle` is still valid.
-    #[error("I/O timed out")]
-    IoTimeout,
 }
 pub type ExecutionResult<T> = Result<T, ExecutionError>;
 
@@ -96,8 +96,9 @@ impl ExecutionError {
             ExecutionError::NoSuchWorker
                 | ExecutionError::RuntimeThrowsException
                 | ExecutionError::TimeLimitExceeded
-                | ExecutionError::MemoryLimitExceeded => true,
-            ExecutionError::ScriptThrowsException(_) | ExecutionError::IoTimeout => false,
+                | ExecutionError::MemoryLimitExceeded
+                | ExecutionError::IoTimeout => true,
+            ExecutionError::ScriptThrowsException(_) => false,
         }
     }
 }
