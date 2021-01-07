@@ -2,7 +2,6 @@ use crate::error::*;
 use rusty_v8 as v8;
 use rusty_workers::types::*;
 use std::collections::BTreeMap;
-use std::convert::TryFrom;
 use std::sync::{Arc, Mutex};
 
 /// Alias for callback function types.
@@ -128,46 +127,11 @@ pub fn make_function<'s, C: Callback>(
     Ok(v8::Function::new(scope, native).check()?)
 }
 
-pub fn make_object<'s>(
-    scope: &mut v8::HandleScope<'s>,
-) -> GenericResult<v8::Local<'s, v8::Object>> {
-    Ok(v8::Object::new(scope))
-}
-
 pub fn make_string<'s, T: AsRef<str>>(
     scope: &mut v8::HandleScope<'s>,
     s: T,
 ) -> GenericResult<v8::Local<'s, v8::String>> {
     Ok(v8::String::new(scope, s.as_ref()).check()?)
-}
-
-pub fn is_instance_of<'s, 'i, 'j>(
-    scope: &mut v8::HandleScope<'s>,
-    constructor: v8::Local<'i, v8::Function>,
-    object: v8::Local<'j, v8::Object>,
-) -> GenericResult<bool> {
-    let key = make_string(scope, "prototype")?;
-    let expected_proto = constructor.get(scope, key.into()).check()?;
-    let actual_proto = object.get_prototype(scope).check()?;
-    Ok(expected_proto.same_value(actual_proto))
-}
-
-pub fn make_persistent_class<'s, C: Callback>(
-    scope: &mut v8::HandleScope<'s>,
-    constructor: C,
-    elements: BTreeMap<String, v8::Local<'s, v8::Value>>,
-) -> GenericResult<v8::Global<v8::Function>> {
-    let constructor = make_function(scope, constructor)?;
-    let key = make_string(scope, "prototype")?;
-    let proto = constructor.get(scope, key.into()).check()?;
-    let proto = v8::Local::<'_, v8::Object>::try_from(proto).map_err(|_| {
-        GenericError::Other("make_persistent_class: cannot convert prototype".into())
-    })?;
-    for (k, v) in elements {
-        let k = v8::String::new(scope, k.as_str()).check()?;
-        proto.set(scope, k.into(), v);
-    }
-    Ok(v8::Global::new(scope, constructor))
 }
 
 pub fn add_props_to_object<'s>(

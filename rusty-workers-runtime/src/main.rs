@@ -13,8 +13,6 @@ mod runtime;
 mod server;
 
 use anyhow::Result;
-use rusty_workers::rpc::RuntimeService;
-use rusty_workers::tarpc;
 use std::net::SocketAddr;
 use structopt::StructOpt;
 

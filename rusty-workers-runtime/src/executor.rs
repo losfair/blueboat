@@ -7,7 +7,6 @@ use maplit::btreemap;
 use rusty_v8 as v8;
 use rusty_workers::types::*;
 use std::cell::Cell;
-use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex};
@@ -102,7 +101,7 @@ impl InstanceHandle {
         // This errors if the instance terminates without sending a response
         match result_rx.await {
             Ok(res) => res,
-            Err(e) => {
+            Err(_) => {
                 // Instance dropped sender without sending a response.
                 // Most probably a runtime error.
                 Err(ExecutionError::RuntimeThrowsException)
@@ -198,7 +197,7 @@ impl Instance {
     }
 
     pub fn run(mut self, ready_callback: impl FnOnce()) -> GenericResult<()> {
-        let mut state = self.state.take().unwrap();
+        let state = self.state.take().unwrap();
         let worker_runtime = state.worker_runtime.clone();
 
         // Init resources
@@ -210,8 +209,8 @@ impl Instance {
 
         // Take a HandleScope and initialize the environment.
         {
-            let mut scope = &mut v8::HandleScope::new(&mut context_scope);
-            let mut try_catch = &mut v8::TryCatch::new(scope);
+            let scope = &mut v8::HandleScope::new(&mut context_scope);
+            let try_catch = &mut v8::TryCatch::new(scope);
             let scope: &mut v8::HandleScope<'_> = try_catch.as_mut();
             state.init_global_env(scope)?;
 
@@ -240,8 +239,8 @@ impl Instance {
         loop {
             update_stats(&worker_runtime, &worker_handle, &mut context_scope);
 
-            let mut scope = &mut v8::HandleScope::new(&mut context_scope);
-            let mut try_catch = &mut v8::TryCatch::new(scope);
+            let scope = &mut v8::HandleScope::new(&mut context_scope);
+            let try_catch = &mut v8::TryCatch::new(scope);
             let scope: &mut v8::HandleScope<'_> = try_catch.as_mut();
             let state = InstanceState::get(scope);
             state.stop_timer();

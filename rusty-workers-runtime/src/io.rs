@@ -6,7 +6,6 @@ use rusty_workers::rpc::FetchServiceClient;
 use rusty_workers::tarpc;
 use rusty_workers::types::*;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use slab::Slab;
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,7 +21,7 @@ pub struct IoWaiter {
 }
 
 pub struct IoProcessor {
-    worker_runtime: Arc<Runtime>,
+    _worker_runtime: Arc<Runtime>,
     task: tokio::sync::mpsc::UnboundedReceiver<(usize, AsyncCall)>,
     result: std::sync::mpsc::Sender<(usize, String)>,
     shared: Arc<IoProcessorSharedState>,
@@ -37,7 +36,7 @@ struct IoProcessorSharedState {
 /// continue. When an `IoScope` is dropped, all ongoing I/O operations that depend on it
 /// will be canceled.
 pub struct IoScope {
-    kill: oneshot::Sender<()>,
+    _kill: oneshot::Sender<()>,
 }
 
 /// The Rx side of an `IoScope`.
@@ -58,7 +57,7 @@ struct IoResponseHandle {
 impl IoScope {
     pub fn new() -> (Self, IoScopeConsumer) {
         let (tx, rx) = oneshot::channel();
-        (Self { kill: tx }, IoScopeConsumer { kill: rx })
+        (Self { _kill: tx }, IoScopeConsumer { kill: rx })
     }
 }
 
@@ -80,7 +79,7 @@ impl IoWaiter {
         let processor = IoProcessor {
             task: task_rx,
             result: result_tx,
-            worker_runtime,
+            _worker_runtime: worker_runtime,
             shared: Arc::new(IoProcessorSharedState {
                 conf,
                 fetch_client: AsyncMutex::new(None),

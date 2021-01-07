@@ -2,14 +2,12 @@ use crate::config::Config;
 use crate::executor::{Instance, InstanceHandle, InstanceTimeControl, TimerControl};
 use lru_time_cache::LruCache;
 use rusty_v8 as v8;
-use rusty_workers::rpc::FetchServiceClient;
-use rusty_workers::tarpc;
 use rusty_workers::types::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 use tokio::sync::oneshot;
-use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
+use tokio::sync::RwLock as AsyncRwLock;
 
 pub struct Runtime {
     id: RuntimeId,

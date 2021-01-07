@@ -27,7 +27,7 @@ macro_rules! impl_connect {
             pub async fn connect_noretry<A: tokio::net::ToSocketAddrs>(
                 addr: A,
             ) -> GenericResult<Self> {
-                let mut transport =
+                let transport =
                     tarpc::serde_transport::tcp::connect(addr, crate::SerdeFormat::default);
                 let client =
                     $ty::new(tarpc::client::Config::default(), transport.await?).spawn()?;

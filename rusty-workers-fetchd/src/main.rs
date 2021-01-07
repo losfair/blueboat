@@ -4,7 +4,6 @@ extern crate log;
 mod server;
 
 use anyhow::Result;
-use rusty_workers::tarpc;
 use std::net::SocketAddr;
 use structopt::StructOpt;
 
