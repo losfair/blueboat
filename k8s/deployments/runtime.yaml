@@ -25,6 +25,9 @@ spec:
           requests:
             cpu: 0.6
             memory: 800Mi
+          limits:
+            # Enforce memory limit on runtime processes, in case v8 sandboxing failed to enforce it on isolate level.
+            memory: 1000Mi
         env:
         - name: RUST_LOG
           value: info
