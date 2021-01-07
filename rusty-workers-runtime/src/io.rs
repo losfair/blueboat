@@ -116,10 +116,7 @@ impl IoWaiter {
     }
 
     pub fn wait(&mut self) -> Option<(v8::Global<v8::Function>, String)> {
-        let (index, result) = self
-            .result
-            .recv()
-            .ok()?;
+        let (index, result) = self.result.recv().ok()?;
         let req = self.inflight.remove(index);
         Some((req, result))
     }

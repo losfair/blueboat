@@ -151,7 +151,11 @@ impl Runtime {
     }
 
     pub async fn terminate(&self, worker_handle: &WorkerHandle) -> bool {
-        self.instances.write().await.remove(&worker_handle).is_some()
+        self.instances
+            .write()
+            .await
+            .remove(&worker_handle)
+            .is_some()
     }
 
     pub async fn fetch(
@@ -201,7 +205,9 @@ impl Runtime {
             Ok(Err(e)) => Err(e),
             Err(_) => {
                 // result_tx dropped: initialization failed.
-                Err(GenericError::ScriptInitException("script initialization failed".into()))
+                Err(GenericError::ScriptInitException(
+                    "script initialization failed".into(),
+                ))
             }
         }
     }

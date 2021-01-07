@@ -53,37 +53,37 @@ impl Default for HttpBody {
 #[derive(Serialize, Deserialize, Clone, Debug, Error)]
 pub enum ExecutionError {
     /// The requested worker instance does not exist.
-    /// 
+    ///
     /// Non-deterministic - maybe removed by LRU policy.
     #[error("no such worker")]
     NoSuchWorker,
 
     /// An unknown exception is thrown by the runtime.
-    /// 
+    ///
     /// Worker terminated.
     #[error("runtime throws exception")]
     RuntimeThrowsException,
 
     /// Time limit exceeded.
-    /// 
+    ///
     /// Worker terminated.
     #[error("time limit exceeded")]
     TimeLimitExceeded,
 
     /// Memory limit exceeded.
-    /// 
+    ///
     /// Worker terminated.
     #[error("memory limit exceeded")]
     MemoryLimitExceeded,
 
     /// An I/O operation timed out.
-    /// 
+    ///
     /// Worker terminated.
     #[error("I/O timed out")]
     IoTimeout,
 
     /// An exception is thrown by the script during task execution.
-    /// 
+    ///
     /// This does not terminate the worker, and the same `WorkerHandle` is still valid.
     #[error("script throws exception")]
     ScriptThrowsException(String),
@@ -94,10 +94,10 @@ impl ExecutionError {
     pub fn terminates_worker(&self) -> bool {
         match self {
             ExecutionError::NoSuchWorker
-                | ExecutionError::RuntimeThrowsException
-                | ExecutionError::TimeLimitExceeded
-                | ExecutionError::MemoryLimitExceeded
-                | ExecutionError::IoTimeout => true,
+            | ExecutionError::RuntimeThrowsException
+            | ExecutionError::TimeLimitExceeded
+            | ExecutionError::MemoryLimitExceeded
+            | ExecutionError::IoTimeout => true,
             ExecutionError::ScriptThrowsException(_) => false,
         }
     }
@@ -122,7 +122,7 @@ pub enum GenericError {
     ScriptInitException(String),
 
     /// I/O limit is exceeded.
-    /// 
+    ///
     /// Worker terminated.
     #[error("I/O limit exceeded")]
     IoLimitExceeded,

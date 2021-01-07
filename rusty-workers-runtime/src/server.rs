@@ -24,11 +24,7 @@ impl rusty_workers::rpc::RuntimeService for RuntimeServer {
         self.runtime.spawn(appid, code, &configuration).await
     }
 
-    async fn terminate_worker(
-        self,
-        _: tarpc::context::Context,
-        handle: WorkerHandle,
-    ) -> bool {
+    async fn terminate_worker(self, _: tarpc::context::Context, handle: WorkerHandle) -> bool {
         self.runtime.terminate(&handle).await
     }
 

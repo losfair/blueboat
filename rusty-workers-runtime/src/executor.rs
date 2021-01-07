@@ -190,9 +190,10 @@ impl Instance {
         scope: &mut v8::HandleScope<'s>,
         script: &str,
     ) -> GenericResult<v8::Local<'s, v8::Script>> {
-        let script = v8::String::new(scope, script).ok_or_else(|| GenericError::ScriptInitException("script compilation failed".into()))?;
-        let script =
-            v8::Script::compile(scope, script, None).ok_or_else(|| GenericError::ScriptInitException("script compilation failed".into()))?;
+        let script = v8::String::new(scope, script)
+            .ok_or_else(|| GenericError::ScriptInitException("script compilation failed".into()))?;
+        let script = v8::Script::compile(scope, script, None)
+            .ok_or_else(|| GenericError::ScriptInitException("script compilation failed".into()))?;
         Ok(script)
     }
 
@@ -319,7 +320,10 @@ impl Instance {
                         // handling on both the proxy side and the script side.
                         //
                         // So just terminate it now.
-                        InstanceState::try_send_fetch_response(scope, Err(ExecutionError::IoTimeout));
+                        InstanceState::try_send_fetch_response(
+                            scope,
+                            Err(ExecutionError::IoTimeout),
+                        );
                         return Err(GenericError::Execution(ExecutionError::IoTimeout));
                     }
                 };
@@ -332,10 +336,13 @@ impl Instance {
             }
 
             // Script marked itself as done but we haven't got any response.
-            InstanceState::try_send_fetch_response(try_catch, Ok(ResponseObject {
-                status: 500,
-                ..Default::default()
-            }));
+            InstanceState::try_send_fetch_response(
+                try_catch,
+                Ok(ResponseObject {
+                    status: 500,
+                    ..Default::default()
+                }),
+            );
         }
         Ok(())
     }
@@ -384,7 +391,10 @@ impl InstanceState {
         }
     }
 
-    fn try_send_fetch_response(isolate: &mut v8::Isolate, res: ExecutionResult<ResponseObject>) -> bool {
+    fn try_send_fetch_response(
+        isolate: &mut v8::Isolate,
+        res: ExecutionResult<ResponseObject>,
+    ) -> bool {
         if let Some(ch) = InstanceState::get(isolate).fetch_response_channel.take() {
             ch.send(res).is_ok()
         } else {

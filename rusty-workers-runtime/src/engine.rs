@@ -99,7 +99,7 @@ where
                     ExecutionError::ScriptThrowsException(x)
                 };
                 Err(e)
-            },
+            }
             None => Ok(()),
         }
     }
