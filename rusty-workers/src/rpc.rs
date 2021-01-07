@@ -82,13 +82,13 @@ pub trait RuntimeService {
     ) -> GenericResult<WorkerHandle>;
 
     /// Terminates a worker.
-    async fn terminate_worker(handle: WorkerHandle) -> GenericResult<()>;
+    async fn terminate_worker(handle: WorkerHandle) -> bool;
 
     /// List active workers.
     async fn list_workers() -> GenericResult<Vec<WorkerHandle>>;
 
     /// Issue a "fetch" event.
-    async fn fetch(handle: WorkerHandle, req: RequestObject) -> GenericResult<ResponseObject>;
+    async fn fetch(handle: WorkerHandle, req: RequestObject) -> ExecutionResult<ResponseObject>;
 
     /// The current load of this runtime instance. 0-65535.
     async fn load() -> GenericResult<u16>;

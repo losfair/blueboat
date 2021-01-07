@@ -293,13 +293,17 @@ impl Scheduler {
                     // Don't pool it back.
                     // Runtime would give us a 500 instead of an error when it is recoverable.
                     match e {
-                        GenericError::NoSuchWorker => {
-                            // Backend terminated our worker.
+                        ExecutionError::NoSuchWorker => {
+                            // Backend terminated our worker "unexpectedly".
                             // Re-select another instance.
                             continue;
                         }
                         _ => {
                             // Don't attempt to recover otherwise.
+                            // Pool it back if possible.
+                            if !e.terminates_worker() {
+                                app.pool_instance(instance).await;
+                            }
                             break;
                         }
                     }

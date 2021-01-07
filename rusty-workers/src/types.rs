@@ -49,6 +49,59 @@ impl Default for HttpBody {
     }
 }
 
+/// An error that happens during worker execution.
+#[derive(Serialize, Deserialize, Clone, Debug, Error)]
+pub enum ExecutionError {
+    /// The requested worker instance does not exist.
+    /// 
+    /// Non-deterministic - maybe removed by LRU policy.
+    #[error("no such worker")]
+    NoSuchWorker,
+
+    /// An unknown exception is thrown by the runtime.
+    /// 
+    /// Worker terminated.
+    #[error("runtime throws exception")]
+    RuntimeThrowsException,
+
+    /// Time limit exceeded.
+    /// 
+    /// Worker terminated.
+    #[error("time limit exceeded")]
+    TimeLimitExceeded,
+
+    /// Memory limit exceeded.
+    /// 
+    /// Worker terminated.
+    #[error("memory limit exceeded")]
+    MemoryLimitExceeded,
+
+    /// An exception is thrown by the script during task execution.
+    /// 
+    /// This does not terminate the worker, and the same `WorkerHandle` is still valid.
+    #[error("script throws exception")]
+    ScriptThrowsException(String),
+
+    /// An I/O operation timed out.
+    /// 
+    /// This does not terminate the worker, and the same `WorkerHandle` is still valid.
+    #[error("I/O timed out")]
+    IoTimeout,
+}
+pub type ExecutionResult<T> = Result<T, ExecutionError>;
+
+impl ExecutionError {
+    pub fn terminates_worker(&self) -> bool {
+        match self {
+            ExecutionError::NoSuchWorker
+                | ExecutionError::RuntimeThrowsException
+                | ExecutionError::TimeLimitExceeded
+                | ExecutionError::MemoryLimitExceeded => true,
+            ExecutionError::ScriptThrowsException(_) | ExecutionError::IoTimeout => false,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Error)]
 pub enum GenericError {
     #[error("io: {0}")]
@@ -60,29 +113,18 @@ pub enum GenericError {
     #[error("v8 unknown error")]
     V8Unknown,
 
-    #[error("I/O timed out")]
-    IoTimeout,
+    #[error("execution error: {0:?}")]
+    Execution(ExecutionError),
 
-    #[error("runtime throws exception")]
-    RuntimeThrowsException,
+    /// An exception is thrown by the script during worker initialization.
+    #[error("script initialization exception")]
+    ScriptInitException(String),
 
-    #[error("script throws exception")]
-    ScriptThrowsException(String),
-
-    #[error("script compile exception")]
-    ScriptCompileException,
-
-    #[error("time limit exceeded")]
-    TimeLimitExceeded,
-
-    #[error("memory limit exceeded")]
-    MemoryLimitExceeded,
-
+    /// I/O limit is exceeded.
+    /// 
+    /// Worker terminated.
     #[error("I/O limit exceeded")]
     IoLimitExceeded,
-
-    #[error("no such worker")]
-    NoSuchWorker,
 
     #[error("try again")]
     TryAgain,

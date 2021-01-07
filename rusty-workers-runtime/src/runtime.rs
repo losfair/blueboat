@@ -152,18 +152,15 @@ impl Runtime {
             .collect())
     }
 
-    pub async fn terminate(&self, worker_handle: &WorkerHandle) -> GenericResult<()> {
-        match self.instances.write().await.remove(&worker_handle) {
-            Some(_) => Ok(()),
-            None => Err(GenericError::NoSuchWorker),
-        }
+    pub async fn terminate(&self, worker_handle: &WorkerHandle) -> bool {
+        self.instances.write().await.remove(&worker_handle).is_some()
     }
 
     pub async fn fetch(
         &self,
         worker_handle: &WorkerHandle,
         req: RequestObject,
-    ) -> GenericResult<ResponseObject> {
+    ) -> ExecutionResult<ResponseObject> {
         // write() lock for LRU update
         let instance = self
             .instances
@@ -171,7 +168,7 @@ impl Runtime {
             .await
             .get(&worker_handle)
             .map(|x| x.handle.clone())
-            .ok_or_else(|| GenericError::NoSuchWorker)?;
+            .ok_or_else(|| ExecutionError::NoSuchWorker)?;
         instance.fetch(req).await
     }
 
@@ -206,7 +203,7 @@ impl Runtime {
             Ok(Err(e)) => Err(e),
             Err(_) => {
                 // result_tx dropped: initialization failed.
-                Err(GenericError::ScriptCompileException)
+                Err(GenericError::ScriptInitException("script initialization failed".into()))
             }
         }
     }

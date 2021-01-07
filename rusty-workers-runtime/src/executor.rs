@@ -45,7 +45,7 @@ struct InstanceState {
 
     done: bool,
 
-    fetch_response_channel: Option<tokio::sync::oneshot::Sender<ResponseObject>>,
+    fetch_response_channel: Option<tokio::sync::oneshot::Sender<ExecutionResult<ResponseObject>>>,
 }
 
 pub struct InstanceHandle {
@@ -62,7 +62,7 @@ pub struct InstanceTimeControl {
 enum Task {
     Fetch(
         RequestObject,
-        tokio::sync::oneshot::Sender<ResponseObject>,
+        tokio::sync::oneshot::Sender<ExecutionResult<ResponseObject>>,
         IoScopeConsumer,
     ),
 }
@@ -89,7 +89,7 @@ impl InstanceHandle {
         });
     }
 
-    pub async fn fetch(&self, req: RequestObject) -> GenericResult<ResponseObject> {
+    pub async fn fetch(&self, req: RequestObject) -> ExecutionResult<ResponseObject> {
         let (result_tx, result_rx) = tokio::sync::oneshot::channel();
         let (_io_scope, io_scope_consumer) = IoScope::new();
 
@@ -97,12 +97,17 @@ impl InstanceHandle {
         self.task_tx
             .send(Task::Fetch(req, result_tx, io_scope_consumer))
             .await
-            .map_err(|_| GenericError::NoSuchWorker)?;
+            .map_err(|_| ExecutionError::NoSuchWorker)?;
 
         // This errors if the instance terminates without sending a response
-        result_rx
-            .await
-            .map_err(|_| GenericError::RuntimeThrowsException)
+        match result_rx.await {
+            Ok(res) => res,
+            Err(e) => {
+                // Instance dropped sender without sending a response.
+                // Most probably a runtime error.
+                Err(ExecutionError::RuntimeThrowsException)
+            }
+        }
     }
 }
 
@@ -186,9 +191,9 @@ impl Instance {
         scope: &mut v8::HandleScope<'s>,
         script: &str,
     ) -> GenericResult<v8::Local<'s, v8::Script>> {
-        let script = v8::String::new(scope, script).ok_or(GenericError::ScriptCompileException)?;
+        let script = v8::String::new(scope, script).ok_or_else(|| GenericError::ScriptInitException("script compilation failed".into()))?;
         let script =
-            v8::Script::compile(scope, script, None).ok_or(GenericError::ScriptCompileException)?;
+            v8::Script::compile(scope, script, None).ok_or_else(|| GenericError::ScriptInitException("script compilation failed".into()))?;
         Ok(script)
     }
 
@@ -218,16 +223,16 @@ impl Instance {
             ready_callback();
 
             scope.set_slot(state);
-            try_catch.check()?;
+            try_catch.check_on_init()?;
 
             librt.run(try_catch.as_mut());
-            try_catch.check()?;
+            try_catch.check_on_init()?;
 
             // Now start the timer, since we are starting to run user code.
             InstanceState::get(try_catch).start_timer();
 
             script.run(try_catch.as_mut());
-            try_catch.check()?;
+            try_catch.check_on_init()?;
         }
         info!("worker instance {} ready", worker_handle.id);
 
@@ -265,7 +270,7 @@ impl Instance {
 
             let global = scope.get_current_context().global(scope);
             let callback_key = make_string(scope, "_dispatchEvent")?;
-            let callback = global.get(scope, callback_key.into()).check(scope)?;
+            let callback = global.get(scope, callback_key.into()).check()?;
             let callback = v8::Local::<'_, v8::Function>::try_from(callback)
                 .map_err(|_| GenericError::Other("bad _dispatchEvent".into()))?;
             let recv = v8::undefined(scope);
@@ -274,27 +279,23 @@ impl Instance {
 
             // Drive to completion.
             loop {
-                check_termination(try_catch)?;
-                let maybe_error;
-
-                if let Some(e) = try_catch.exception_description() {
-                    try_catch.reset(); // Clear exception
-                    maybe_error = Some(e);
-                } else if let Some(e) = PROMISE_REJECTION.with(|x| x.replace(None)) {
-                    // Ignore it
-                    debug!("promise rejection: {}", e);
-                    maybe_error = None;
-                } else {
-                    maybe_error = None;
+                match try_catch.check_on_task() {
+                    Ok(()) => {}
+                    Err(e) => {
+                        if e.terminates_worker() {
+                            InstanceState::try_send_fetch_response(try_catch, Err(e.clone()));
+                            return Err(GenericError::Execution(e));
+                        } else {
+                            debug!("non-critical exception: {:?}", e);
+                            try_catch.reset();
+                            InstanceState::try_send_fetch_response(try_catch, Err(e));
+                            break;
+                        }
+                    }
                 }
 
                 let scope = &mut v8::HandleScope::new(try_catch);
                 let state = InstanceState::get(scope);
-
-                if let Some(e) = maybe_error {
-                    debug!("script throws exception: {}", e);
-                    break;
-                }
 
                 if state.done {
                     break;
@@ -309,22 +310,27 @@ impl Instance {
                 // Renew lifetime
                 let state = InstanceState::get(scope);
 
-                let (callback, data) = state.io_waiter.as_mut().unwrap().wait()?;
+                let (callback, data) = match state.io_waiter.as_mut().unwrap().wait() {
+                    Some(x) => x,
+                    None => {
+                        debug!("I/O timeout");
+                        InstanceState::try_send_fetch_response(scope, Err(ExecutionError::IoTimeout));
+                        break;
+                    }
+                };
                 state.start_timer();
 
                 let callback = v8::Local::<'_, v8::Function>::new(scope, callback);
-                let json_text = v8::String::new(scope, data.as_str()).check(scope)?;
-                let data = v8::json::parse(scope, json_text.into()).check(scope)?;
+                let json_text = v8::String::new(scope, data.as_str()).check()?;
+                let data = v8::json::parse(scope, json_text.into()).check()?;
                 callback.call(scope, recv.into(), &[data]);
             }
 
-            if let Some(ch) = InstanceState::get(try_catch).fetch_response_channel.take() {
-                // Response channel left open
-                drop(ch.send(ResponseObject {
-                    status: 500,
-                    ..Default::default()
-                }));
-            }
+            // Script marked itself as done but we haven't got any response.
+            InstanceState::try_send_fetch_response(try_catch, Ok(ResponseObject {
+                status: 500,
+                ..Default::default()
+            }));
         }
         Ok(())
     }
@@ -370,6 +376,14 @@ impl InstanceState {
                 self.fetch_response_channel = Some(res);
                 Ok(io_scope)
             }
+        }
+    }
+
+    fn try_send_fetch_response(isolate: &mut v8::Isolate, res: ExecutionResult<ResponseObject>) -> bool {
+        if let Some(ch) = InstanceState::get(isolate).fetch_response_channel.take() {
+            ch.send(res).is_ok()
+        } else {
+            false
         }
     }
 }
@@ -425,10 +439,7 @@ fn call_service_callback(
                     state.done = true;
                 }
                 SyncCall::SendFetchResponse(res) => {
-                    let state = InstanceState::get(scope);
-                    if let Some(ch) = state.fetch_response_channel.take() {
-                        drop(ch.send(res));
-                    }
+                    InstanceState::try_send_fetch_response(scope, Ok(res));
                 }
             },
             ServiceCall::Async(call) => {

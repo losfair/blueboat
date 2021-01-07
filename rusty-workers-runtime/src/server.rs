@@ -28,7 +28,7 @@ impl rusty_workers::rpc::RuntimeService for RuntimeServer {
         self,
         _: tarpc::context::Context,
         handle: WorkerHandle,
-    ) -> GenericResult<()> {
+    ) -> bool {
         self.runtime.terminate(&handle).await
     }
 
@@ -41,7 +41,7 @@ impl rusty_workers::rpc::RuntimeService for RuntimeServer {
         _: tarpc::context::Context,
         handle: WorkerHandle,
         req: RequestObject,
-    ) -> GenericResult<ResponseObject> {
+    ) -> ExecutionResult<ResponseObject> {
         self.runtime.fetch(&handle, req).await
     }
 

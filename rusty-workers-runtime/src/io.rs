@@ -116,13 +116,13 @@ impl IoWaiter {
         }
     }
 
-    pub fn wait(&mut self) -> GenericResult<(v8::Global<v8::Function>, String)> {
+    pub fn wait(&mut self) -> Option<(v8::Global<v8::Function>, String)> {
         let (index, result) = self
             .result
             .recv_timeout(std::time::Duration::from_secs(30))
-            .map_err(|_| GenericError::IoTimeout)?;
+            .ok()?;
         let req = self.inflight.remove(index);
-        Ok((req, result))
+        Some((req, result))
     }
 }
 

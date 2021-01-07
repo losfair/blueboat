@@ -47,19 +47,20 @@ impl<T> IntoLocal for v8::Global<T> {
 /// Utility trait for checking the reason of a V8 error.
 pub trait CheckedResult {
     type Target;
-    fn check<'s>(self, scope: &mut v8::HandleScope<'s>) -> GenericResult<Self::Target>;
+    fn check<'s>(self) -> GenericResult<Self::Target>;
 }
 
 impl<T> CheckedResult for Option<T> {
     type Target = T;
-    fn check<'s>(self, scope: &mut v8::HandleScope<'s>) -> GenericResult<Self::Target> {
-        self.ok_or_else(|| check_exception(scope, GenericError::RuntimeThrowsException))
+    fn check<'s>(self) -> GenericResult<Self::Target> {
+        self.ok_or_else(|| GenericError::Other("v8 returns None".into()))
     }
 }
 
 pub trait CheckedTryCatch {
     fn exception_description(&mut self) -> Option<String>;
-    fn check(&mut self) -> GenericResult<()>;
+    fn check_on_init(&mut self) -> GenericResult<()>;
+    fn check_on_task(&mut self) -> ExecutionResult<()>;
 }
 
 impl<'s, 'p: 's, P> CheckedTryCatch for v8::TryCatch<'s, P>
@@ -77,12 +78,29 @@ where
         }
     }
 
-    fn check(&mut self) -> GenericResult<()> {
+    fn check_on_init(&mut self) -> GenericResult<()> {
+        self.check_on_task().map_err(GenericError::Execution)
+    }
+
+    fn check_on_task(&mut self) -> ExecutionResult<()> {
         match self.exception_description() {
-            Some(x) => Err(check_exception(
-                self.as_mut(),
-                GenericError::ScriptThrowsException(x),
-            )),
+            Some(x) => {
+                let e = if self.has_terminated() {
+                    match get_exception(self.as_mut()) {
+                        TerminationReason::Unknown => {
+                            // This should not happen.
+                            warn!("check_on_task: termination requested without reason");
+                            ExecutionError::RuntimeThrowsException
+                        }
+                        TerminationReason::TimeLimit => ExecutionError::TimeLimitExceeded,
+                        TerminationReason::MemoryLimit => ExecutionError::MemoryLimitExceeded,
+                    }
+                } else {
+                    // Otherwise this is a normal exception thrown from JavaScript.
+                    ExecutionError::ScriptThrowsException(x)
+                };
+                Err(e)
+            },
             None => Ok(()),
         }
     }
@@ -107,7 +125,7 @@ pub fn make_function<'s, C: Callback>(
     scope: &mut v8::HandleScope<'s>,
     native: C,
 ) -> GenericResult<v8::Local<'s, v8::Function>> {
-    Ok(v8::Function::new(scope, native).check(scope)?)
+    Ok(v8::Function::new(scope, native).check()?)
 }
 
 pub fn make_object<'s>(
@@ -120,7 +138,7 @@ pub fn make_string<'s, T: AsRef<str>>(
     scope: &mut v8::HandleScope<'s>,
     s: T,
 ) -> GenericResult<v8::Local<'s, v8::String>> {
-    Ok(v8::String::new(scope, s.as_ref()).check(scope)?)
+    Ok(v8::String::new(scope, s.as_ref()).check()?)
 }
 
 pub fn is_instance_of<'s, 'i, 'j>(
@@ -129,8 +147,8 @@ pub fn is_instance_of<'s, 'i, 'j>(
     object: v8::Local<'j, v8::Object>,
 ) -> GenericResult<bool> {
     let key = make_string(scope, "prototype")?;
-    let expected_proto = constructor.get(scope, key.into()).check(scope)?;
-    let actual_proto = object.get_prototype(scope).check(scope)?;
+    let expected_proto = constructor.get(scope, key.into()).check()?;
+    let actual_proto = object.get_prototype(scope).check()?;
     Ok(expected_proto.same_value(actual_proto))
 }
 
@@ -141,12 +159,12 @@ pub fn make_persistent_class<'s, C: Callback>(
 ) -> GenericResult<v8::Global<v8::Function>> {
     let constructor = make_function(scope, constructor)?;
     let key = make_string(scope, "prototype")?;
-    let proto = constructor.get(scope, key.into()).check(scope)?;
+    let proto = constructor.get(scope, key.into()).check()?;
     let proto = v8::Local::<'_, v8::Object>::try_from(proto).map_err(|_| {
         GenericError::Other("make_persistent_class: cannot convert prototype".into())
     })?;
     for (k, v) in elements {
-        let k = v8::String::new(scope, k.as_str()).check(scope)?;
+        let k = v8::String::new(scope, k.as_str()).check()?;
         proto.set(scope, k.into(), v);
     }
     Ok(v8::Global::new(scope, constructor))
@@ -158,7 +176,7 @@ pub fn add_props_to_object<'s>(
     elements: BTreeMap<String, v8::Local<'s, v8::Value>>,
 ) -> GenericResult<()> {
     for (k, v) in elements {
-        let k = v8::String::new(scope, k.as_str()).check(scope)?;
+        let k = v8::String::new(scope, k.as_str()).check()?;
         obj.set(scope, k.into(), v);
     }
     Ok(())
@@ -174,8 +192,8 @@ pub fn native_to_js<'s, T: serde::Serialize>(
             .map_err(|_| GenericError::Conversion)?
             .as_str(),
     )
-    .check(scope)?;
-    let js_value = v8::json::parse(scope, json_text.into()).check(scope)?;
+    .check()?;
+    let js_value = v8::json::parse(scope, json_text.into()).check()?;
     Ok(js_value)
 }
 
@@ -183,23 +201,9 @@ pub fn js_to_native<'s, T: serde::de::DeserializeOwned>(
     scope: &mut v8::HandleScope<'s>,
     v: v8::Local<'s, v8::Value>,
 ) -> GenericResult<T> {
-    let json_text = v8::json::stringify(scope, v).check(scope)?;
+    let json_text = v8::json::stringify(scope, v).check()?;
     serde_json::from_str(json_text.to_rust_string_lossy(scope).as_str())
         .map_err(|_| GenericError::Conversion)
-}
-
-pub fn check_termination(isolate: &mut v8::Isolate) -> GenericResult<()> {
-    match *isolate
-        .get_slot_mut::<TerminationReasonBox>()
-        .unwrap()
-        .0
-        .lock()
-        .unwrap()
-    {
-        TerminationReason::Unknown => Ok(()),
-        TerminationReason::TimeLimit => Err(GenericError::TimeLimitExceeded),
-        TerminationReason::MemoryLimit => Err(GenericError::MemoryLimitExceeded),
-    }
 }
 
 pub fn terminate_with_reason(isolate: &mut v8::Isolate, reason: TerminationReason) {
@@ -208,16 +212,11 @@ pub fn terminate_with_reason(isolate: &mut v8::Isolate, reason: TerminationReaso
     isolate.terminate_execution();
 }
 
-fn check_exception(isolate: &mut v8::Isolate, default_error: GenericError) -> GenericError {
-    match *isolate
+fn get_exception(isolate: &mut v8::Isolate) -> TerminationReason {
+    *isolate
         .get_slot_mut::<TerminationReasonBox>()
         .unwrap()
         .0
         .lock()
         .unwrap()
-    {
-        TerminationReason::Unknown => default_error,
-        TerminationReason::TimeLimit => GenericError::TimeLimitExceeded,
-        TerminationReason::MemoryLimit => GenericError::MemoryLimitExceeded,
-    }
 }
