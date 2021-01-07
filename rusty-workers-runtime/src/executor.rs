@@ -85,8 +85,8 @@ impl InstanceHandle {
     pub async fn terminate_for_time_limit(&self) {
         tokio::task::block_in_place(|| {
             *self.termination_reason.0.lock().unwrap() = TerminationReason::TimeLimit;
+            self.isolate_handle.terminate_execution();
         });
-        self.isolate_handle.terminate_execution();
     }
 
     pub async fn fetch(&self, req: RequestObject) -> GenericResult<ResponseObject> {
@@ -108,7 +108,16 @@ impl InstanceHandle {
 
 impl Drop for InstanceHandle {
     fn drop(&mut self) {
-        self.isolate_handle.terminate_execution();
+        let term = || {
+            self.isolate_handle.terminate_execution();
+        };
+
+        // If we are in a Tokio context, notify the runtime that we may block.
+        if tokio::runtime::Handle::try_current().is_ok() {
+            tokio::task::block_in_place(term);
+        } else {
+            term();
+        }
     }
 }
 
