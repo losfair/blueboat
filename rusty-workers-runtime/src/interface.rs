@@ -12,6 +12,7 @@ pub enum SyncCall {
     Log(String),
     Done,
     SendFetchResponse(ResponseObject),
+    GetRandomValues(usize),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

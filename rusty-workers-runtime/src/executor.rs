@@ -11,6 +11,7 @@ use std::convert::TryFrom;
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use rand::Rng;
 use tokio::sync::mpsc;
 
 const SAFE_AREA_SIZE: usize = 1048576;
@@ -439,7 +440,7 @@ extern "C" fn on_promise_rejection(_msg: v8::PromiseRejectMessage<'_>) {
 fn call_service_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
-    mut _retval: v8::ReturnValue,
+    mut retval: v8::ReturnValue,
 ) {
     wrap_callback(scope, |scope| {
         let scope = &mut v8::HandleScope::new(scope);
@@ -455,6 +456,18 @@ fn call_service_callback(
                 }
                 SyncCall::SendFetchResponse(res) => {
                     InstanceState::try_send_fetch_response(scope, Ok(res));
+                }
+                SyncCall::GetRandomValues(len) => {
+                    if len > 65536 {
+                        return Err(JsError::new(JsErrorKind::Error, Some("SyncCall::GetRandomValues invoked with length greater than 65536".into())));
+                    }
+                    let buf = v8::ArrayBuffer::new(scope, len);
+                    let backing = buf.get_backing_store();
+                    let mut rng = rand::thread_rng();
+                    for byte in backing.iter() {
+                        byte.set(rng.gen());
+                    }
+                    retval.set(buf.into());
                 }
             },
             ServiceCall::Async(call) => {

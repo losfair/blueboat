@@ -229,6 +229,16 @@ export function _dispatchEvent(ev) {
     }
 }
 
+export const crypto = {
+    getRandomValues(n) {
+        return _callService({
+            Sync: {
+                GetRandomValues: n,
+            }
+        });
+    }
+};
+
 export const console = new Console();
 export const Request = workerFetch.Request;
 export const Response = workerFetch.Response;

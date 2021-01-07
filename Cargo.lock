@@ -1165,6 +1165,7 @@ dependencies = [
  "lru_time_cache",
  "maplit",
  "pretty_env_logger",
+ "rand 0.8.0",
  "rusty-workers",
  "rusty_v8",
  "serde",
