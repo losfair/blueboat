@@ -27,17 +27,21 @@ spec:
             memory: 800Mi
           limits:
             # Enforce memory limit on runtime processes, in case v8 sandboxing failed to enforce it on isolate level.
-            memory: 1000Mi
+            memory: 1280Mi
         env:
         - name: RUST_LOG
-          value: info
+          value: rusty_workers_runtime=info,rusty_workers=info
         - name: RW_HIGH_MEMORY_THRESHOLD_BYTES
           value: "1073741824"
+        - name: RW_ISOLATE_POOL_SIZE
+          value: "60"
         - name: RW_MAX_NUM_OF_INSTANCES
           value: "50"
         - name: RW_MAX_CONCURRENT_REQUESTS
           value: "20"
         - name: RW_MAX_INACTIVE_TIME_MS
           value: "180000"
+        - name: RW_MAX_ISOLATE_MEMORY_BYTES
+          value: "16777216"
         ports:
         - containerPort: 3000
