@@ -202,7 +202,10 @@ fn isolate_worker(
             config.max_memory_bytes,
         );
 
+        drop(context_scope);
+        drop(isolate_scope);
+
         // Run GC. Time limit 100ms.
-        context_scope.idle_notification_deadline(v8::V8::monotonically_increasing_time() + 0.1);
+        isolate.idle_notification_deadline(v8::V8::monotonically_increasing_time() + 0.1);
     }
 }
