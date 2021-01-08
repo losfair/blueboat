@@ -127,6 +127,9 @@ impl AppState {
     async fn pool_instance(&self, scheduler: &Scheduler, inst: ReadyInstance) {
         if rand::thread_rng().sample::<f32, _>(Open01) > scheduler.local_config.dropout_rate {
             self.ready_instances.lock().await.push_back(inst);
+        } else {
+            // Dropped out. Let's terminate it.
+            drop(scheduler.terminate_queue.try_send(inst));
         }
 
         self.gc_ready_instances(scheduler).await;
