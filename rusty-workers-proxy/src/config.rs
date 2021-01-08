@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
 use std::collections::BTreeMap;
+use std::net::SocketAddr;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct Config {

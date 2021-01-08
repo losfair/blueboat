@@ -2,6 +2,8 @@ use crate::config::*;
 use anyhow::Result;
 use arc_swap::ArcSwap;
 use futures::StreamExt;
+use rand::distributions::{Distribution, Open01, WeightedIndex};
+use rand::Rng;
 use rusty_workers::rpc::RuntimeServiceClient;
 use rusty_workers::tarpc;
 use rusty_workers::types::*;
@@ -12,8 +14,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
-use rand::distributions::{Distribution, WeightedIndex, Open01};
-use rand::Rng;
 
 #[derive(Debug, Error)]
 pub enum SchedError {
@@ -112,12 +112,20 @@ impl AppState {
     async fn gc_ready_instances(&self, scheduler: &Scheduler) {
         let mut ready = self.ready_instances.lock().await;
         while ready.len() > scheduler.local_config.max_ready_instances_per_app {
-            drop(scheduler.terminate_queue.try_send(ready.pop_front().unwrap()));
+            drop(
+                scheduler
+                    .terminate_queue
+                    .try_send(ready.pop_front().unwrap()),
+            );
         }
 
         while let Some(x) = ready.front() {
             if !x.is_usable(scheduler) {
-                drop(scheduler.terminate_queue.try_send(ready.pop_front().unwrap()));
+                drop(
+                    scheduler
+                        .terminate_queue
+                        .try_send(ready.pop_front().unwrap()),
+                );
             } else {
                 break;
             }
@@ -135,10 +143,7 @@ impl AppState {
         self.gc_ready_instances(scheduler).await;
     }
 
-    async fn get_instance(
-        &self,
-        scheduler: &Scheduler,
-    ) -> Result<ReadyInstance> {
+    async fn get_instance(&self, scheduler: &Scheduler) -> Result<ReadyInstance> {
         self.gc_ready_instances(scheduler).await;
         if let Some(mut inst) = self.ready_instances.lock().await.pop_front() {
             inst.update_last_active();
@@ -151,13 +156,15 @@ impl AppState {
         if clients.len() == 0 {
             return Err(SchedError::NoAvailableInstance.into());
         }
-        let all_clients: Vec<(&RuntimeId, &RtState)> = clients.iter()
-            .collect();
+        let all_clients: Vec<(&RuntimeId, &RtState)> = clients.iter().collect();
 
         // TODO: Overflow?
-        let distribution = WeightedIndex::new(all_clients.iter().map(|x| {
-            (u16::MAX - x.1.load.load(Ordering::Relaxed)) as u32 + 10000
-        })).expect("WeightedIndex::new failed");
+        let distribution = WeightedIndex::new(
+            all_clients
+                .iter()
+                .map(|x| (u16::MAX - x.1.load.load(Ordering::Relaxed)) as u32 + 10000),
+        )
+        .expect("WeightedIndex::new failed");
         let index = distribution.sample(&mut rand::thread_rng());
         let (rtid, rt) = all_clients[index];
 
@@ -189,7 +196,10 @@ impl AppState {
 
 impl Scheduler {
     pub fn new(worker_config: WorkerConfiguration, local_config: LocalConfig) -> Self {
-        let (terminate_queue_tx, mut terminate_queue_rx): (tokio::sync::mpsc::Sender<ReadyInstance>, _) = tokio::sync::mpsc::channel(1000);
+        let (terminate_queue_tx, mut terminate_queue_rx): (
+            tokio::sync::mpsc::Sender<ReadyInstance>,
+            _,
+        ) = tokio::sync::mpsc::channel(1000);
 
         tokio::spawn(async move {
             loop {
@@ -200,7 +210,10 @@ impl Scheduler {
                     ctx.deadline = std::time::SystemTime::now() + Duration::from_secs(1);
 
                     let res = inst.client.terminate_worker(ctx, inst.handle.clone()).await;
-                    info!("terminate_worker {}, instance {}, result = {:?}", inst.handle.id, inst.rtid.0, res);
+                    info!(
+                        "terminate_worker {}, instance {}, result = {:?}",
+                        inst.handle.id, inst.rtid.0, res
+                    );
                 } else {
                     break;
                 }
@@ -274,7 +287,9 @@ impl Scheduler {
             .for_each(|bytes| {
                 match bytes {
                     Ok(x) => {
-                        if full_body.len() + x.len() > self.local_config.max_request_body_size_bytes as usize {
+                        if full_body.len() + x.len()
+                            > self.local_config.max_request_body_size_bytes as usize
+                        {
                             body_error = Err(SchedError::RequestBodyTooLarge.into());
                         }
                         full_body.extend_from_slice(&x);
@@ -312,8 +327,8 @@ impl Scheduler {
             );
 
             let mut fetch_context = tarpc::context::current();
-            fetch_context.deadline =
-                std::time::SystemTime::now() + Duration::from_millis(self.local_config.request_timeout_ms);
+            fetch_context.deadline = std::time::SystemTime::now()
+                + Duration::from_millis(self.local_config.request_timeout_ms);
 
             let fetch_res = instance
                 .client
@@ -378,10 +393,7 @@ impl Scheduler {
         Err(SchedError::RequestFailedAfterRetries.into())
     }
 
-    pub async fn check_config_update(
-        &self,
-        url: &str,
-    ) -> Result<()> {
+    pub async fn check_config_update(&self, url: &str) -> Result<()> {
         let res = reqwest::get(url).await?;
         if !res.status().is_success() {
             return Err(ConfigurationError::FetchConfig.into());
@@ -425,21 +437,25 @@ impl Scheduler {
     /// Discover new runtimes behind each specified address. (with load balancing)
     pub async fn discover_runtimes(&self) {
         let config = self.config.load();
-        let new_clients = self.local_config.runtime_cluster.iter().map(|addr| async move {
-            match RuntimeServiceClient::connect_noretry(addr).await {
-                Ok(mut client) => match client.id(tarpc::context::current()).await {
-                    Ok(id) => Some((id, client)),
+        let new_clients = self
+            .local_config
+            .runtime_cluster
+            .iter()
+            .map(|addr| async move {
+                match RuntimeServiceClient::connect_noretry(addr).await {
+                    Ok(mut client) => match client.id(tarpc::context::current()).await {
+                        Ok(id) => Some((id, client)),
+                        Err(e) => {
+                            info!("cannot fetch id from backend {:?}: {:?}", addr, e);
+                            None
+                        }
+                    },
                     Err(e) => {
-                        info!("cannot fetch id from backend {:?}: {:?}", addr, e);
+                        info!("cannot connect to backend {:?}: {:?}", addr, e);
                         None
                     }
-                },
-                Err(e) => {
-                    info!("cannot connect to backend {:?}: {:?}", addr, e);
-                    None
                 }
-            }
-        });
+            });
         let new_clients: Vec<Option<(RuntimeId, RuntimeServiceClient)>> =
             futures::future::join_all(new_clients).await;
         drop(config);

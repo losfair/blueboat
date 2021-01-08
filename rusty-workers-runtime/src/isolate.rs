@@ -1,8 +1,8 @@
 //! V8 isolate owner threads and pools.
 
 use rusty_v8 as v8;
-use tokio::sync::{mpsc, oneshot, Semaphore};
 use std::sync::Arc;
+use tokio::sync::{mpsc, oneshot, Semaphore};
 
 /// JavaScript-side runtime.
 static LIBRT: &'static str = include_str!("../../librt/dist/main.js");
@@ -32,7 +32,11 @@ struct ThreadGuard<'a> {
 
 impl<'a> Drop for ThreadGuard<'a> {
     fn drop(&mut self) {
-        self.pool.threads.lock().unwrap().push(self.th.take().unwrap());
+        self.pool
+            .threads
+            .lock()
+            .unwrap()
+            .push(self.th.take().unwrap());
     }
 }
 
@@ -54,22 +58,34 @@ pub struct IsolateGenerationBox(pub Arc<std::sync::Mutex<IsolateGeneration>>);
 impl IsolateThreadPool {
     pub async fn new(size: usize, config: IsolateConfig) -> Self {
         let start_time = std::time::Instant::now();
-        let threads: Vec<IsolateThread> = futures::future::join_all(
-            (0..size).map(|_| IsolateThread::new(config.clone()))
-        ).await;
+        let threads: Vec<IsolateThread> =
+            futures::future::join_all((0..size).map(|_| IsolateThread::new(config.clone()))).await;
         let end_time = std::time::Instant::now();
-        info!("isolate pool of size {} initialized in {:?}", size, end_time.duration_since(start_time));
+        info!(
+            "isolate pool of size {} initialized in {:?}",
+            size,
+            end_time.duration_since(start_time)
+        );
         Self {
             threads: std::sync::Mutex::new(threads),
             notifier: Semaphore::new(size),
         }
     }
 
-    pub async fn run<R: Send + 'static, F: FnOnce(&mut v8::ContextScope<'_, v8::HandleScope<'_>>) -> R + Send + 'static>(
-        &self, job: F
+    pub async fn run<
+        R: Send + 'static,
+        F: FnOnce(&mut v8::ContextScope<'_, v8::HandleScope<'_>>) -> R + Send + 'static,
+    >(
+        &self,
+        job: F,
     ) -> R {
         let _permit = self.notifier.acquire().await;
-        let th = self.threads.lock().unwrap().pop().expect("IsolateThreadPool::run: got permit but no thread available");
+        let th = self
+            .threads
+            .lock()
+            .unwrap()
+            .pop()
+            .expect("IsolateThreadPool::run: got permit but no thread available");
 
         // Return the thread back to the pool in case of async cancellation.
         // Drop order ensure that `permit` is released after `guard`.
@@ -79,9 +95,14 @@ impl IsolateThreadPool {
         };
 
         let (ret_tx, ret_rx) = oneshot::channel();
-        guard.job_tx.send(Box::new(|scope| {
-            drop(ret_tx.send(job(scope)));
-        })).await.map_err(|_| "cannot send to job_tx").unwrap();
+        guard
+            .job_tx
+            .send(Box::new(|scope| {
+                drop(ret_tx.send(job(scope)));
+            }))
+            .await
+            .map_err(|_| "cannot send to job_tx")
+            .unwrap();
         ret_rx.await.unwrap()
     }
 }
@@ -91,10 +112,10 @@ impl IsolateThread {
         let (job_tx, job_rx) = mpsc::channel(1);
         let (init_tx, init_rx) = oneshot::channel();
         std::thread::spawn(|| isolate_worker(config, init_tx, job_rx));
-        init_rx.await.expect("IsolateThread::new: isolate_worker did not send a response");
-        Self {
-            job_tx,
-        }
+        init_rx
+            .await
+            .expect("IsolateThread::new: isolate_worker did not send a response");
+        Self { job_tx }
     }
 }
 
@@ -103,8 +124,7 @@ fn isolate_worker(
     init_tx: oneshot::Sender<()>,
     mut job_rx: mpsc::Receiver<IsolateJob>,
 ) {
-    let params = v8::Isolate::create_params()
-        .heap_limits(0, config.max_memory_bytes);
+    let params = v8::Isolate::create_params().heap_limits(0, config.max_memory_bytes);
 
     // Must not be moved
     let mut isolate = v8::Isolate::new(params);
@@ -120,7 +140,9 @@ fn isolate_worker(
         let scope = &mut v8::HandleScope::new(&mut context_scope);
 
         let librt = v8::String::new(scope, LIBRT).unwrap();
-        let librt = v8::Script::compile(scope, librt, None).unwrap().get_unbound_script(scope);
+        let librt = v8::Script::compile(scope, librt, None)
+            .unwrap()
+            .get_unbound_script(scope);
         librt_persistent = v8::Global::new(scope, librt);
     }
 
@@ -175,6 +197,9 @@ fn isolate_worker(
         crate::executor::Instance::cleanup(&mut context_scope);
 
         // Reset memory limit.
-        context_scope.remove_near_heap_limit_callback(crate::executor::on_memory_limit_exceeded, config.max_memory_bytes);
+        context_scope.remove_near_heap_limit_callback(
+            crate::executor::on_memory_limit_exceeded,
+            config.max_memory_bytes,
+        );
     }
 }

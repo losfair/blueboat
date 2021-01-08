@@ -10,10 +10,10 @@ use rusty_workers::types::*;
 use std::net::SocketAddr;
 use structopt::StructOpt;
 
+use crate::config::*;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Response, Server};
 use sched::SchedError;
-use crate::config::*;
 
 static SCHEDULER: OnceCell<sched::Scheduler> = OnceCell::new();
 
@@ -56,7 +56,11 @@ struct Opt {
     max_ready_instances_per_app: usize,
 
     /// Expiration time for ready instances
-    #[structopt(long, env = "RW_READY_INSTANCE_EXPIRATION_MS", default_value = "120000")]
+    #[structopt(
+        long,
+        env = "RW_READY_INSTANCE_EXPIRATION_MS",
+        default_value = "120000"
+    )]
     ready_instance_expiration_ms: u64,
 
     /// Request timeout in milliseconds.
@@ -64,7 +68,11 @@ struct Opt {
     pub request_timeout_ms: u64,
 
     /// Max request body size in bytes.
-    #[structopt(long, env = "RW_MAX_REQUEST_BODY_SIZE_BYTES", default_value = "2097152")]
+    #[structopt(
+        long,
+        env = "RW_MAX_REQUEST_BODY_SIZE_BYTES",
+        default_value = "2097152"
+    )]
     pub max_request_body_size_bytes: u64,
 
     /// Probability of an instance being dropped out after a request. Valid values are 0 to 1.
@@ -85,23 +93,26 @@ async fn main() -> Result<()> {
     }
 
     SCHEDULER
-        .set(sched::Scheduler::new(WorkerConfiguration {
-            executor: ExecutorConfiguration {
-                max_memory_mb: opt.max_memory_mb,
-                max_time_ms: opt.max_time_ms,
-                max_io_concurrency: opt.max_io_concurrency,
-                max_io_per_request: opt.max_io_per_request,
+        .set(sched::Scheduler::new(
+            WorkerConfiguration {
+                executor: ExecutorConfiguration {
+                    max_memory_mb: opt.max_memory_mb,
+                    max_time_ms: opt.max_time_ms,
+                    max_io_concurrency: opt.max_io_concurrency,
+                    max_io_per_request: opt.max_io_per_request,
+                },
+                fetch_service: opt.fetch_service,
+                env: Default::default(),
             },
-            fetch_service: opt.fetch_service,
-            env: Default::default(),
-        }, LocalConfig {
-            max_ready_instances_per_app: opt.max_ready_instances_per_app,
-            ready_instance_expiration_ms: opt.ready_instance_expiration_ms,
-            request_timeout_ms: opt.request_timeout_ms,
-            max_request_body_size_bytes: opt.max_request_body_size_bytes,
-            dropout_rate: opt.dropout_rate,
-            runtime_cluster,
-        }))
+            LocalConfig {
+                max_ready_instances_per_app: opt.max_ready_instances_per_app,
+                ready_instance_expiration_ms: opt.ready_instance_expiration_ms,
+                request_timeout_ms: opt.request_timeout_ms,
+                max_request_body_size_bytes: opt.max_request_body_size_bytes,
+                dropout_rate: opt.dropout_rate,
+                runtime_cluster,
+            },
+        ))
         .unwrap_or_else(|_| panic!("cannot set scheduler"));
 
     let config_url = opt.config;

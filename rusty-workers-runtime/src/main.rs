@@ -9,9 +9,9 @@ mod error;
 mod executor;
 mod interface;
 mod io;
+mod isolate;
 mod runtime;
 mod server;
-mod isolate;
 
 use anyhow::Result;
 use std::net::SocketAddr;

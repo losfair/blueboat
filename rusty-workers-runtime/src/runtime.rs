@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::executor::{Instance, InstanceHandle, InstanceTimeControl, TimerControl};
+use crate::isolate::{IsolateConfig, IsolateThreadPool};
 use lru_time_cache::LruCache;
 use rusty_v8 as v8;
 use rusty_workers::types::*;
@@ -8,7 +9,6 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::sync::RwLock as AsyncRwLock;
-use crate::isolate::{IsolateThreadPool, IsolateConfig};
 
 pub struct Runtime {
     id: RuntimeId,
@@ -48,9 +48,13 @@ impl Runtime {
             )), // arbitrary choices
             statistics_update_tx,
             config,
-            pool: IsolateThreadPool::new(isolate_pool_size, IsolateConfig {
-                max_memory_bytes: max_isolate_memory_bytes,
-            }).await,
+            pool: IsolateThreadPool::new(
+                isolate_pool_size,
+                IsolateConfig {
+                    max_memory_bytes: max_isolate_memory_bytes,
+                },
+            )
+            .await,
         });
         let rt_weak = Arc::downgrade(&rt);
         tokio::spawn(statistics_update_worker(rt_weak, statistics_update_rx));
@@ -79,7 +83,8 @@ impl Runtime {
             configuration,
         ) {
             Ok((mut instance, handle, timectl)) => {
-                let run_result = instance.run(isolate, move || drop(result_tx.send(Ok((handle, timectl)))));
+                let run_result =
+                    instance.run(isolate, move || drop(result_tx.send(Ok((handle, timectl)))));
                 match run_result {
                     Ok(()) => {
                         info!("worker instance {} exited", worker_handle.id);
@@ -197,9 +202,20 @@ impl Runtime {
         let rt = tokio::runtime::Handle::current();
         tokio::spawn(async move {
             let this2 = this.clone();
-            this2.pool.run(move |isolate| {
-                Self::instance_thread(isolate, rt, this, worker_handle_2, bundle, &configuration, result_tx)
-            }).await;
+            this2
+                .pool
+                .run(move |isolate| {
+                    Self::instance_thread(
+                        isolate,
+                        rt,
+                        this,
+                        worker_handle_2,
+                        bundle,
+                        &configuration,
+                        result_tx,
+                    )
+                })
+                .await;
         });
         let result = result_rx.await;
         match result {
@@ -257,7 +273,13 @@ impl Runtime {
     /// This function is added to avoid too long drop time in extreme cases.
     pub async fn lru_gc(&self) {
         // iter() calls remove_expired()
-        let remove_count = self.instances.write().await.notify_get(&WorkerHandle { id: String::new() }).1.len();
+        let remove_count = self
+            .instances
+            .write()
+            .await
+            .notify_get(&WorkerHandle { id: String::new() })
+            .1
+            .len();
         if remove_count > 0 {
             info!("gc: removed {} instances", remove_count);
         }

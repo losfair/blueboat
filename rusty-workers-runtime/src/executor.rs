@@ -2,20 +2,20 @@ use crate::engine::*;
 use crate::error::*;
 use crate::interface::*;
 use crate::io::*;
+use crate::isolate::{IsolateGeneration, IsolateGenerationBox};
 use crate::runtime::{InstanceStatistics, Runtime};
 use maplit::btreemap;
-use std::collections::BTreeMap;
+use rand::Rng;
 use rusty_v8 as v8;
 use rusty_workers::types::*;
 use std::cell::Cell;
+use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::ffi::c_void;
+use std::io::Read;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use rand::Rng;
 use tokio::sync::mpsc;
-use std::io::Read;
-use crate::isolate::{IsolateGeneration, IsolateGenerationBox};
 
 const SAFE_AREA_SIZE: usize = 1048576;
 
@@ -158,21 +158,33 @@ impl Instance {
         let bundle_size = bundle.len();
         let mut archive = tar::Archive::new(std::io::Cursor::new(bundle));
         let mut files: BTreeMap<String, Arc<[u8]>> = BTreeMap::new();
-        for entry in archive.entries().map_err(|_| GenericError::Other("bad bundle".into()))? {
+        for entry in archive
+            .entries()
+            .map_err(|_| GenericError::Other("bad bundle".into()))?
+        {
             let mut entry = entry.map_err(|_| GenericError::Other("bad entry in bundle".into()))?;
-            let path = entry.path().ok().and_then(|x| x.to_str().map(|x| x.to_string())).ok_or_else(|| GenericError::Other("bad path in bundle".into()))?;
+            let path = entry
+                .path()
+                .ok()
+                .and_then(|x| x.to_str().map(|x| x.to_string()))
+                .ok_or_else(|| GenericError::Other("bad path in bundle".into()))?;
             // TODO: Is `size` validated? Now we are validating it again to prevent memory DoS
             if entry.size() > bundle_size as u64 {
                 return Err(GenericError::Other("entry size > bundle size".into()));
             }
             let mut data = vec![0; entry.size() as usize].into_boxed_slice();
-            entry.read_exact(&mut data).map_err(|_| GenericError::Other("cannot read bundle".into()))?;
+            entry
+                .read_exact(&mut data)
+                .map_err(|_| GenericError::Other("cannot read bundle".into()))?;
             files.insert(path, Arc::from(data));
         }
         drop(archive);
 
         // Lookup the script.
-        let script = files.get("./index.js").ok_or_else(|| GenericError::Other("cannot find ./index.js in bundle".into()))?.clone();
+        let script = files
+            .get("./index.js")
+            .ok_or_else(|| GenericError::Other("cannot find ./index.js in bundle".into()))?
+            .clone();
 
         let termination_reason =
             TerminationReasonBox(Arc::new(Mutex::new(TerminationReason::Unknown)));
@@ -246,7 +258,11 @@ impl Instance {
         Ok(script)
     }
 
-    pub fn run(&mut self, context_scope: &mut v8::ContextScope<'_, v8::HandleScope<'_>>, ready_callback: impl FnOnce()) -> GenericResult<()> {
+    pub fn run(
+        &mut self,
+        context_scope: &mut v8::ContextScope<'_, v8::HandleScope<'_>>,
+        ready_callback: impl FnOnce(),
+    ) -> GenericResult<()> {
         let state = self.state.take().unwrap();
         let worker_runtime = state.worker_runtime.clone();
 
@@ -260,7 +276,9 @@ impl Instance {
             state.init_global_env(scope)?;
 
             // TODO: Compiler bombs?
-            let script = std::str::from_utf8(&state.script).map_err(|_| GenericError::ScriptInitException("cannot decode script as utf-8 text".into()))?;
+            let script = std::str::from_utf8(&state.script).map_err(|_| {
+                GenericError::ScriptInitException("cannot decode script as utf-8 text".into())
+            })?;
             let script = Self::compile(scope, script)?;
 
             // Notify that we are ready so that timing etc. can start
@@ -391,7 +409,11 @@ impl Instance {
 
 impl InstanceState {
     fn get(isolate: &mut v8::Isolate) -> &mut Self {
-        isolate.get_slot_mut::<Option<Self>>().unwrap().as_mut().unwrap()
+        isolate
+            .get_slot_mut::<Option<Self>>()
+            .unwrap()
+            .as_mut()
+            .unwrap()
     }
 
     fn io_waiter(&mut self) -> JsResult<&mut IoWaiter> {
@@ -420,7 +442,10 @@ impl InstanceState {
         };
 
         // Make sure our internal objects aren't overwritten by adding user props first.
-        let user_props: Result<Vec<_>, GenericError> = self.conf.env.iter()
+        let user_props: Result<Vec<_>, GenericError> = self
+            .conf
+            .env
+            .iter()
             .map(|(k, v)| Ok((k, make_string(scope, v)?.into())))
             .collect();
         add_props_to_object(scope, &global, user_props?)?;
@@ -467,7 +492,11 @@ pub extern "C" fn on_memory_limit_exceeded(
     _initial_heap_limit: usize,
 ) -> usize {
     let isolate = unsafe { &mut *(data as *mut v8::Isolate) };
-    let double_mle_guard = isolate.get_slot_mut::<Option<DoubleMleGuard>>().unwrap().as_mut().unwrap();
+    let double_mle_guard = isolate
+        .get_slot_mut::<Option<DoubleMleGuard>>()
+        .unwrap()
+        .as_mut()
+        .unwrap();
     if double_mle_guard.triggered_mle {
         // Proceed as this isn't fatal
         error!("double mle detected. safe area too small?");
@@ -492,44 +521,46 @@ fn call_service_callback(
         let scope = &mut v8::HandleScope::new(scope);
         let call: ServiceCall = js_to_native(scope, args.get(0))?;
         match call {
-            ServiceCall::Sync(call) => match call {
-                SyncCall::Log(s) => {
-                    debug!("log: {}", s);
-                }
-                SyncCall::Done => {
-                    let state = InstanceState::get(scope);
-                    state.done = true;
-                }
-                SyncCall::SendFetchResponse(res) => {
-                    InstanceState::try_send_fetch_response(scope, Ok(res));
-                }
-                SyncCall::GetRandomValues(len) => {
-                    if len > 65536 {
-                        return Err(JsError::new(JsErrorKind::Error, Some("SyncCall::GetRandomValues invoked with length greater than 65536".into())));
+            ServiceCall::Sync(call) => {
+                match call {
+                    SyncCall::Log(s) => {
+                        debug!("log: {}", s);
                     }
-                    let buf = v8::ArrayBuffer::new(scope, len);
-                    let backing = buf.get_backing_store();
-                    let mut rng = rand::thread_rng();
-                    for byte in backing.iter() {
-                        byte.set(rng.gen());
+                    SyncCall::Done => {
+                        let state = InstanceState::get(scope);
+                        state.done = true;
                     }
-                    retval.set(buf.into());
-                }
-                SyncCall::GetFile(name) => {
-                    let state = InstanceState::get(scope);
-                    if let Some(file) = state.files.get(&name) {
-                        let file = file.clone();
-                        let buf = v8::ArrayBuffer::new(scope, file.len());
+                    SyncCall::SendFetchResponse(res) => {
+                        InstanceState::try_send_fetch_response(scope, Ok(res));
+                    }
+                    SyncCall::GetRandomValues(len) => {
+                        if len > 65536 {
+                            return Err(JsError::new(JsErrorKind::Error, Some("SyncCall::GetRandomValues invoked with length greater than 65536".into())));
+                        }
+                        let buf = v8::ArrayBuffer::new(scope, len);
                         let backing = buf.get_backing_store();
-                        for (i, byte) in backing.iter().enumerate() {
-                            byte.set(file[i]);
+                        let mut rng = rand::thread_rng();
+                        for byte in backing.iter() {
+                            byte.set(rng.gen());
                         }
                         retval.set(buf.into());
-                    } else {
-                        retval.set(v8::null(scope).into());
+                    }
+                    SyncCall::GetFile(name) => {
+                        let state = InstanceState::get(scope);
+                        if let Some(file) = state.files.get(&name) {
+                            let file = file.clone();
+                            let buf = v8::ArrayBuffer::new(scope, file.len());
+                            let backing = buf.get_backing_store();
+                            for (i, byte) in backing.iter().enumerate() {
+                                byte.set(file[i]);
+                            }
+                            retval.set(buf.into());
+                        } else {
+                            retval.set(v8::null(scope).into());
+                        }
                     }
                 }
-            },
+            }
             ServiceCall::Async(call) => {
                 let callback = v8::Local::<'_, v8::Function>::try_from(args.get(1))?;
                 let callback = v8::Global::new(scope, callback);

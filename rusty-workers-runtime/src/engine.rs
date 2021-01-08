@@ -170,7 +170,11 @@ pub fn js_to_native<'s, T: serde::de::DeserializeOwned>(
 }
 
 pub fn terminate_with_reason(isolate: &mut v8::Isolate, reason: TerminationReason) {
-    let termination_reason = isolate.get_slot::<Option<TerminationReasonBox>>().unwrap().as_ref().unwrap();
+    let termination_reason = isolate
+        .get_slot::<Option<TerminationReasonBox>>()
+        .unwrap()
+        .as_ref()
+        .unwrap();
     *termination_reason.0.lock().unwrap() = reason;
     isolate.terminate_execution();
 }
