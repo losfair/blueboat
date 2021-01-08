@@ -8,12 +8,14 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::sync::RwLock as AsyncRwLock;
+use crate::isolate::{IsolateThreadPool, IsolateConfig};
 
 pub struct Runtime {
     id: RuntimeId,
     instances: AsyncRwLock<LruCache<WorkerHandle, WorkerState>>,
     statistics_update_tx: tokio::sync::mpsc::Sender<(WorkerHandle, InstanceStatistics)>,
     config: Config,
+    pool: IsolateThreadPool,
 }
 
 struct WorkerState {
@@ -32,10 +34,11 @@ pub fn init() {
 }
 
 impl Runtime {
-    pub fn new(config: Config) -> Arc<Self> {
+    pub async fn new(config: Config) -> Arc<Self> {
         let (statistics_update_tx, statistics_update_rx) = tokio::sync::mpsc::channel(100);
         let max_num_of_instances = config.max_num_of_instances;
         let max_inactive_time_ms = config.max_inactive_time_ms;
+        let max_isolate_memory_bytes = config.max_isolate_memory_bytes;
         let rt = Arc::new(Runtime {
             id: RuntimeId::generate(),
             instances: AsyncRwLock::new(LruCache::with_expiry_duration_and_capacity(
@@ -44,6 +47,9 @@ impl Runtime {
             )), // arbitrary choices
             statistics_update_tx,
             config,
+            pool: IsolateThreadPool::new(max_num_of_instances, IsolateConfig {
+                max_memory_bytes: max_isolate_memory_bytes,
+            }).await,
         });
         let rt_weak = Arc::downgrade(&rt);
         tokio::spawn(statistics_update_worker(rt_weak, statistics_update_rx));
@@ -55,6 +61,7 @@ impl Runtime {
     }
 
     fn instance_thread(
+        isolate: &mut v8::Isolate,
         rt: tokio::runtime::Handle,
         worker_runtime: Arc<Runtime>,
         worker_handle: WorkerHandle,
@@ -63,14 +70,15 @@ impl Runtime {
         result_tx: oneshot::Sender<Result<(InstanceHandle, InstanceTimeControl), GenericError>>,
     ) {
         match Instance::new(
+            isolate,
             rt,
             worker_runtime,
             worker_handle.clone(),
             bundle,
             configuration,
         ) {
-            Ok((instance, handle, timectl)) => {
-                let run_result = instance.run(move || drop(result_tx.send(Ok((handle, timectl)))));
+            Ok((mut instance, handle, timectl)) => {
+                let run_result = instance.run(isolate, move || drop(result_tx.send(Ok((handle, timectl)))));
                 match run_result {
                     Ok(()) => {
                         info!("worker instance {} exited", worker_handle.id);
@@ -186,8 +194,11 @@ impl Runtime {
         let worker_handle_2 = worker_handle.clone();
         let configuration = configuration.clone();
         let rt = tokio::runtime::Handle::current();
-        std::thread::spawn(move || {
-            Self::instance_thread(rt, this, worker_handle_2, bundle, &configuration, result_tx)
+        tokio::spawn(async move {
+            let this2 = this.clone();
+            this2.pool.run(move |isolate| {
+                Self::instance_thread(isolate, rt, this, worker_handle_2, bundle, &configuration, result_tx)
+            }).await;
         });
         let result = result_rx.await;
         match result {

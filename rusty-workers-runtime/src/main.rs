@@ -11,6 +11,7 @@ mod interface;
 mod io;
 mod runtime;
 mod server;
+mod isolate;
 
 use anyhow::Result;
 use std::net::SocketAddr;
@@ -37,7 +38,7 @@ async fn main() -> Result<()> {
     runtime::init();
 
     let max_concurrency = opt.config.max_concurrent_requests;
-    let rt = runtime::Runtime::new(opt.config);
+    let rt = runtime::Runtime::new(opt.config).await;
     info!("id: {}", rt.id().0);
 
     let rt2 = rt.clone();

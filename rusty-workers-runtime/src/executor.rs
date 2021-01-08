@@ -15,16 +15,15 @@ use std::time::Duration;
 use rand::Rng;
 use tokio::sync::mpsc;
 use std::io::Read;
+use crate::isolate::{IsolateGeneration, IsolateGenerationBox};
 
 const SAFE_AREA_SIZE: usize = 1048576;
-static LIBRT: &'static str = include_str!("../../librt/dist/main.js");
 
 thread_local! {
     static PROMISE_REJECTION: Cell<Option<String>> = Cell::new(None);
 }
 
 pub struct Instance {
-    isolate: Box<v8::OwnedIsolate>,
     state: Option<InstanceState>,
 }
 
@@ -59,6 +58,8 @@ pub struct InstanceHandle {
     isolate_handle: v8::IsolateHandle,
     task_tx: mpsc::Sender<Task>,
     termination_reason: TerminationReasonBox,
+    creation_generation: IsolateGeneration,
+    current_generation: IsolateGenerationBox,
 }
 
 pub struct InstanceTimeControl {
@@ -89,10 +90,21 @@ impl Task {
 }
 
 impl InstanceHandle {
+    /// Properly check generation and perform remote termination.
+    fn do_remote_termination(&self) {
+        // Take the lock.
+        let current_generation = self.current_generation.0.lock().unwrap();
+
+        // Check while holding the lock.
+        if *current_generation == self.creation_generation {
+            self.isolate_handle.terminate_execution();
+        }
+    }
+
     pub async fn terminate_for_time_limit(&self) {
         tokio::task::block_in_place(|| {
             *self.termination_reason.0.lock().unwrap() = TerminationReason::TimeLimit;
-            self.isolate_handle.terminate_execution();
+            self.do_remote_termination();
         });
     }
 
@@ -121,7 +133,7 @@ impl InstanceHandle {
 impl Drop for InstanceHandle {
     fn drop(&mut self) {
         let term = || {
-            self.isolate_handle.terminate_execution();
+            self.do_remote_termination();
         };
 
         // If we are in a Tokio context, notify the runtime that we may block.
@@ -135,6 +147,7 @@ impl Drop for InstanceHandle {
 
 impl Instance {
     pub fn new(
+        isolate: &mut v8::Isolate,
         rt: tokio::runtime::Handle,
         worker_runtime: Arc<Runtime>,
         worker_handle: WorkerHandle,
@@ -161,24 +174,19 @@ impl Instance {
         // Lookup the script.
         let script = files.get("./index.js").ok_or_else(|| GenericError::Other("cannot find ./index.js in bundle".into()))?.clone();
 
-        // Create V8 isolate.
-        let params = v8::Isolate::create_params()
-            .heap_limits(0, conf.executor.max_memory_mb as usize * 1048576);
-        let mut isolate = Box::new(v8::Isolate::new(params));
-        let isolate_ptr = &mut *isolate as *mut v8::OwnedIsolate;
-
-        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Auto);
-
-        isolate.set_promise_reject_callback(on_promise_rejection);
-
-        isolate.set_slot(DoubleMleGuard {
-            triggered_mle: false,
-        });
-
         let termination_reason =
             TerminationReasonBox(Arc::new(Mutex::new(TerminationReason::Unknown)));
-        isolate.set_slot(termination_reason.clone());
 
+        // Initialize isolate.
+        let isolate_ptr = isolate as *mut v8::Isolate;
+
+        // Isolate initialization set. Needs cleanup.
+        isolate.set_microtasks_policy(v8::MicrotasksPolicy::Auto);
+        isolate.set_promise_reject_callback(on_promise_rejection);
+        isolate.set_slot(Some(DoubleMleGuard {
+            triggered_mle: false,
+        }));
+        isolate.set_slot(Some(termination_reason.clone()));
         isolate.add_near_heap_limit_callback(on_memory_limit_exceeded, isolate_ptr as _);
 
         // Allocate a channel of size 1. We don't want to put back pressure here.
@@ -192,13 +200,18 @@ impl Instance {
             timer_rx,
             budget: Duration::from_millis(conf.executor.max_time_ms as u64),
         };
+
+        let isolate_handle = isolate.thread_safe_handle();
+        let generation = isolate.get_slot::<IsolateGenerationBox>().unwrap();
+
         let handle = InstanceHandle {
-            isolate_handle: isolate.thread_safe_handle(),
+            isolate_handle,
             task_tx,
             termination_reason,
+            creation_generation: *generation.0.lock().unwrap(),
+            current_generation: generation.clone(),
         };
         let instance = Instance {
-            isolate,
             state: Some(InstanceState {
                 rt,
                 worker_runtime,
@@ -216,6 +229,12 @@ impl Instance {
         Ok((instance, handle, time_control))
     }
 
+    pub fn cleanup(isolate: &mut v8::Isolate) {
+        isolate.set_slot(Option::<DoubleMleGuard>::None);
+        isolate.set_slot(Option::<TerminationReasonBox>::None);
+        isolate.set_slot(Option::<InstanceState>::None);
+    }
+
     fn compile<'s>(
         scope: &mut v8::HandleScope<'s>,
         script: &str,
@@ -227,12 +246,12 @@ impl Instance {
         Ok(script)
     }
 
-    pub fn run(mut self, ready_callback: impl FnOnce()) -> GenericResult<()> {
+    pub fn run(&mut self, isolate: &mut v8::Isolate, ready_callback: impl FnOnce()) -> GenericResult<()> {
         let state = self.state.take().unwrap();
         let worker_runtime = state.worker_runtime.clone();
 
         // Init resources
-        let mut isolate_scope = v8::HandleScope::new(&mut *self.isolate);
+        let mut isolate_scope = v8::HandleScope::new(isolate);
         let context = v8::Context::new(&mut isolate_scope);
         let mut context_scope = v8::ContextScope::new(&mut isolate_scope, context);
 
@@ -246,18 +265,13 @@ impl Instance {
             state.init_global_env(scope)?;
 
             // TODO: Compiler bombs?
-            let librt = Self::compile(scope, LIBRT)?;
-
             let script = std::str::from_utf8(&state.script).map_err(|_| GenericError::ScriptInitException("cannot decode script as utf-8 text".into()))?;
             let script = Self::compile(scope, script)?;
 
             // Notify that we are ready so that timing etc. can start
             ready_callback();
 
-            scope.set_slot(state);
-            try_catch.check_on_init()?;
-
-            librt.run(try_catch.as_mut());
+            scope.set_slot(Some(state));
             try_catch.check_on_init()?;
 
             // Now start the timer, since we are starting to run user code.
@@ -382,7 +396,7 @@ impl Instance {
 
 impl InstanceState {
     fn get(isolate: &mut v8::Isolate) -> &mut Self {
-        isolate.get_slot_mut::<Self>().unwrap()
+        isolate.get_slot_mut::<Option<Self>>().unwrap().as_mut().unwrap()
     }
 
     fn io_waiter(&mut self) -> JsResult<&mut IoWaiter> {
@@ -408,7 +422,6 @@ impl InstanceState {
         let global = scope.get_current_context().global(scope);
         let global_props = btreemap! {
             "_callService" => make_function(scope, call_service_callback)?.into(),
-            "global" => global.into(),
         };
 
         // Make sure our internal objects aren't overwritten by adding user props first.
@@ -453,13 +466,13 @@ fn update_stats(worker_runtime: &Runtime, worker_handle: &WorkerHandle, scope: &
     );
 }
 
-extern "C" fn on_memory_limit_exceeded(
+pub extern "C" fn on_memory_limit_exceeded(
     data: *mut c_void,
     current_heap_limit: usize,
     _initial_heap_limit: usize,
 ) -> usize {
-    let isolate = unsafe { &mut *(data as *mut v8::OwnedIsolate) };
-    let double_mle_guard = isolate.get_slot_mut::<DoubleMleGuard>().unwrap();
+    let isolate = unsafe { &mut *(data as *mut v8::Isolate) };
+    let double_mle_guard = isolate.get_slot_mut::<Option<DoubleMleGuard>>().unwrap().as_mut().unwrap();
     if double_mle_guard.triggered_mle {
         // Proceed as this isn't fatal
         error!("double mle detected. safe area too small?");
