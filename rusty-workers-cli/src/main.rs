@@ -81,6 +81,7 @@ async fn main() -> Result<()> {
                                 max_io_per_request: 50,
                             },
                             fetch_service,
+                            env: Default::default(),
                         }
                     };
                     let script = read_file(&script).await?;

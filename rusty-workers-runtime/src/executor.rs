@@ -376,9 +376,16 @@ impl InstanceState {
     fn init_global_env<'s>(&self, scope: &mut v8::HandleScope<'s>) -> GenericResult<()> {
         let global = scope.get_current_context().global(scope);
         let global_props = btreemap! {
-            "_callService".into() => make_function(scope, call_service_callback)?.into(),
-            "global".into() => global.into(),
+            "_callService" => make_function(scope, call_service_callback)?.into(),
+            "global" => global.into(),
         };
+
+        // Make sure our internal objects aren't overwritten by adding user props first.
+        let user_props: Result<Vec<_>, GenericError> = self.conf.env.iter()
+            .map(|(k, v)| Ok((k, make_string(scope, v)?.into())))
+            .collect();
+        add_props_to_object(scope, &global, user_props?)?;
+
         add_props_to_object(scope, &global, global_props)?;
         Ok(())
     }

@@ -1,7 +1,6 @@
 use crate::error::*;
 use rusty_v8 as v8;
 use rusty_workers::types::*;
-use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 /// Alias for callback function types.
@@ -134,13 +133,13 @@ pub fn make_string<'s, T: AsRef<str>>(
     Ok(v8::String::new(scope, s.as_ref()).check()?)
 }
 
-pub fn add_props_to_object<'s>(
+pub fn add_props_to_object<'s, K: AsRef<str>>(
     scope: &mut v8::HandleScope<'s>,
     obj: &v8::Local<'s, v8::Object>,
-    elements: BTreeMap<String, v8::Local<'s, v8::Value>>,
+    elements: impl IntoIterator<Item = (K, v8::Local<'s, v8::Value>)>,
 ) -> GenericResult<()> {
-    for (k, v) in elements {
-        let k = v8::String::new(scope, k.as_str()).check()?;
+    for (k, v) in elements.into_iter() {
+        let k = v8::String::new(scope, k.as_ref()).check()?;
         obj.set(scope, k.into(), v);
     }
     Ok(())

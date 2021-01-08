@@ -7,6 +7,7 @@ use thiserror::Error;
 pub struct WorkerConfiguration {
     pub executor: ExecutorConfiguration,
     pub fetch_service: SocketAddr,
+    pub env: BTreeMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]

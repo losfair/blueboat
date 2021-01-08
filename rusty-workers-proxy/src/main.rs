@@ -58,6 +58,14 @@ struct Opt {
     /// Expiration time for ready instances
     #[structopt(long, env = "RW_READY_INSTANCE_EXPIRATION_MS", default_value = "120000")]
     ready_instance_expiration_ms: u64,
+
+    /// Request timeout in milliseconds.
+    #[structopt(long, env = "RW_REQUEST_TIMEOUT_MS", default_value = "30000")]
+    pub request_timeout_ms: u64,
+
+    /// Max request body size in bytes.
+    #[structopt(long, env = "RW_MAX_REQUEST_BODY_SIZE_BYTES", default_value = "2097152")]
+    pub max_request_body_size_bytes: u64,
 }
 
 #[tokio::main]
@@ -66,6 +74,11 @@ async fn main() -> Result<()> {
     rusty_workers::init();
 
     let opt = Opt::from_args();
+
+    let mut runtime_cluster: Vec<SocketAddr> = Vec::new();
+    for elem in opt.runtimes.split(",") {
+        runtime_cluster.push(elem.parse()?);
+    }
 
     SCHEDULER
         .set(sched::Scheduler::new(WorkerConfiguration {
@@ -76,16 +89,15 @@ async fn main() -> Result<()> {
                 max_io_per_request: opt.max_io_per_request,
             },
             fetch_service: opt.fetch_service,
+            env: Default::default(),
         }, LocalConfig {
             max_ready_instances_per_app: opt.max_ready_instances_per_app,
             ready_instance_expiration_ms: opt.ready_instance_expiration_ms,
+            request_timeout_ms: opt.request_timeout_ms,
+            max_request_body_size_bytes: opt.max_request_body_size_bytes,
+            runtime_cluster,
         }))
         .unwrap_or_else(|_| panic!("cannot set scheduler"));
-
-    let mut additional_runtimes: Vec<SocketAddr> = Vec::new();
-    for elem in opt.runtimes.split(",") {
-        additional_runtimes.push(elem.parse()?);
-    }
 
     let config_url = opt.config;
     tokio::spawn(async move {
@@ -93,7 +105,7 @@ async fn main() -> Result<()> {
             if let Err(e) = SCHEDULER
                 .get()
                 .unwrap()
-                .check_config_update(&config_url, &additional_runtimes)
+                .check_config_update(&config_url)
                 .await
             {
                 warn!("check_config_update: {:?}", e);

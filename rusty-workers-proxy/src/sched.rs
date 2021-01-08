@@ -7,7 +7,6 @@ use rusty_workers::tarpc;
 use rusty_workers::types::*;
 use std::collections::VecDeque;
 use std::collections::{BTreeMap, BTreeSet};
-use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -267,12 +266,11 @@ impl Scheduler {
         }
 
         let mut body_error: Result<()> = Ok(());
-        let config = self.config.load();
         req.into_body()
             .for_each(|bytes| {
                 match bytes {
                     Ok(x) => {
-                        if full_body.len() + x.len() > config.max_request_body_size_bytes as usize {
+                        if full_body.len() + x.len() > self.local_config.max_request_body_size_bytes as usize {
                             body_error = Err(SchedError::RequestBodyTooLarge.into());
                         }
                         full_body.extend_from_slice(&x);
@@ -301,8 +299,6 @@ impl Scheduler {
         let apps = self.apps.read().await;
         let app = apps.get(&appid).ok_or(SchedError::NoRouteMapping)?;
 
-        let config = self.config.load();
-
         // Backend retries.
         for _ in 0..3usize {
             let mut instance = app.get_instance(self).await?;
@@ -313,7 +309,7 @@ impl Scheduler {
 
             let mut fetch_context = tarpc::context::current();
             fetch_context.deadline =
-                std::time::SystemTime::now() + Duration::from_millis(config.request_timeout_ms);
+                std::time::SystemTime::now() + Duration::from_millis(self.local_config.request_timeout_ms);
 
             let fetch_res = instance
                 .client
@@ -381,17 +377,13 @@ impl Scheduler {
     pub async fn check_config_update(
         &self,
         url: &str,
-        runtime_cluster_append: &Vec<SocketAddr>,
     ) -> Result<()> {
         let res = reqwest::get(url).await?;
         if !res.status().is_success() {
             return Err(ConfigurationError::FetchConfig.into());
         }
         let body = res.text().await?;
-        let mut config: Config = toml::from_str(&body)?;
-        for addr in runtime_cluster_append.iter() {
-            config.runtime_cluster.push(*addr);
-        }
+        let config: Config = toml::from_str(&body)?;
         if config != **self.config.load() {
             self.config.store(Arc::new(config));
             self.populate_config().await;
@@ -429,7 +421,7 @@ impl Scheduler {
     /// Discover new runtimes behind each specified address. (with load balancing)
     pub async fn discover_runtimes(&self) {
         let config = self.config.load();
-        let new_clients = config.runtime_cluster.iter().map(|addr| async move {
+        let new_clients = self.local_config.runtime_cluster.iter().map(|addr| async move {
             match RuntimeServiceClient::connect_noretry(addr).await {
                 Ok(mut client) => match client.id(tarpc::context::current()).await {
                     Ok(id) => Some((id, client)),
@@ -525,9 +517,12 @@ impl Scheduler {
                 }
             };
 
+            let mut config = self.worker_config.clone();
+            config.env = app_config.env.clone();
+
             let state = AppState {
                 id: id.clone(),
-                config: self.worker_config.clone(),
+                config,
                 script,
                 ready_instances: AsyncMutex::new(VecDeque::new()),
             };
