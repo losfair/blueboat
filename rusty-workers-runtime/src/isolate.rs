@@ -207,7 +207,7 @@ fn isolate_worker(
 
         // Run GC. Time limit 500ms.
         let gc_start = std::time::Instant::now();
-        isolate.idle_notification_deadline(v8::V8::monotonically_increasing_time() + 0.5);
+        isolate.low_memory_notification();
         let gc_end = std::time::Instant::now();
         info!("Isolate recycled. GC time: {:?}", gc_end.duration_since(gc_start));
     }
