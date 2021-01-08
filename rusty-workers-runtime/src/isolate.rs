@@ -201,5 +201,8 @@ fn isolate_worker(
             crate::executor::on_memory_limit_exceeded,
             config.max_memory_bytes,
         );
+
+        // Run GC. Time limit 100ms.
+        context_scope.idle_notification_deadline(v8::V8::monotonically_increasing_time() + 0.1);
     }
 }
