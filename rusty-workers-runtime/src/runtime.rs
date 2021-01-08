@@ -39,6 +39,7 @@ impl Runtime {
         let max_num_of_instances = config.max_num_of_instances;
         let max_inactive_time_ms = config.max_inactive_time_ms;
         let max_isolate_memory_bytes = config.max_isolate_memory_bytes;
+        let isolate_pool_size = config.isolate_pool_size;
         let rt = Arc::new(Runtime {
             id: RuntimeId::generate(),
             instances: AsyncRwLock::new(LruCache::with_expiry_duration_and_capacity(
@@ -47,7 +48,7 @@ impl Runtime {
             )), // arbitrary choices
             statistics_update_tx,
             config,
-            pool: IsolateThreadPool::new(max_num_of_instances, IsolateConfig {
+            pool: IsolateThreadPool::new(isolate_pool_size, IsolateConfig {
                 max_memory_bytes: max_isolate_memory_bytes,
             }).await,
         });

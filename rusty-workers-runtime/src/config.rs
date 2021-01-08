@@ -14,6 +14,10 @@ pub struct Config {
     #[structopt(long, env = "RW_MAX_NUM_OF_INSTANCES", default_value = "50")]
     pub max_num_of_instances: usize,
 
+    /// Size of isolate pool.
+    #[structopt(long, env = "RW_ISOLATE_POOL_SIZE", default_value = "200")]
+    pub isolate_pool_size: usize,
+
     /// Max number of concurrent RPC requests.
     #[structopt(long, env = "RW_MAX_CONCURRENT_REQUESTS", default_value = "20")]
     pub max_concurrent_requests: usize,
