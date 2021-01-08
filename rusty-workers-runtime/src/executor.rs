@@ -159,7 +159,7 @@ impl Instance {
         drop(archive);
 
         // Lookup the script.
-        let script = files.get("index.js").ok_or_else(|| GenericError::Other("cannot find index.js in bundle".into()))?.clone();
+        let script = files.get("./index.js").ok_or_else(|| GenericError::Other("cannot find ./index.js in bundle".into()))?.clone();
 
         // Create V8 isolate.
         let params = v8::Isolate::create_params()

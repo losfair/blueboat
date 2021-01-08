@@ -3,4 +3,4 @@ id = "fbef8df0-a28c-487c-8a43-1baeed23573f"
 routes = [
         { domain = "localhost", path_prefix = "/" },
 ]
-script = "http://127.0.0.1/hello.js"
+bundle = "http://127.0.0.1/hello.tar"
