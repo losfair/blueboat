@@ -257,7 +257,10 @@ impl Runtime {
     /// This function is added to avoid too long drop time in extreme cases.
     pub async fn lru_gc(&self) {
         // iter() calls remove_expired()
-        drop(self.instances.write().await.iter());
+        let remove_count = self.instances.write().await.notify_get(&WorkerHandle { id: String::new() }).1.len();
+        if remove_count > 0 {
+            info!("gc: removed {} instances", remove_count);
+        }
     }
 }
 
