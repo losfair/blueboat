@@ -63,8 +63,8 @@ struct AppState {
     /// App configuration.
     config: WorkerConfiguration,
 
-    /// Code.
-    script: String,
+    /// File bundle.
+    bundle: Vec<u8>,
 
     /// Instances that are ready to run this app.
     ready_instances: AsyncMutex<VecDeque<ReadyInstance>>,
@@ -171,7 +171,7 @@ impl AppState {
                 tarpc::context::current(),
                 self.id.0.clone(),
                 self.config.clone(),
-                self.script.clone(),
+                self.bundle.clone(),
             )
             .await??;
         Ok(ReadyInstance {
@@ -481,37 +481,37 @@ impl Scheduler {
         let mut unseen_apps: Vec<(AppId, AppState)> = vec![];
 
         // unseen_appids is a subset of keys(new_apps_config) so we can unwrap here
-        // Concurrently fetch scripts
-        let app_scripts: Vec<_> = unseen_appids
+        // Concurrently fetch bundles
+        let app_bundles: Vec<_> = unseen_appids
             .iter()
-            .map(|id| new_apps_config.get(&id).unwrap().script.clone())
-            .map(|script_url| async move {
-                info!("fetching script for app {}", script_url);
+            .map(|id| new_apps_config.get(&id).unwrap().bundle.clone())
+            .map(|bundle_url| async move {
+                info!("fetching bundle for app {}", bundle_url);
                 // TODO: limit body size
-                let res = reqwest::get(&script_url).await?;
+                let res = reqwest::get(&bundle_url).await?;
                 if !res.status().is_success() {
                     Ok::<_, reqwest::Error>(None)
                 } else {
-                    let body = res.text().await?;
-                    Ok::<_, reqwest::Error>(Some(body))
+                    let body = res.bytes().await?;
+                    Ok::<_, reqwest::Error>(Some(body.to_vec()))
                 }
             })
             .collect();
-        let app_scripts = futures::future::join_all(app_scripts).await;
+        let app_bundles = futures::future::join_all(app_bundles).await;
 
-        for (id, fetch_result) in unseen_appids.into_iter().zip(app_scripts.into_iter()) {
+        for (id, fetch_result) in unseen_appids.into_iter().zip(app_bundles.into_iter()) {
             info!("loading app {}", id.0);
             let app_config = new_apps_config.get(&id).unwrap();
-            let script = match fetch_result {
+            let bundle = match fetch_result {
                 Ok(Some(x)) => x,
                 Ok(None) => {
-                    info!("fetch failed: app {} ({})", id.0, app_config.script);
+                    info!("fetch failed: app {} ({})", id.0, app_config.bundle);
                     continue;
                 }
                 Err(e) => {
                     info!(
                         "fetch failed: app {} ({}): {:?}",
-                        id.0, app_config.script, e
+                        id.0, app_config.bundle, e
                     );
                     continue;
                 }
@@ -523,7 +523,7 @@ impl Scheduler {
             let state = AppState {
                 id: id.clone(),
                 config,
-                script,
+                bundle,
                 ready_instances: AsyncMutex::new(VecDeque::new()),
             };
             unseen_apps.push((id, state));

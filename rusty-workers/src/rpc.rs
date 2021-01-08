@@ -78,7 +78,7 @@ pub trait RuntimeService {
     async fn spawn_worker(
         appid: String,
         configuration: WorkerConfiguration,
-        code: String,
+        bundle: Vec<u8>,
     ) -> GenericResult<WorkerHandle>;
 
     /// Terminates a worker.

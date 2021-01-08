@@ -13,6 +13,7 @@ pub enum SyncCall {
     Done,
     SendFetchResponse(ResponseObject),
     GetRandomValues(usize),
+    GetFile(String),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

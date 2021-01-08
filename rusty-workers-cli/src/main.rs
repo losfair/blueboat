@@ -84,7 +84,7 @@ async fn main() -> Result<()> {
                             env: Default::default(),
                         }
                     };
-                    let script = read_file(&script).await?;
+                    let script = read_file_raw(&script).await?;
                     let result = client
                         .spawn_worker(make_context(), appid, config, script)
                         .await?;
@@ -117,6 +117,13 @@ async fn read_file(path: &str) -> Result<String> {
     let mut f = tokio::fs::File::open(path).await?;
     let mut buf = String::new();
     f.read_to_string(&mut buf).await?;
+    Ok(buf)
+}
+
+async fn read_file_raw(path: &str) -> Result<Vec<u8>> {
+    let mut f = tokio::fs::File::open(path).await?;
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf).await?;
     Ok(buf)
 }
 

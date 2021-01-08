@@ -58,7 +58,7 @@ impl Runtime {
         rt: tokio::runtime::Handle,
         worker_runtime: Arc<Runtime>,
         worker_handle: WorkerHandle,
-        code: String,
+        bundle: Vec<u8>,
         configuration: &WorkerConfiguration,
         result_tx: oneshot::Sender<Result<(InstanceHandle, InstanceTimeControl), GenericError>>,
     ) {
@@ -66,7 +66,7 @@ impl Runtime {
             rt,
             worker_runtime,
             worker_handle.clone(),
-            code,
+            bundle,
             configuration,
         ) {
             Ok((instance, handle, timectl)) => {
@@ -177,7 +177,7 @@ impl Runtime {
     pub async fn spawn(
         self: &Arc<Self>,
         _appid: String,
-        code: String,
+        bundle: Vec<u8>,
         configuration: &WorkerConfiguration,
     ) -> GenericResult<WorkerHandle> {
         let (result_tx, result_rx) = oneshot::channel();
@@ -187,7 +187,7 @@ impl Runtime {
         let configuration = configuration.clone();
         let rt = tokio::runtime::Handle::current();
         std::thread::spawn(move || {
-            Self::instance_thread(rt, this, worker_handle_2, code, &configuration, result_tx)
+            Self::instance_thread(rt, this, worker_handle_2, bundle, &configuration, result_tx)
         });
         let result = result_rx.await;
         match result {

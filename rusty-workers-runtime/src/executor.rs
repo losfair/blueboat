@@ -4,6 +4,7 @@ use crate::interface::*;
 use crate::io::*;
 use crate::runtime::{InstanceStatistics, Runtime};
 use maplit::btreemap;
+use std::collections::BTreeMap;
 use rusty_v8 as v8;
 use rusty_workers::types::*;
 use std::cell::Cell;
@@ -13,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use rand::Rng;
 use tokio::sync::mpsc;
+use std::io::Read;
 
 const SAFE_AREA_SIZE: usize = 1048576;
 static LIBRT: &'static str = include_str!("../../librt/dist/main.js");
@@ -37,7 +39,12 @@ struct InstanceState {
     rt: tokio::runtime::Handle,
     worker_runtime: Arc<Runtime>,
     task_rx: mpsc::Receiver<Task>,
-    script: String,
+
+    /// Unpacked files in the worker bundle.
+    files: BTreeMap<String, Arc<[u8]>>,
+
+    script: Arc<[u8]>,
+
     timer_tx: tokio::sync::mpsc::UnboundedSender<TimerControl>,
     conf: Arc<WorkerConfiguration>,
     handle: WorkerHandle,
@@ -131,9 +138,30 @@ impl Instance {
         rt: tokio::runtime::Handle,
         worker_runtime: Arc<Runtime>,
         worker_handle: WorkerHandle,
-        script: String,
+        bundle: Vec<u8>,
         conf: &WorkerConfiguration,
     ) -> GenericResult<(Self, InstanceHandle, InstanceTimeControl)> {
+        // Unpack the bundle.
+        let bundle_size = bundle.len();
+        let mut archive = tar::Archive::new(std::io::Cursor::new(bundle));
+        let mut files: BTreeMap<String, Arc<[u8]>> = BTreeMap::new();
+        for entry in archive.entries().map_err(|_| GenericError::Other("bad bundle".into()))? {
+            let mut entry = entry.map_err(|_| GenericError::Other("bad entry in bundle".into()))?;
+            let path = entry.path().ok().and_then(|x| x.to_str().map(|x| x.to_string())).ok_or_else(|| GenericError::Other("bad path in bundle".into()))?;
+            // TODO: Is `size` validated? Now we are validating it again to prevent memory DoS
+            if entry.size() > bundle_size as u64 {
+                return Err(GenericError::Other("entry size > bundle size".into()));
+            }
+            let mut data = vec![0; entry.size() as usize].into_boxed_slice();
+            entry.read_exact(&mut data).map_err(|_| GenericError::Other("cannot read bundle".into()))?;
+            files.insert(path, Arc::from(data));
+        }
+        drop(archive);
+
+        // Lookup the script.
+        let script = files.get("index.js").ok_or_else(|| GenericError::Other("cannot find index.js in bundle".into()))?.clone();
+
+        // Create V8 isolate.
         let params = v8::Isolate::create_params()
             .heap_limits(0, conf.executor.max_memory_mb as usize * 1048576);
         let mut isolate = Box::new(v8::Isolate::new(params));
@@ -175,6 +203,7 @@ impl Instance {
                 rt,
                 worker_runtime,
                 task_rx,
+                files,
                 script,
                 timer_tx,
                 conf: Arc::new(conf.clone()),
@@ -218,7 +247,9 @@ impl Instance {
 
             // TODO: Compiler bombs?
             let librt = Self::compile(scope, LIBRT)?;
-            let script = Self::compile(scope, &state.script)?;
+
+            let script = std::str::from_utf8(&state.script).map_err(|_| GenericError::ScriptInitException("cannot decode script as utf-8 text".into()))?;
+            let script = Self::compile(scope, script)?;
 
             // Notify that we are ready so that timing etc. can start
             ready_callback();
@@ -473,6 +504,19 @@ fn call_service_callback(
                     let mut rng = rand::thread_rng();
                     for byte in backing.iter() {
                         byte.set(rng.gen());
+                    }
+                    retval.set(buf.into());
+                }
+                SyncCall::GetFile(name) => {
+                    let state = InstanceState::get(scope);
+                    let file = state.files.get(&name).ok_or_else(|| JsError::new(
+                        JsErrorKind::Error,
+                        Some(format!("SyncCall::GetFile: file {} does not exist", name))
+                    ))?.clone();
+                    let buf = v8::ArrayBuffer::new(scope, file.len());
+                    let backing = buf.get_backing_store();
+                    for (i, byte) in backing.iter().enumerate() {
+                        byte.set(file[i]);
                     }
                     retval.set(buf.into());
                 }

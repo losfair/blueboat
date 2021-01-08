@@ -19,7 +19,7 @@ impl Default for Config {
 pub struct AppConfig {
     pub id: AppId,
     pub routes: Vec<AppRoute>,
-    pub script: String,
+    pub bundle: String,
 
     #[serde(default)]
     pub env: BTreeMap<String, String>,
