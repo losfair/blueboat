@@ -1192,6 +1192,7 @@ dependencies = [
 [[package]]
 name = "rusty_v8"
 version = "0.15.0"
+source = "git+https://github.com/losfair/rusty_v8?rev=3a5ca143d9409da00e83b4751f5d951983dc3ee8#3a5ca143d9409da00e83b4751f5d951983dc3ee8"
 dependencies = [
  "bitflags",
  "cargo_gn",
