@@ -12,7 +12,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
-use rand::distributions::{Distribution, WeightedIndex};
+use rand::distributions::{Distribution, WeightedIndex, Open01};
+use rand::Rng;
 
 #[derive(Debug, Error)]
 pub enum SchedError {
@@ -124,9 +125,9 @@ impl AppState {
     }
 
     async fn pool_instance(&self, scheduler: &Scheduler, inst: ReadyInstance) {
-        let mut ready = self.ready_instances.lock().await;
-        ready.push_back(inst);
-        drop(ready);
+        if rand::thread_rng().sample::<f32, _>(Open01) > scheduler.local_config.dropout_rate {
+            self.ready_instances.lock().await.push_back(inst);
+        }
 
         self.gc_ready_instances(scheduler).await;
     }

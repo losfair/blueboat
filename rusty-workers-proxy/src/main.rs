@@ -66,6 +66,10 @@ struct Opt {
     /// Max request body size in bytes.
     #[structopt(long, env = "RW_MAX_REQUEST_BODY_SIZE_BYTES", default_value = "2097152")]
     pub max_request_body_size_bytes: u64,
+
+    /// Probability of an instance being dropped out after a request. Valid values are 0 to 1.
+    #[structopt(long, env = "RW_DROPOUT_RATE", default_value = "0.001")]
+    pub dropout_rate: f32,
 }
 
 #[tokio::main]
@@ -95,6 +99,7 @@ async fn main() -> Result<()> {
             ready_instance_expiration_ms: opt.ready_instance_expiration_ms,
             request_timeout_ms: opt.request_timeout_ms,
             max_request_body_size_bytes: opt.max_request_body_size_bytes,
+            dropout_rate: opt.dropout_rate,
             runtime_cluster,
         }))
         .unwrap_or_else(|_| panic!("cannot set scheduler"));
