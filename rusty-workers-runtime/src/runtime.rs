@@ -61,7 +61,7 @@ impl Runtime {
     }
 
     fn instance_thread(
-        isolate: &mut v8::Isolate,
+        isolate: &mut v8::ContextScope<'_, v8::HandleScope<'_>>,
         rt: tokio::runtime::Handle,
         worker_runtime: Arc<Runtime>,
         worker_handle: WorkerHandle,

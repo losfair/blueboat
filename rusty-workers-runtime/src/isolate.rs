@@ -43,7 +43,7 @@ impl<'a> std::ops::Deref for ThreadGuard<'a> {
     }
 }
 
-pub type IsolateJob = Box<dyn FnOnce(&mut v8::Isolate) + Send>;
+pub type IsolateJob = Box<dyn FnOnce(&mut v8::ContextScope<'_, v8::HandleScope<'_>>) + Send>;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct IsolateGeneration(pub u64);
@@ -65,7 +65,7 @@ impl IsolateThreadPool {
         }
     }
 
-    pub async fn run<R: Send + 'static, F: FnOnce(&mut v8::Isolate) -> R + Send + 'static>(
+    pub async fn run<R: Send + 'static, F: FnOnce(&mut v8::ContextScope<'_, v8::HandleScope<'_>>) -> R + Send + 'static>(
         &self, job: F
     ) -> R {
         let _permit = self.notifier.acquire().await;
@@ -120,7 +120,7 @@ fn isolate_worker(
         let scope = &mut v8::HandleScope::new(&mut context_scope);
 
         let librt = v8::String::new(scope, LIBRT).unwrap();
-        let librt = v8::Script::compile(scope, librt, None).unwrap();
+        let librt = v8::Script::compile(scope, librt, None).unwrap().get_unbound_script(scope);
         librt_persistent = v8::Global::new(scope, librt);
     }
 
@@ -136,16 +136,25 @@ fn isolate_worker(
             None => break,
         };
 
+        // Enter context.
+        let mut isolate_scope = v8::HandleScope::new(&mut isolate);
+        let context = v8::Context::new(&mut isolate_scope);
+        let mut context_scope = v8::ContextScope::new(&mut isolate_scope, context);
+
         // Run librt initialization.
         {
-            let mut isolate_scope = v8::HandleScope::new(&mut isolate);
-            let context = v8::Context::new(&mut isolate_scope);
-            let mut context_scope = v8::ContextScope::new(&mut isolate_scope, context);
             let scope = &mut v8::HandleScope::new(&mut context_scope);
-            let librt = v8::Local::<'_, v8::Script>::new(scope, librt_persistent.clone());
+
+            let global_key = v8::String::new(scope, "global").unwrap();
+            let global_obj = scope.get_current_context().global(scope);
+            global_obj.set(scope, global_key.into(), global_obj.into());
+
+            let librt = v8::Local::<'_, v8::UnboundScript>::new(scope, librt_persistent.clone())
+                .bind_to_current_context(scope);
             librt.run(scope);
         }
-        job(&mut isolate);
+
+        job(&mut context_scope);
 
         // Cleanup instance state so that we can reuse it.
         // Keep in sync with InstanceHandle::do_remote_termination.
@@ -157,15 +166,15 @@ fn isolate_worker(
         generation.0 += 1;
 
         // Cleanup termination.
-        isolate.cancel_terminate_execution();
+        context_scope.cancel_terminate_execution();
 
         // Drop the lock.
         drop(generation);
 
         // Cleanup slots.
-        crate::executor::Instance::cleanup(&mut isolate);
+        crate::executor::Instance::cleanup(&mut context_scope);
 
         // Reset memory limit.
-        isolate.remove_near_heap_limit_callback(crate::executor::on_memory_limit_exceeded, config.max_memory_bytes);
+        context_scope.remove_near_heap_limit_callback(crate::executor::on_memory_limit_exceeded, config.max_memory_bytes);
     }
 }

@@ -246,20 +246,15 @@ impl Instance {
         Ok(script)
     }
 
-    pub fn run(&mut self, isolate: &mut v8::Isolate, ready_callback: impl FnOnce()) -> GenericResult<()> {
+    pub fn run(&mut self, context_scope: &mut v8::ContextScope<'_, v8::HandleScope<'_>>, ready_callback: impl FnOnce()) -> GenericResult<()> {
         let state = self.state.take().unwrap();
         let worker_runtime = state.worker_runtime.clone();
-
-        // Init resources
-        let mut isolate_scope = v8::HandleScope::new(isolate);
-        let context = v8::Context::new(&mut isolate_scope);
-        let mut context_scope = v8::ContextScope::new(&mut isolate_scope, context);
 
         let worker_handle = state.handle.clone();
 
         // Take a HandleScope and initialize the environment.
         {
-            let scope = &mut v8::HandleScope::new(&mut context_scope);
+            let scope = &mut v8::HandleScope::new(context_scope);
             let try_catch = &mut v8::TryCatch::new(scope);
             let scope: &mut v8::HandleScope<'_> = try_catch.as_mut();
             state.init_global_env(scope)?;
@@ -284,9 +279,9 @@ impl Instance {
 
         // Wait for tasks.
         loop {
-            update_stats(&worker_runtime, &worker_handle, &mut context_scope);
+            update_stats(&worker_runtime, &worker_handle, context_scope);
 
-            let scope = &mut v8::HandleScope::new(&mut context_scope);
+            let scope = &mut v8::HandleScope::new(context_scope);
             let try_catch = &mut v8::TryCatch::new(scope);
             let scope: &mut v8::HandleScope<'_> = try_catch.as_mut();
             let state = InstanceState::get(scope);
