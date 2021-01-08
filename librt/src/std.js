@@ -229,6 +229,14 @@ export function _dispatchEvent(ev) {
     }
 }
 
+export function getFileFromBundle(name) {
+    return _callService({
+        Sync: {
+            GetFile: name,
+        }
+    });
+}
+
 export const crypto = {
     getRandomValues(n) {
         return _callService({

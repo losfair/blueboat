@@ -517,16 +517,17 @@ fn call_service_callback(
                 }
                 SyncCall::GetFile(name) => {
                     let state = InstanceState::get(scope);
-                    let file = state.files.get(&name).ok_or_else(|| JsError::new(
-                        JsErrorKind::Error,
-                        Some(format!("SyncCall::GetFile: file {} does not exist", name))
-                    ))?.clone();
-                    let buf = v8::ArrayBuffer::new(scope, file.len());
-                    let backing = buf.get_backing_store();
-                    for (i, byte) in backing.iter().enumerate() {
-                        byte.set(file[i]);
+                    if let Some(file) = state.files.get(&name) {
+                        let file = file.clone();
+                        let buf = v8::ArrayBuffer::new(scope, file.len());
+                        let backing = buf.get_backing_store();
+                        for (i, byte) in backing.iter().enumerate() {
+                            byte.set(file[i]);
+                        }
+                        retval.set(buf.into());
+                    } else {
+                        retval.set(v8::null(scope).into());
                     }
-                    retval.set(buf.into());
                 }
             },
             ServiceCall::Async(call) => {
