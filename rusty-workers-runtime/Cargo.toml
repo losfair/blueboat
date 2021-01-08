@@ -10,7 +10,7 @@ repository = "https://github.com/losfair/rusty-workers"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rusty_v8 = { path = "../../rusty_v8" }
+rusty_v8 = { git = "https://github.com/losfair/rusty_v8", rev = "3a5ca143d9409da00e83b4751f5d951983dc3ee8" }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 thiserror = "1"
