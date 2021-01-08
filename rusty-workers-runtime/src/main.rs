@@ -41,21 +41,21 @@ async fn main() -> Result<()> {
     let rt = runtime::Runtime::new(opt.config).await;
     info!("id: {}", rt.id().0);
 
-    let rt2 = rt.clone();
-    server::RuntimeServer::listen(&opt.rpc_listen, max_concurrency, move || {
-        server::RuntimeServer {
-            runtime: rt2.clone(),
-        }
-    })
-    .await?;
-
     // GC thread
+    let rt2 = rt.clone();
     tokio::spawn(async move {
         loop {
-            rt.lru_gc().await;
+            rt2.lru_gc().await;
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         }
     });
+
+    server::RuntimeServer::listen(&opt.rpc_listen, max_concurrency, move || {
+        server::RuntimeServer {
+            runtime: rt.clone(),
+        }
+    })
+    .await?;
 
     Ok(())
 }
