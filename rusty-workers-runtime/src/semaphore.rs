@@ -21,9 +21,9 @@ impl Semaphore {
         }
     }
 
-    pub fn acquire<'a>(&'a self) -> Permit<'a> {
-        self.rx.recv().unwrap();
-        Permit { tx: &self.tx }
+    pub fn acquire_timeout<'a>(&'a self, timeout: std::time::Duration) -> Option<Permit<'a>> {
+        self.rx.recv_timeout(timeout).ok()?;
+        Some(Permit { tx: &self.tx })
     }
 }
 

@@ -9,7 +9,7 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::sync::RwLock as AsyncRwLock;
-use crate::semaphore::Semaphore;
+use crate::semaphore::{Semaphore, Permit};
 
 pub struct Runtime {
     id: RuntimeId,
@@ -70,8 +70,9 @@ impl Runtime {
         self.id.clone()
     }
 
-    pub fn execution_token(&self) -> &Semaphore {
-        &self.execution_token
+    pub fn acquire_execution_token<'a>(&'a self) -> GenericResult<Permit<'a>> {
+        self.execution_token.acquire_timeout(Duration::from_millis(self.config.cpu_wait_timeout_ms))
+            .ok_or_else(|| GenericError::Other("timeout waiting for execution token".into()))
     }
 
     fn instance_thread(

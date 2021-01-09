@@ -275,7 +275,7 @@ impl Instance {
         let worker_handle = state.handle.clone();
 
         // Take an execution thread.
-        let mut permit = worker_runtime.execution_token().acquire();
+        let mut permit = worker_runtime.acquire_execution_token()?;
 
         // Take a HandleScope and initialize the environment.
         {
@@ -328,7 +328,7 @@ impl Instance {
                     break;
                 }
             };
-            permit = worker_runtime.execution_token().acquire();
+            permit = worker_runtime.acquire_execution_token()?;
             let event = task.make_event();
             let io_scope = state.populate_with_task(task)?;
             state.start_timer();
@@ -401,7 +401,7 @@ impl Instance {
                     }
                 };
 
-                permit = worker_runtime.execution_token().acquire();
+                permit = worker_runtime.acquire_execution_token()?;
                 state.start_timer();
 
                 let callback = v8::Local::<'_, v8::Function>::new(scope, callback);

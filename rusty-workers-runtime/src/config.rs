@@ -33,4 +33,8 @@ pub struct Config {
     /// Max number of parallel execution threads.
     #[structopt(long, env = "RW_EXECUTION_CONCURRENCY", default_value = "4")]
     pub execution_concurrency: usize,
+
+    /// CPU wait timeout in milliseconds.
+    #[structopt(long, env = "RW_CPU_WAIT_TIMEOUT_MS", default_value = "1000")]
+    pub cpu_wait_timeout_ms: u64,
 }
