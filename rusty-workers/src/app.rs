@@ -4,8 +4,6 @@ use std::collections::BTreeMap;
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct AppConfig {
     pub id: AppId,
-    pub routes: Vec<AppRoute>,
-
     pub bundle_hash: String,
 
     #[serde(default)]
