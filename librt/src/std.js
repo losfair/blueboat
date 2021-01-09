@@ -247,6 +247,105 @@ export const crypto = {
     }
 };
 
+class KvNamespace {
+    /**
+     * 
+     * @param {string} name 
+     */
+    constructor(name) {
+        this.name = name;
+    }
+
+    /**
+     * @param {ArrayBuffer | ArrayLike<number>} key
+     * @returns {Promise<ArrayBuffer>}
+     */
+    getRaw(key) {
+        return new Promise((resolve, reject) => {
+            _callService({
+                Async: {
+                    KvGet: {
+                        namespace: this.name,
+                        key: Array.from(new Uint8Array(key)),
+                    }
+                }
+            }, (result) => {
+                if(result.Err) {
+                    reject(new Error(result.Err));
+                } else if(result.Ok.Err) {
+                    reject(new Error(result.Ok.Err));
+                } else {
+                    if(result.Ok.Ok !== null) {
+                        resolve(new Uint8Array(result.Ok.Ok).buffer);
+                    } else {
+                        resolve(null);
+                    }
+                }
+            })
+        });
+    }
+
+    /**
+     * @param {string} key
+     * @returns {Promise<string>}
+     */
+    async get(key) {
+        let keyRaw = new TextEncoder().encode(key);
+        let buf = await this.getRaw(keyRaw);
+        if(buf !== null) {
+            return new TextDecoder().decode(buf);
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * @param {ArrayBuffer | ArrayLike<number>} key
+     * @param {ArrayBuffer | ArrayLike<number>} value
+     * @returns {Promise<void>}
+     */
+    putRaw(key, value) {
+        return new Promise((resolve, reject) => {
+            _callService({
+                Async: {
+                    KvPut: {
+                        namespace: this.name,
+                        key: Array.from(new Uint8Array(key)),
+                        value: Array.from(new Uint8Array(value)),
+                    }
+                }
+            }, (result) => {
+                if(result.Err) {
+                    reject(new Error(result.Err));
+                } else if(result.Ok.Err) {
+                    reject(new Error(result.Ok.Err));
+                } else {
+                    resolve();
+                }
+            })
+        });
+    }
+
+    /**
+     * @param {string} key
+     * @param {string} value
+     * @returns {Promise<void>}
+     */
+    async put(key, value) {
+        let keyRaw = new TextEncoder().encode(key);
+        let valueRaw = new TextEncoder().encode(value);
+        await this.putRaw(keyRaw, valueRaw);
+    }
+}
+
+const kvHandler = {
+    get: function(target, prop, receiver) {
+        return new KvNamespace(prop);
+    }
+}
+
+export const kv = new Proxy({}, kvHandler);
+
 export const console = new Console();
 export const Request = workerFetch.Request;
 export const Response = workerFetch.Response;

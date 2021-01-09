@@ -21,7 +21,6 @@ pub struct IoWaiter {
 }
 
 pub struct IoProcessor {
-    _worker_runtime: Arc<Runtime>,
     task: tokio::sync::mpsc::UnboundedReceiver<(usize, AsyncCall)>,
     result: std::sync::mpsc::Sender<(usize, String)>,
     shared: Arc<IoProcessorSharedState>,
@@ -29,6 +28,7 @@ pub struct IoProcessor {
 
 struct IoProcessorSharedState {
     conf: Arc<WorkerConfiguration>,
+    worker_runtime: Arc<Runtime>,
     fetch_client: AsyncMutex<Option<FetchServiceClient>>,
 }
 
@@ -79,9 +79,9 @@ impl IoWaiter {
         let processor = IoProcessor {
             task: task_rx,
             result: result_tx,
-            _worker_runtime: worker_runtime,
             shared: Arc::new(IoProcessorSharedState {
                 conf,
+                worker_runtime,
                 fetch_client: AsyncMutex::new(None),
             }),
         };
@@ -198,6 +198,36 @@ impl IoProcessorSharedState {
                     fetch_client.fetch(tarpc::context::current(), req).await??;
                 Ok(serde_json::to_string(&fetch_result)?)
             }
+            AsyncCall::KvGet { namespace, key } => {
+                let namespace_id = match self.conf.kv_namespaces.get(&namespace) {
+                    Some(id) => id,
+                    None => return Ok(mk_user_error("namespace does not exist")?),
+                };
+                let tikv_client = match self.worker_runtime.tikv_client() {
+                    Some(x) => x,
+                    None => return Ok(mk_user_error("kv disabled")?),
+                };
+                
+                let mut full_key = namespace_id.to_vec();
+                full_key.extend_from_slice(&key);
+                let result = tikv_client.get(full_key).await?;
+                Ok(mk_user_ok(result)?)
+            }
+            AsyncCall::KvPut { namespace, key, value } => {
+                let namespace_id = match self.conf.kv_namespaces.get(&namespace) {
+                    Some(id) => id,
+                    None => return Ok(mk_user_error("namespace does not exist")?),
+                };
+                let tikv_client = match self.worker_runtime.tikv_client() {
+                    Some(x) => x,
+                    None => return Ok(mk_user_error("kv disabled")?),
+                };
+                
+                let mut full_key = namespace_id.to_vec();
+                full_key.extend_from_slice(&key);
+                tikv_client.put(full_key, value).await?;
+                Ok(mk_user_ok(())?)
+            }
         }
     }
 }
@@ -206,4 +236,14 @@ impl IoResponseHandle {
     fn respond(self, data: String) {
         drop(self.result.send((self.index, data)));
     }
+}
+
+fn mk_user_ok<T: serde::Serialize>(value: T) -> Result<String> {
+    let value: Result<T, ()> = Ok(value);
+    Ok(serde_json::to_string(&value)?)
+}
+
+fn mk_user_error<T: serde::Serialize>(value: T) -> Result<String> {
+    let value: Result<(), T> = Err(value);
+    Ok(serde_json::to_string(&value)?)
 }

@@ -10,3 +10,6 @@ members = [
 
 [profile.release]
 debug = false
+
+# Set panic=abort because Tokio does not terminate the program on panics.
+panic = "abort"

@@ -82,6 +82,7 @@ async fn main() -> Result<()> {
                             },
                             fetch_service,
                             env: Default::default(),
+                            kv_namespaces: Default::default(),
                         }
                     };
                     let script = read_file_raw(&script).await?;

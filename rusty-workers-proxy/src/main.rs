@@ -103,6 +103,7 @@ async fn main() -> Result<()> {
                 },
                 fetch_service: opt.fetch_service,
                 env: Default::default(),
+                kv_namespaces: Default::default(),
             },
             LocalConfig {
                 max_ready_instances_per_app: opt.max_ready_instances_per_app,

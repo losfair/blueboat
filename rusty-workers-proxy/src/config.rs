@@ -23,6 +23,15 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub env: BTreeMap<String, String>,
+
+    #[serde(default)]
+    pub kv_namespaces: Vec<KvNamespaceConfig>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct KvNamespaceConfig {
+    pub name: String,
+    pub id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]

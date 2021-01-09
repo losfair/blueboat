@@ -539,6 +539,7 @@ impl Scheduler {
 
             let mut config = self.worker_config.clone();
             config.env = app_config.env.clone();
+            config.kv_namespaces = decode_kv_namespaces(&app_config.kv_namespaces);
 
             let state = AppState {
                 id: id.clone(),
@@ -608,4 +609,21 @@ impl SchedError {
         *res.status_mut() = status;
         res
     }
+}
+
+fn decode_kv_namespaces(namespaces: &Vec<KvNamespaceConfig>) -> BTreeMap<String, [u8; 16]> {
+    namespaces.iter().filter_map(|ns| {
+        base64::decode(&ns.id)
+            .ok()
+            .filter(|x| x.len() == 16)
+            .map(|x| {
+                let mut slice = [0u8; 16];
+                slice.copy_from_slice(&x);
+                (ns.name.clone(), slice)
+            })
+            .or_else(|| {
+                warn!("decode_kv_namespaces: bad value for namespace: {}", ns.name);
+                None
+            })
+    }).collect()
 }

@@ -18,6 +18,7 @@ pub struct Runtime {
     config: Config,
     pool: IsolateThreadPool,
     execution_token: Semaphore,
+    tikv: Option<tikv_client::RawClient>,
 }
 
 struct WorkerState {
@@ -44,6 +45,15 @@ impl Runtime {
         let isolate_pool_size = config.isolate_pool_size;
         let execution_concurrency = config.execution_concurrency;
 
+        let tikv = if config.tikv_cluster.len() > 0 {
+            let cluster: Vec<_> = config.tikv_cluster.split(",").collect();
+            let client = Some(tikv_client::RawClient::new(cluster).await.expect("cannot initialize tikv client"));
+            info!("connected to tikv cluster");
+            client
+        } else {
+            None
+        };
+
         let rt = Arc::new(Runtime {
             id: RuntimeId::generate(),
             instances: AsyncRwLock::new(LruCache::with_expiry_duration_and_capacity(
@@ -60,6 +70,7 @@ impl Runtime {
             )
             .await,
             execution_token: Semaphore::new(execution_concurrency),
+            tikv,
         });
         let rt_weak = Arc::downgrade(&rt);
         tokio::spawn(statistics_update_worker(rt_weak, statistics_update_rx));
@@ -73,6 +84,10 @@ impl Runtime {
     pub fn acquire_execution_token<'a>(&'a self) -> GenericResult<Permit<'a>> {
         self.execution_token.acquire_timeout(Duration::from_millis(self.config.cpu_wait_timeout_ms))
             .ok_or_else(|| GenericError::Other("timeout waiting for execution token".into()))
+    }
+
+    pub fn tikv_client(&self) -> Option<&tikv_client::RawClient> {
+        self.tikv.as_ref()
     }
 
     fn instance_thread(

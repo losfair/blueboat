@@ -20,6 +20,15 @@ pub enum SyncCall {
 pub enum AsyncCall {
     SetTimeout(u64),
     Fetch(RequestObject),
+    KvGet {
+        namespace: String,
+        key: Vec<u8>,
+    },
+    KvPut {
+        namespace: String,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

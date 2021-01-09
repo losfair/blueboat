@@ -37,4 +37,8 @@ pub struct Config {
     /// CPU wait timeout in milliseconds.
     #[structopt(long, env = "RW_CPU_WAIT_TIMEOUT_MS", default_value = "1000")]
     pub cpu_wait_timeout_ms: u64,
+
+    /// TiKV cluster addresses, comma-separated.
+    #[structopt(long, env = "RW_TIKV_CLUSTER", default_value = "")]
+    pub tikv_cluster: String,
 }
