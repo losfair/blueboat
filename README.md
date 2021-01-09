@@ -12,7 +12,7 @@ This is a **work in progress**.
 - [x] Fetch API
 - [x] Dynamic execution cluster scheduler
 - [x] Kubernetes integration
-- [ ] Key-value store API
+- [x] Key-value store API
 - [ ] Web Crypto API
 
 ## Deployment
