@@ -7,6 +7,7 @@ use rusty_workers::types::*;
 use std::net::SocketAddr;
 use structopt::StructOpt;
 use tokio::io::AsyncReadExt;
+use rusty_workers::kv::KvClient;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "rusty-workers-cli", about = "Rusty Workers (cli)")]
@@ -25,6 +26,52 @@ enum Cmd {
 
         #[structopt(subcommand)]
         op: RuntimeCmd,
+    },
+
+    /// App management.
+    App {
+        /// TiKV PD address.
+        #[structopt(long, env = "TIKV_PD")]
+        tikv_pd: String,
+
+        #[structopt(subcommand)]
+        op: AppCmd,
+    }
+}
+
+#[derive(Debug, StructOpt)]
+enum AppCmd {
+    #[structopt(name = "list-routes")]
+    ListRoutes {
+        domain: String,
+    },
+    #[structopt(name = "add-route")]
+    AddRoute {
+        domain: String,
+
+        #[structopt(long)]
+        path: String,
+
+        #[structopt(long)]
+        appid: String,
+    },
+    #[structopt(name = "delete-domain")]
+    DeleteDomain {
+        domain: String,
+    },
+    #[structopt(name = "delete-route")]
+    DeleteRoute {
+        domain: String,
+
+        #[structopt(long)]
+        path: String,
+    },
+    #[structopt(name = "lookup-route")]
+    LookupRoute {
+        domain: String,
+
+        #[structopt(long)]
+        path: String,
     },
 }
 
@@ -107,6 +154,31 @@ async fn main() -> Result<()> {
                     let req = RequestObject::default();
                     let result = client.fetch(make_context(), worker_handle, req).await?;
                     println!("{}", serde_json::to_string(&result).unwrap());
+                }
+            }
+        }
+        Cmd::App { tikv_pd, op } => {
+            let client = KvClient::new(vec![tikv_pd]).await?;
+            match op {
+                AppCmd::ListRoutes { domain } => {
+                    let routes = client.route_mapping_list_for_domain(&domain, |_| true).await?;
+                    println!("{}", serde_json::to_string(&routes)?);
+                }
+                AppCmd::AddRoute { domain, path, appid } => {
+                    client.route_mapping_insert(&domain, &path, appid).await?;
+                    println!("null");
+                }
+                AppCmd::DeleteDomain { domain } => {
+                    client.route_mapping_delete_domain(&domain).await?;
+                    println!("null");
+                }
+                AppCmd::DeleteRoute { domain, path } => {
+                    client.route_mapping_delete(&domain, &path).await?;
+                    println!("null");
+                }
+                AppCmd::LookupRoute { domain, path } => {
+                    let result = client.route_mapping_lookup(&domain, &path).await?;
+                    println!("{}", serde_json::to_string(&result)?);
                 }
             }
         }
