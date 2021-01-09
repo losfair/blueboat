@@ -29,6 +29,10 @@ pub enum AsyncCall {
         key: Vec<u8>,
         value: Vec<u8>,
     },
+    KvDelete {
+        namespace: String,
+        key: Vec<u8>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

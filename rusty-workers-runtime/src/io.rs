@@ -228,6 +228,21 @@ impl IoProcessorSharedState {
                 tikv_client.put(full_key, value).await?;
                 Ok(mk_user_ok(())?)
             }
+            AsyncCall::KvDelete { namespace, key } => {
+                let namespace_id = match self.conf.kv_namespaces.get(&namespace) {
+                    Some(id) => id,
+                    None => return Ok(mk_user_error("namespace does not exist")?),
+                };
+                let tikv_client = match self.worker_runtime.tikv_client() {
+                    Some(x) => x,
+                    None => return Ok(mk_user_error("kv disabled")?),
+                };
+                
+                let mut full_key = namespace_id.to_vec();
+                full_key.extend_from_slice(&key);
+                tikv_client.delete(full_key).await?;
+                Ok(mk_user_ok(())?)
+            }
         }
     }
 }

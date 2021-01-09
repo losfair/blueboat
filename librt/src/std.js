@@ -336,6 +336,40 @@ class KvNamespace {
         let valueRaw = new TextEncoder().encode(value);
         await this.putRaw(keyRaw, valueRaw);
     }
+
+    /**
+     * @param {ArrayBuffer | ArrayLike<number>} key
+     * @returns {Promise<void>}
+     */
+    deleteRaw(key) {
+        return new Promise((resolve, reject) => {
+            _callService({
+                Async: {
+                    KvDelete: {
+                        namespace: this.name,
+                        key: Array.from(new Uint8Array(key)),
+                    }
+                }
+            }, (result) => {
+                if(result.Err) {
+                    reject(new Error(result.Err));
+                } else if(result.Ok.Err) {
+                    reject(new Error(result.Ok.Err));
+                } else {
+                    resolve();
+                }
+            })
+        });
+    }
+
+    /**
+     * @param {string} key
+     * @returns {Promise<void>}
+     */
+    async delete(key) {
+        let keyRaw = new TextEncoder().encode(key);
+        await this.deleteRaw(keyRaw);
+    }
 }
 
 const kvHandler = {
