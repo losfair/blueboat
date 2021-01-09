@@ -95,10 +95,6 @@ struct Opt {
     /// Size of app cache.
     #[structopt(long, env = "RW_APP_CACHE_SIZE", default_value = "100")]
     pub app_cache_size: usize,
-
-    /// Size of bundle cache.
-    #[structopt(long, env = "RW_BUNDLE_CACHE_SIZE", default_value = "50")]
-    pub bundle_cache_size: usize,
 }
 
 #[tokio::main]
@@ -138,7 +134,6 @@ async fn main() -> Result<()> {
                 route_cache_ttl_ms: opt.route_cache_ttl_ms,
                 route_cache_size: opt.route_cache_size,
                 app_cache_size: opt.app_cache_size,
-                bundle_cache_size: opt.bundle_cache_size,
                 runtime_cluster,
             },
             kv_client,

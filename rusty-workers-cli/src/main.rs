@@ -9,13 +9,13 @@ use structopt::StructOpt;
 use tokio::io::AsyncReadExt;
 use rusty_workers::kv::KvClient;
 use rusty_workers::app::AppConfig;
-use sha2::Digest;
 use thiserror::Error;
+use rand::Rng;
 
 #[derive(Debug, Error)]
 enum CliError {
-    #[error("bad bundle hash")]
-    BadBundleHash,
+    #[error("bad bundle id")]
+    BadBundleId,
 }
 
 #[derive(Debug, StructOpt)]
@@ -89,6 +89,9 @@ enum AppCmd {
     #[structopt(name = "add-app")]
     AddApp {
         config: String,
+
+        #[structopt(long)]
+        bundle: String,
     },
     #[structopt(name = "delete-app")]
     DeleteApp {
@@ -98,10 +101,12 @@ enum AppCmd {
     GetApp {
         appid: String,
     },
-    #[structopt(name = "add-bundle")]
-    AddBundle {
-        path: String,
-    }
+    #[structopt(name = "all-bundles")]
+    AllBundles,
+    #[structopt(name = "delete-bundle")]
+    DeleteBundle {
+        id: String,
+    },
 }
 
 #[derive(Debug, StructOpt)]
@@ -241,22 +246,25 @@ async fn main() -> Result<()> {
                     }).await?;
                     println!("]");
                 }
-                AppCmd::AddApp { config } => {
+                AppCmd::AddApp { config, bundle } => {
                     let config = read_file(&config).await?;
-                    let config: AppConfig = toml::from_str(&config)?;
+                    let mut config: AppConfig = toml::from_str(&config)?;
+                    let bundle = read_file_raw(&bundle).await?;
 
-                    let bundle_hash = rusty_workers::app::decode_bundle_hash(&config.bundle_hash)
-                        .ok_or_else(|| CliError::BadBundleHash)?;
-                    if client.app_bundle_get(&bundle_hash).await?.is_none() {
-                        println!("bundle does not exist");
-                    }
+                    cleanup_previous_app(&client, &config.id).await?;
+
+                    let mut bundle_id = [0u8; 16];
+                    rand::thread_rng().fill(&mut bundle_id);
+                    client.app_bundle_put(&bundle_id, bundle).await?;
+                    config.bundle_id = rusty_workers::app::encode_bundle_id(&bundle_id);
 
                     client.app_metadata_put(&config.id.0, serde_json::to_vec(&config)?).await?;
                     println!("OK");
                 }
                 AppCmd::DeleteApp { appid } => {
-                    // Don't delete bundle as this is shared
-                    client.app_metadata_delete(&appid).await?;
+                    let appid = rusty_workers::app::AppId(appid);
+                    cleanup_previous_app(&client, &appid).await?;
+                    client.app_metadata_delete(&appid.0).await?;
                     println!("OK");
                 }
                 AppCmd::GetApp { appid } => {
@@ -265,15 +273,24 @@ async fn main() -> Result<()> {
                         .transpose()?;
                     println!("{}", serde_json::to_string(&result)?);
                 }
-                AppCmd::AddBundle { path } => {
-                    let bundle = read_file_raw(&path).await?;
-
-                    let mut hasher = sha2::Sha256::new();
-                    hasher.update(&bundle);
-                    let hash: [u8; 32] = *hasher.finalize().as_ref();
-
-                    client.app_bundle_put(&hash, bundle).await?;
-                    println!("{}", rusty_workers::app::encode_bundle_hash(&hash));
+                AppCmd::AllBundles => {
+                    print!("[");
+                    let mut first = true;
+                    client.app_bundle_for_each(|id| {
+                        if first {
+                            first = false;
+                        } else {
+                            print!(",");
+                        }
+                        print!("{}", serde_json::to_string(&base64::encode(id)).unwrap());
+                        true
+                    }).await?;
+                    println!("]");
+                }
+                AppCmd::DeleteBundle { id } => {
+                    let id = base64::decode(&id)?;
+                    client.app_bundle_delete_dirty(&id).await?;
+                    println!("OK");
                 }
             }
         }
@@ -299,4 +316,20 @@ fn make_context() -> tarpc::context::Context {
     let mut current = tarpc::context::current();
     current.deadline = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
     current
+}
+
+async fn cleanup_previous_app(client: &KvClient, appid: &rusty_workers::app::AppId) -> Result<()> {
+    if let Some(prev_md) = client.app_metadata_get(&appid.0).await? {
+        if let Ok(prev_config) = serde_json::from_slice::<AppConfig>(&prev_md) {
+            client.app_bundle_delete(
+                &rusty_workers::app::decode_bundle_id(
+                    &prev_config.bundle_id
+                ).ok_or_else(|| CliError::BadBundleId)?
+            ).await?;
+            warn!("deleted previous bundle");
+        } else {
+            warn!("unable to decode previous metadata");
+        }
+    }
+    Ok(())
 }

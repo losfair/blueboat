@@ -177,20 +177,38 @@ impl KvClient {
             .map_err(|e| GenericError::Other(format!("app_metadata_delete: {:?}", e)))
     }
 
-    pub async fn app_bundle_get(&self, hash: &[u8; 32]) -> GenericResult<Option<Vec<u8>>> {
-        let key = join_slices(&[PREFIX_APP_BUNDLE_V1, hash]);
+    pub async fn app_bundle_for_each(
+        &self, 
+        mut callback: impl FnMut(&[u8]) -> bool,
+    ) -> GenericResult<()> {
+        self.scan_prefix_keys(PREFIX_APP_BUNDLE_V1, |k, ()| {
+            callback(k)
+        }).await?;
+        Ok(())
+    }
+
+    pub async fn app_bundle_get(&self, id: &[u8; 16]) -> GenericResult<Option<Vec<u8>>> {
+        let key = join_slices(&[PREFIX_APP_BUNDLE_V1, id]);
         self.raw.get(key).await
             .map_err(|e| GenericError::Other(format!("app_bundle_get: {:?}", e)))
     }
 
-    pub async fn app_bundle_put(&self, hash: &[u8; 32], value: Vec<u8>) -> GenericResult<()> {
-        let key = join_slices(&[PREFIX_APP_BUNDLE_V1, hash]);
+    pub async fn app_bundle_put(&self, id: &[u8; 16], value: Vec<u8>) -> GenericResult<()> {
+        let key = join_slices(&[PREFIX_APP_BUNDLE_V1, id]);
         self.raw.put(key, value).await
             .map_err(|e| GenericError::Other(format!("app_bundle_put: {:?}", e)))
     }
 
-    pub async fn app_bundle_delete(&self, hash: &[u8; 32]) -> GenericResult<()> {
-        let key = join_slices(&[PREFIX_APP_BUNDLE_V1, hash]);
+    /// Deletes an app bundle.
+    pub async fn app_bundle_delete(&self, id: &[u8; 16]) -> GenericResult<()> {
+        self.app_bundle_delete_dirty(id).await
+    }
+
+    /// Deletes an app bundle.
+    /// 
+    /// Argument is not restricted to [u8; 16] because we want to allow deleting "dirty" data.
+    pub async fn app_bundle_delete_dirty(&self, id: &[u8]) -> GenericResult<()> {
+        let key = join_slices(&[PREFIX_APP_BUNDLE_V1, id]);
         self.raw.delete(key).await
             .map_err(|e| GenericError::Other(format!("app_bundle_delete: {:?}", e)))
     }

@@ -4,7 +4,9 @@ use std::collections::BTreeMap;
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct AppConfig {
     pub id: AppId,
-    pub bundle_hash: String,
+
+    #[serde(default)]
+    pub bundle_id: String,
 
     #[serde(default)]
     pub env: BTreeMap<String, String>,
@@ -29,17 +31,17 @@ pub struct AppRoute {
 #[serde(transparent)]
 pub struct AppId(pub String);
 
-pub fn decode_bundle_hash(raw: &str) -> Option<[u8; 32]> {
+pub fn decode_bundle_id(raw: &str) -> Option<[u8; 16]> {
     base64::decode(raw)
         .ok()
-        .filter(|x| x.len() == 32)
+        .filter(|x| x.len() == 16)
         .map(|x| {
-            let mut slice = [0u8; 32];
+            let mut slice = [0u8; 16];
             slice.copy_from_slice(&x);
             slice
         })
 }
 
-pub fn encode_bundle_hash(raw: &[u8; 32]) -> String {
+pub fn encode_bundle_id(raw: &[u8; 16]) -> String {
     base64::encode(raw)
 }

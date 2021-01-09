@@ -39,7 +39,6 @@ pub struct Scheduler {
     clients: AsyncRwLock<BTreeMap<RuntimeId, RtState>>,
     apps: AsyncMutex<LruCache<AppId, Arc<AppState>>>,
     route_cache: AsyncMutex<LruCache<String, BTreeMap<String, RouteCacheEntry>>>, // domain -> (prefix -> appid)
-    bundle_cache: AsyncMutex<LruCache<[u8; 32], Arc<Vec<u8>>>>,
     terminate_queue: tokio::sync::mpsc::Sender<ReadyInstance>,
     kv_client: KvClient,
     lookup_route_tx: Sender<(String, String)>,
@@ -71,10 +70,10 @@ struct AppState {
     config: WorkerConfiguration,
 
     /// Hash of the bundle.
-    bundle_hash: [u8; 32],
+    bundle_id: [u8; 16],
 
     /// File bundle.
-    bundle: Arc<Vec<u8>>,
+    bundle: Vec<u8>,
 
     /// Instances that are ready to run this app.
     ready_instances: AsyncMutex<VecDeque<ReadyInstance>>,
@@ -197,7 +196,7 @@ impl AppState {
                 tarpc::context::current(),
                 self.id.0.clone(),
                 self.config.clone(),
-                (*self.bundle).clone(),
+                self.bundle.clone(),
             )
             .await??;
         Ok(ReadyInstance {
@@ -242,7 +241,6 @@ impl Scheduler {
         let route_cache_lru_ttl_ms = local_config.route_cache_lru_ttl_ms;
         let route_cache_size = local_config.route_cache_size;
         let app_cache_size = local_config.app_cache_size;
-        let bundle_cache_size = local_config.bundle_cache_size;
 
         let (lookup_route_tx, lookup_route_rx) = tokio::sync::mpsc::channel(100);
         let (lookup_app_tx, lookup_app_rx) = tokio::sync::mpsc::channel(100);
@@ -255,7 +253,6 @@ impl Scheduler {
                 Duration::from_millis(route_cache_lru_ttl_ms),
                 route_cache_size,
             )),
-            bundle_cache: AsyncMutex::new(LruCache::with_capacity(bundle_cache_size)),
             terminate_queue: terminate_queue_tx,
             kv_client,
             lookup_route_tx,
@@ -568,16 +565,16 @@ impl Scheduler {
     async fn apps_gc_task(&self) {
         loop {
             tokio::time::sleep(Duration::from_secs(10)).await;
-            let apps: Vec<(AppId, ([u8; 32], WorkerConfiguration))> = self.apps.lock().await.iter().map(|(k, v)| {
-                (k.clone(), (v.bundle_hash, v.config.clone()))
+            let apps: Vec<(AppId, ([u8; 16], WorkerConfiguration))> = self.apps.lock().await.iter().map(|(k, v)| {
+                (k.clone(), (v.bundle_id, v.config.clone()))
             }).collect();
 
-            for (id, (bundle_hash, worker_config)) in apps {
+            for (id, (bundle_id, worker_config)) in apps {
                 match self.kv_client.app_metadata_get(&id.0).await {
                     Ok(Some(config)) => {
                         if let Ok(config) = serde_json::from_slice::<AppConfig>(&config) {
-                            if let Ok(expected_bundle_hash) = base64::decode(&config.bundle_hash) {
-                                if expected_bundle_hash != bundle_hash
+                            if let Ok(expected_bundle_id) = base64::decode(&config.bundle_id) {
+                                if expected_bundle_id != bundle_id
                                     || config.env != worker_config.env
                                     || decode_kv_namespaces(&config.kv_namespaces) != worker_config.kv_namespaces {
                                     info!("app changed. removing app {} from cache", id.0);
@@ -638,7 +635,7 @@ impl Scheduler {
             }
         };
 
-        let bundle_hash = match decode_bundle_hash(&config.bundle_hash) {
+        let bundle_id = match decode_bundle_id(&config.bundle_id) {
             Some(x) => x,
             None => {
                 warn!("do_lookup_app_background: bad bundle hash (app {})", id.0);
@@ -646,24 +643,16 @@ impl Scheduler {
             }
         };
 
-        let bundle = self.bundle_cache.lock().await.get(&bundle_hash).cloned();
-        let bundle = match bundle {
-            Some(x) => x,
-            None => {
-                info!("fetching bundle {}", base64::encode(&bundle_hash));
-                let bundle = match self.kv_client.app_bundle_get(&bundle_hash).await {
-                    Ok(Some(x)) => Arc::new(x),
-                    Ok(None) => {
-                        warn!("do_lookup_app_background: app bundle not found");
-                        return;
-                    }
-                    Err(e) => {
-                        warn!("do_lookup_app_background: db error: {:?}", e);
-                        return;
-                    }
-                };
-                self.bundle_cache.lock().await.insert(bundle_hash, bundle.clone());
-                bundle
+        info!("fetching bundle {}", base64::encode(&bundle_id));
+        let bundle = match self.kv_client.app_bundle_get(&bundle_id).await {
+            Ok(Some(x)) => x,
+            Ok(None) => {
+                warn!("do_lookup_app_background: app bundle not found");
+                return;
+            }
+            Err(e) => {
+                warn!("do_lookup_app_background: db error: {:?}", e);
+                return;
             }
         };
 
@@ -674,7 +663,7 @@ impl Scheduler {
         let state = AppState {
             id: id.clone(),
             config: target_config,
-            bundle_hash,
+            bundle_id,
             bundle,
             ready_instances: AsyncMutex::new(VecDeque::new()),
         };

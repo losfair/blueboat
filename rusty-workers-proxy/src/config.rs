@@ -13,5 +13,4 @@ pub struct LocalConfig {
     pub route_cache_ttl_ms: u64,
     pub route_cache_size: usize,
     pub app_cache_size: usize,
-    pub bundle_cache_size: usize,
 }
