@@ -357,6 +357,7 @@ impl Scheduler {
                             continue;
                         }
                         _ => {
+                            info!("execution error: {:?}", e);
                             // Don't attempt to recover otherwise.
                             // Pool it back if possible.
                             if !e.terminates_worker() {
