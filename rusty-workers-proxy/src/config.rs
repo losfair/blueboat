@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use rusty_workers::app::AppConfig;
 
@@ -24,4 +23,7 @@ pub struct LocalConfig {
     pub request_timeout_ms: u64,
     pub max_request_body_size_bytes: u64,
     pub dropout_rate: f32,
+    pub route_cache_lru_ttl_ms: u64,
+    pub route_cache_ttl_ms: u64,
+    pub route_cache_size: usize,
 }

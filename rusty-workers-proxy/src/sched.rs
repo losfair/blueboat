@@ -15,6 +15,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
+use lru_time_cache::LruCache;
+use rusty_workers::kv::KvClient;
+use tokio::sync::mpsc::{Sender, Receiver};
 
 #[derive(Debug, Error)]
 pub enum SchedError {
@@ -43,9 +46,17 @@ pub struct Scheduler {
     worker_config: WorkerConfiguration,
     clients: AsyncRwLock<BTreeMap<RuntimeId, RtState>>,
     apps: AsyncRwLock<BTreeMap<AppId, AppState>>,
-    route_mappings: AsyncRwLock<BTreeMap<String, BTreeMap<String, AppId>>>, // domain -> (prefix -> appid)
+    route_cache: AsyncMutex<LruCache<String, BTreeMap<String, RouteCacheEntry>>>, // domain -> (prefix -> appid)
     terminate_queue: tokio::sync::mpsc::Sender<ReadyInstance>,
     fetch_client: FetchServiceClient,
+    kv_client: KvClient,
+    lookup_route_tx: Sender<(String, String)>,
+}
+
+#[derive(Clone)]
+struct RouteCacheEntry {
+    appid: AppId,
+    expire_after: Instant,
 }
 
 /// State of a backing runtime.
@@ -87,6 +98,12 @@ struct ReadyInstance {
 
     /// The tarpc client.
     client: RuntimeServiceClient,
+}
+
+impl RouteCacheEntry {
+    fn is_expired(&self) -> bool {
+        Instant::now() > self.expire_after
+    }
 }
 
 impl ReadyInstance {
@@ -197,7 +214,12 @@ impl AppState {
 }
 
 impl Scheduler {
-    pub fn new(worker_config: WorkerConfiguration, local_config: LocalConfig, fetch_client: FetchServiceClient) -> Self {
+    pub fn new(
+        worker_config: WorkerConfiguration,
+        local_config: LocalConfig,
+        fetch_client: FetchServiceClient,
+        kv_client: KvClient,
+    ) -> Arc<Self> {
         let (terminate_queue_tx, mut terminate_queue_rx): (
             tokio::sync::mpsc::Sender<ReadyInstance>,
             _,
@@ -222,23 +244,34 @@ impl Scheduler {
             }
         });
 
-        Self {
+        let route_cache_lru_ttl_ms = local_config.route_cache_lru_ttl_ms;
+        let route_cache_size = local_config.route_cache_size;
+
+        let (lookup_route_tx, lookup_route_rx) = tokio::sync::mpsc::channel(100);
+        let me = Arc::new(Self {
             config: ArcSwap::new(Arc::new(Config::default())),
             local_config,
             worker_config,
             clients: AsyncRwLock::new(BTreeMap::new()),
             apps: AsyncRwLock::new(BTreeMap::new()),
-            route_mappings: AsyncRwLock::new(BTreeMap::new()),
+            route_cache: AsyncMutex::new(LruCache::with_expiry_duration_and_capacity(
+                Duration::from_millis(route_cache_lru_ttl_ms),
+                route_cache_size,
+            )),
             terminate_queue: terminate_queue_tx,
             fetch_client,
-        }
+            kv_client,
+            lookup_route_tx,
+        });
+        let me2 = me.clone();
+        tokio::spawn(async move { me2.lookup_route_background(lookup_route_rx).await; });
+        me
     }
 
     pub async fn handle_request(
         &self,
         mut req: hyper::Request<hyper::Body>,
     ) -> Result<hyper::Response<hyper::Body>> {
-        let route_mappings = self.route_mappings.read().await;
 
         // Rewrite host to remove port.
         let host = req
@@ -257,21 +290,29 @@ impl Scheduler {
         );
 
         let uri = req.uri().clone();
-        let submappings = route_mappings
-            .get(&host)
-            .ok_or(SchedError::NoRouteMapping)?;
 
-        // Match in reverse order.
         let mut appid = None;
-        for (k, v) in submappings.iter().rev() {
-            if uri.path().starts_with(k) {
-                appid = Some(v.clone());
+
+        for _ in 0..3 {
+            let mut route_cache = self.route_cache.lock().await;
+            appid = route_cache
+                .get(&host)
+                .and_then(|submappings| lookup_submappings(uri.path(), submappings))
+                .filter(|x| !x.is_expired())
+                .cloned();
+            drop(route_cache);
+
+            if appid.is_some() {
                 break;
             }
-        }
-        drop(route_mappings);
 
-        let appid = appid.ok_or(SchedError::NoRouteMapping)?;
+            // Notify the worker thread
+            drop(self.lookup_route_tx.try_send((host.clone(), uri.path().to_string())));
+
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        };
+
+        let appid = appid.ok_or(SchedError::NoRouteMapping)?.appid;
 
         let method = req.method().as_str().to_string();
         let mut headers = BTreeMap::new();
@@ -489,6 +530,50 @@ impl Scheduler {
         drop(clients);
     }
 
+    async fn lookup_route_background(&self, mut rx: Receiver<(String, String)>) {
+        loop {
+            let (domain, path) = match rx.recv().await {
+                Some(x) => x,
+                None => return,
+            };
+            self.do_lookup_route_background(domain, path).await;
+
+            // Don't stress kv too much
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    async fn do_lookup_route_background(&self, domain: String, path: String) {
+        // Double check
+        let mut route_cache = self.route_cache.lock().await;
+        if let Some(x) = route_cache.get(&domain) {
+            if let Some(x) = lookup_submappings(&path, x) {
+                if !x.is_expired() {
+                    return;
+                }
+            }
+        }
+        drop(route_cache);
+
+        match self.kv_client.route_mapping_lookup(&domain, &path).await {
+            Ok(Some(appid)) => {
+                info!("inserting route: {}{} -> {}", domain, path, appid);
+                let mut route_cache = self.route_cache.lock().await;
+                route_cache.entry(domain).or_insert(BTreeMap::new())
+                    .insert(path.to_string(), RouteCacheEntry {
+                        appid: AppId(appid),
+                        expire_after: Instant::now() + Duration::from_millis(self.local_config.route_cache_ttl_ms),
+                    });
+            }
+            Ok(None) => {
+                warn!("lookup_route_background: mapping not found for {}{}", domain, path);
+            }
+            Err(e) => {
+                warn!("error looking up route: {:?}", e);
+            }
+        }
+    }
+
     async fn populate_config(&self) {
         let config = self.config.load();
 
@@ -578,20 +663,6 @@ impl Scheduler {
 
         drop(apps);
 
-        // Rebuild routing table.
-        let mut routing_table: BTreeMap<String, BTreeMap<String, AppId>> = BTreeMap::new();
-        for (id, &app_config) in new_apps_config.iter() {
-            for route in &app_config.routes {
-                info!("inserting route: {:?}", route);
-                routing_table
-                    .entry(route.domain.clone())
-                    .or_insert(BTreeMap::new())
-                    .insert(route.path_prefix.clone(), id.clone());
-            }
-        }
-
-        *self.route_mappings.write().await = routing_table;
-
         drop(config);
 
         // Trigger a runtime discovery with new configuration
@@ -633,4 +704,14 @@ fn decode_kv_namespaces(namespaces: &Vec<KvNamespaceConfig>) -> BTreeMap<String,
                 None
             })
     }).collect()
+}
+
+fn lookup_submappings<'a>(path: &str, submappings: &'a BTreeMap<String, RouteCacheEntry>) -> Option<&'a RouteCacheEntry> {
+    // Match in reverse order.
+    for (k, v) in submappings.iter().rev() {
+        if path.starts_with(k) {
+            return Some(v);
+        }
+    }
+    None
 }

@@ -9,13 +9,14 @@ use once_cell::sync::OnceCell;
 use rusty_workers::types::*;
 use std::net::SocketAddr;
 use structopt::StructOpt;
+use std::sync::Arc;
 
 use crate::config::*;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Response, Server};
 use sched::SchedError;
 
-static SCHEDULER: OnceCell<sched::Scheduler> = OnceCell::new();
+static SCHEDULER: OnceCell<Arc<sched::Scheduler>> = OnceCell::new();
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "rusty-workers-proxy", about = "Rusty Workers (frontend proxy)")]
@@ -78,6 +79,22 @@ struct Opt {
     /// Probability of an instance being dropped out after a request. Valid values are 0 to 1.
     #[structopt(long, env = "RW_DROPOUT_RATE", default_value = "0.001")]
     pub dropout_rate: f32,
+
+    /// Time-to-live for routing cache entries in milliseconds. (LRU limit)
+    #[structopt(long, env = "RW_ROUTE_CACHE_LRU_TTL_MS", default_value = "30000")]
+    pub route_cache_lru_ttl_ms: u64,
+
+    /// Time-to-live for routing cache entries in milliseconds. (hard limit)
+    #[structopt(long, env = "RW_ROUTE_CACHE_TTL_MS", default_value = "60000")]
+    pub route_cache_ttl_ms: u64,
+
+    /// Routing cache size.
+    #[structopt(long, env = "RW_ROUTE_CACHE_SIZE", default_value = "1000")]
+    pub route_cache_size: usize,
+
+    /// TiKV cluster.
+    #[structopt(long, env = "RW_TIKV_CLUSTER")]
+    pub tikv_cluster: String,
 }
 
 #[tokio::main]
@@ -93,6 +110,7 @@ async fn main() -> Result<()> {
     }
 
     let fetch_client = rusty_workers::rpc::FetchServiceClient::connect(opt.fetch_service).await?;
+    let kv_client = rusty_workers::kv::KvClient::new(opt.tikv_cluster.split(",").collect()).await?;
 
     SCHEDULER
         .set(sched::Scheduler::new(
@@ -113,9 +131,13 @@ async fn main() -> Result<()> {
                 request_timeout_ms: opt.request_timeout_ms,
                 max_request_body_size_bytes: opt.max_request_body_size_bytes,
                 dropout_rate: opt.dropout_rate,
+                route_cache_lru_ttl_ms: opt.route_cache_lru_ttl_ms,
+                route_cache_ttl_ms: opt.route_cache_ttl_ms,
+                route_cache_size: opt.route_cache_size,
                 runtime_cluster,
             },
             fetch_client,
+            kv_client,
         ))
         .unwrap_or_else(|_| panic!("cannot set scheduler"));
 
@@ -162,6 +184,7 @@ async fn main() -> Result<()> {
             }
         }))
     });
+    info!("starting http server");
 
     Server::bind(&opt.http_listen).serve(make_svc).await?;
     Ok(())
