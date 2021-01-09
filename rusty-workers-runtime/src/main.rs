@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
     runtime::init();
 
     let max_concurrency = opt.config.max_concurrent_requests;
-    let rt = runtime::Runtime::new(opt.config).await;
+    let rt = runtime::Runtime::new(opt.config).await?;
     info!("id: {}", rt.id().0);
 
     // GC thread

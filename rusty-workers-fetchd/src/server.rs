@@ -96,10 +96,7 @@ async fn run_fetch(state: &FetchState, req: RequestObject) -> Result<ResponseObj
             return Err(FetchError::ResponseBodyTooLarge.into());
         }
     }
-    let body = match String::from_utf8(body) {
-        Ok(x) => HttpBody::Text(x),
-        Err(e) => HttpBody::Binary(e.into_bytes()),
-    };
+    let body = HttpBody::Binary(body);
     let mut headers = BTreeMap::new();
     for (k, v) in res.headers() {
         headers

@@ -10,6 +10,7 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::sync::RwLock as AsyncRwLock;
 use crate::semaphore::{Semaphore, Permit};
+use rusty_workers::kv::KvClient;
 
 pub struct Runtime {
     id: RuntimeId,
@@ -18,7 +19,7 @@ pub struct Runtime {
     config: Config,
     pool: IsolateThreadPool,
     execution_token: Semaphore,
-    tikv: Option<tikv_client::RawClient>,
+    kv: Option<KvClient>,
 }
 
 struct WorkerState {
@@ -37,7 +38,7 @@ pub fn init() {
 }
 
 impl Runtime {
-    pub async fn new(config: Config) -> Arc<Self> {
+    pub async fn new(config: Config) -> GenericResult<Arc<Self>> {
         let (statistics_update_tx, statistics_update_rx) = tokio::sync::mpsc::channel(100);
         let max_num_of_instances = config.max_num_of_instances;
         let max_inactive_time_ms = config.max_inactive_time_ms;
@@ -45,9 +46,9 @@ impl Runtime {
         let isolate_pool_size = config.isolate_pool_size;
         let execution_concurrency = config.execution_concurrency;
 
-        let tikv = if config.tikv_cluster.len() > 0 {
+        let kv = if config.tikv_cluster.len() > 0 {
             let cluster: Vec<_> = config.tikv_cluster.split(",").collect();
-            let client = Some(tikv_client::RawClient::new(cluster).await.expect("cannot initialize tikv client"));
+            let client = Some(KvClient::new(cluster).await?);
             info!("connected to tikv cluster");
             client
         } else {
@@ -70,11 +71,11 @@ impl Runtime {
             )
             .await,
             execution_token: Semaphore::new(execution_concurrency),
-            tikv,
+            kv,
         });
         let rt_weak = Arc::downgrade(&rt);
         tokio::spawn(statistics_update_worker(rt_weak, statistics_update_rx));
-        rt
+        Ok(rt)
     }
 
     pub fn id(&self) -> RuntimeId {
@@ -86,8 +87,8 @@ impl Runtime {
             .ok_or_else(|| GenericError::Other("timeout waiting for execution token".into()))
     }
 
-    pub fn tikv_client(&self) -> Option<&tikv_client::RawClient> {
-        self.tikv.as_ref()
+    pub fn kv(&self) -> Option<&KvClient> {
+        self.kv.as_ref()
     }
 
     fn instance_thread(

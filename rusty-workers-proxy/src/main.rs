@@ -92,6 +92,8 @@ async fn main() -> Result<()> {
         runtime_cluster.push(elem.parse()?);
     }
 
+    let fetch_client = rusty_workers::rpc::FetchServiceClient::connect(opt.fetch_service).await?;
+
     SCHEDULER
         .set(sched::Scheduler::new(
             WorkerConfiguration {
@@ -113,6 +115,7 @@ async fn main() -> Result<()> {
                 dropout_rate: opt.dropout_rate,
                 runtime_cluster,
             },
+            fetch_client,
         ))
         .unwrap_or_else(|_| panic!("cannot set scheduler"));
 

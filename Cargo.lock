@@ -1765,6 +1765,7 @@ dependencies = [
  "stubborn-io",
  "tarpc",
  "thiserror",
+ "tikv-client",
  "tokio 1.0.1",
  "tokio-serde",
 ]
@@ -1814,7 +1815,6 @@ dependencies = [
  "once_cell",
  "pretty_env_logger",
  "rand 0.8.0",
- "reqwest 0.11.0",
  "rusty-workers",
  "serde",
  "serde_json",
@@ -1844,7 +1844,6 @@ dependencies = [
  "structopt",
  "tar",
  "thiserror",
- "tikv-client",
  "tokio 1.0.1",
 ]
 

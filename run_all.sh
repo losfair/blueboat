@@ -13,7 +13,7 @@ trap "kill 0" EXIT
     --initial-cluster="pd1=http://127.0.0.1:2380" \
     --log-file=playground/pd1.log &
 
-sleep 3
+sleep 5
 
 ../tikv/target/release/tikv-server --pd-endpoints="127.0.0.1:2379" \
     --addr="127.0.0.1:20160" \

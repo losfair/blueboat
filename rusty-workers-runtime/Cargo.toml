@@ -27,4 +27,3 @@ slab = "0.4"
 rand = "0.8"
 tar = "0.4"
 crossbeam = "0.8"
-tikv-client = { git = "https://github.com/tikv/client-rust.git" }

@@ -5,6 +5,9 @@ pub mod rpc;
 pub mod types;
 pub mod util;
 
+#[cfg(feature = "kv")]
+pub mod kv;
+
 pub use futures;
 pub use tarpc;
 pub use tokio;

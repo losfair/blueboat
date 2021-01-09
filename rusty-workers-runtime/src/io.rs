@@ -203,14 +203,12 @@ impl IoProcessorSharedState {
                     Some(id) => id,
                     None => return Ok(mk_user_error("namespace does not exist")?),
                 };
-                let tikv_client = match self.worker_runtime.tikv_client() {
+                let kv = match self.worker_runtime.kv() {
                     Some(x) => x,
                     None => return Ok(mk_user_error("kv disabled")?),
                 };
                 
-                let mut full_key = namespace_id.to_vec();
-                full_key.extend_from_slice(&key);
-                let result = tikv_client.get(full_key).await?;
+                let result = kv.worker_data_get(namespace_id, &key).await?;
                 Ok(mk_user_ok(result)?)
             }
             AsyncCall::KvPut { namespace, key, value } => {
@@ -218,14 +216,12 @@ impl IoProcessorSharedState {
                     Some(id) => id,
                     None => return Ok(mk_user_error("namespace does not exist")?),
                 };
-                let tikv_client = match self.worker_runtime.tikv_client() {
+                let kv = match self.worker_runtime.kv() {
                     Some(x) => x,
                     None => return Ok(mk_user_error("kv disabled")?),
                 };
                 
-                let mut full_key = namespace_id.to_vec();
-                full_key.extend_from_slice(&key);
-                tikv_client.put(full_key, value).await?;
+                kv.worker_data_put(namespace_id, &key, value).await?;
                 Ok(mk_user_ok(())?)
             }
             AsyncCall::KvDelete { namespace, key } => {
@@ -233,14 +229,12 @@ impl IoProcessorSharedState {
                     Some(id) => id,
                     None => return Ok(mk_user_error("namespace does not exist")?),
                 };
-                let tikv_client = match self.worker_runtime.tikv_client() {
+                let kv = match self.worker_runtime.kv() {
                     Some(x) => x,
                     None => return Ok(mk_user_error("kv disabled")?),
                 };
-                
-                let mut full_key = namespace_id.to_vec();
-                full_key.extend_from_slice(&key);
-                tikv_client.delete(full_key).await?;
+
+                kv.worker_data_delete(namespace_id, &key).await?;
                 Ok(mk_user_ok(())?)
             }
         }

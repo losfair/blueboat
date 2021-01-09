@@ -4,7 +4,7 @@ use arc_swap::ArcSwap;
 use futures::StreamExt;
 use rand::distributions::{Distribution, Open01, WeightedIndex};
 use rand::Rng;
-use rusty_workers::rpc::RuntimeServiceClient;
+use rusty_workers::rpc::{RuntimeServiceClient, FetchServiceClient};
 use rusty_workers::tarpc;
 use rusty_workers::types::*;
 use std::collections::VecDeque;
@@ -44,6 +44,7 @@ pub struct Scheduler {
     apps: AsyncRwLock<BTreeMap<AppId, AppState>>,
     route_mappings: AsyncRwLock<BTreeMap<String, BTreeMap<String, AppId>>>, // domain -> (prefix -> appid)
     terminate_queue: tokio::sync::mpsc::Sender<ReadyInstance>,
+    fetch_client: FetchServiceClient,
 }
 
 /// State of a backing runtime.
@@ -195,7 +196,7 @@ impl AppState {
 }
 
 impl Scheduler {
-    pub fn new(worker_config: WorkerConfiguration, local_config: LocalConfig) -> Self {
+    pub fn new(worker_config: WorkerConfiguration, local_config: LocalConfig, fetch_client: FetchServiceClient) -> Self {
         let (terminate_queue_tx, mut terminate_queue_rx): (
             tokio::sync::mpsc::Sender<ReadyInstance>,
             _,
@@ -228,6 +229,7 @@ impl Scheduler {
             apps: AsyncRwLock::new(BTreeMap::new()),
             route_mappings: AsyncRwLock::new(BTreeMap::new()),
             terminate_queue: terminate_queue_tx,
+            fetch_client,
         }
     }
 
@@ -395,11 +397,18 @@ impl Scheduler {
     }
 
     pub async fn check_config_update(&self, url: &str) -> Result<()> {
-        let res = reqwest::get(url).await?;
-        if !res.status().is_success() {
+        let res = self.fetch_client.clone().fetch(tarpc::context::current(), RequestObject {
+            url: url.to_string(),
+            method: "GET".into(),
+            ..Default::default()
+        }).await??.map_err(|_| ConfigurationError::FetchConfig)?;
+        if res.status != 200 {
             return Err(ConfigurationError::FetchConfig.into());
         }
-        let body = res.text().await?;
+        let body = match res.body {
+            HttpBody::Binary(x) => String::from_utf8(x)?,
+            HttpBody::Text(t) => t,
+        };
         let config: Config = toml::from_str(&body)?;
         if config != **self.config.load() {
             self.config.store(Arc::new(config));
@@ -509,13 +518,16 @@ impl Scheduler {
             .map(|bundle_url| async move {
                 info!("fetching bundle for app {}", bundle_url);
                 // TODO: limit body size
-                let res = reqwest::get(&bundle_url).await?;
-                if !res.status().is_success() {
-                    Ok::<_, reqwest::Error>(None)
-                } else {
-                    let body = res.bytes().await?;
-                    Ok::<_, reqwest::Error>(Some(body.to_vec()))
-                }
+                self.fetch_client.clone().fetch(tarpc::context::current(), RequestObject {
+                    url: bundle_url,
+                    method: "GET".into(),
+                    ..Default::default()
+                }).await.ok().and_then(|x| x.ok()).and_then(|x| x.ok())
+                    .filter(|x| x.status == 200)
+                    .map(|x| match x.body {
+                        HttpBody::Binary(x) => x,
+                        HttpBody::Text(x) => Vec::from(x),
+                    })
             })
             .collect();
         let app_bundles = futures::future::join_all(app_bundles).await;
@@ -524,16 +536,9 @@ impl Scheduler {
             info!("loading app {}", id.0);
             let app_config = new_apps_config.get(&id).unwrap();
             let bundle = match fetch_result {
-                Ok(Some(x)) => x,
-                Ok(None) => {
+                Some(x) => x,
+                None => {
                     info!("fetch failed: app {} ({})", id.0, app_config.bundle);
-                    continue;
-                }
-                Err(e) => {
-                    info!(
-                        "fetch failed: app {} ({}): {:?}",
-                        id.0, app_config.bundle, e
-                    );
                     continue;
                 }
             };
