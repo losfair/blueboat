@@ -1,15 +1,14 @@
 use crate::config::*;
 use rusty_workers::app::*;
 use anyhow::Result;
-use arc_swap::ArcSwap;
 use futures::StreamExt;
 use rand::distributions::{Distribution, Open01, WeightedIndex};
 use rand::Rng;
-use rusty_workers::rpc::{RuntimeServiceClient, FetchServiceClient};
+use rusty_workers::rpc::RuntimeServiceClient;
 use rusty_workers::tarpc;
 use rusty_workers::types::*;
 use std::collections::VecDeque;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -34,23 +33,17 @@ pub enum SchedError {
     RequestFailedAfterRetries,
 }
 
-#[derive(Debug, Error)]
-pub enum ConfigurationError {
-    #[error("cannot fetch config")]
-    FetchConfig,
-}
-
 pub struct Scheduler {
-    config: ArcSwap<Config>,
     local_config: LocalConfig,
     worker_config: WorkerConfiguration,
     clients: AsyncRwLock<BTreeMap<RuntimeId, RtState>>,
-    apps: AsyncRwLock<BTreeMap<AppId, AppState>>,
+    apps: AsyncMutex<LruCache<AppId, Arc<AppState>>>,
     route_cache: AsyncMutex<LruCache<String, BTreeMap<String, RouteCacheEntry>>>, // domain -> (prefix -> appid)
+    bundle_cache: AsyncMutex<LruCache<[u8; 32], Arc<Vec<u8>>>>,
     terminate_queue: tokio::sync::mpsc::Sender<ReadyInstance>,
-    fetch_client: FetchServiceClient,
     kv_client: KvClient,
     lookup_route_tx: Sender<(String, String)>,
+    lookup_app_tx: Sender<AppId>,
 }
 
 #[derive(Clone)]
@@ -77,8 +70,11 @@ struct AppState {
     /// App configuration.
     config: WorkerConfiguration,
 
+    /// Hash of the bundle.
+    bundle_hash: [u8; 32],
+
     /// File bundle.
-    bundle: Vec<u8>,
+    bundle: Arc<Vec<u8>>,
 
     /// Instances that are ready to run this app.
     ready_instances: AsyncMutex<VecDeque<ReadyInstance>>,
@@ -201,7 +197,7 @@ impl AppState {
                 tarpc::context::current(),
                 self.id.0.clone(),
                 self.config.clone(),
-                self.bundle.clone(),
+                (*self.bundle).clone(),
             )
             .await??;
         Ok(ReadyInstance {
@@ -217,7 +213,6 @@ impl Scheduler {
     pub fn new(
         worker_config: WorkerConfiguration,
         local_config: LocalConfig,
-        fetch_client: FetchServiceClient,
         kv_client: KvClient,
     ) -> Arc<Self> {
         let (terminate_queue_tx, mut terminate_queue_rx): (
@@ -246,25 +241,32 @@ impl Scheduler {
 
         let route_cache_lru_ttl_ms = local_config.route_cache_lru_ttl_ms;
         let route_cache_size = local_config.route_cache_size;
+        let app_cache_size = local_config.app_cache_size;
+        let bundle_cache_size = local_config.bundle_cache_size;
 
         let (lookup_route_tx, lookup_route_rx) = tokio::sync::mpsc::channel(100);
+        let (lookup_app_tx, lookup_app_rx) = tokio::sync::mpsc::channel(100);
         let me = Arc::new(Self {
-            config: ArcSwap::new(Arc::new(Config::default())),
             local_config,
             worker_config,
             clients: AsyncRwLock::new(BTreeMap::new()),
-            apps: AsyncRwLock::new(BTreeMap::new()),
+            apps: AsyncMutex::new(LruCache::with_capacity(app_cache_size)),
             route_cache: AsyncMutex::new(LruCache::with_expiry_duration_and_capacity(
                 Duration::from_millis(route_cache_lru_ttl_ms),
                 route_cache_size,
             )),
+            bundle_cache: AsyncMutex::new(LruCache::with_capacity(bundle_cache_size)),
             terminate_queue: terminate_queue_tx,
-            fetch_client,
             kv_client,
             lookup_route_tx,
+            lookup_app_tx,
         });
         let me2 = me.clone();
+        let me3 = me.clone();
+        let me4 = me.clone();
         tokio::spawn(async move { me2.lookup_route_background(lookup_route_rx).await; });
+        tokio::spawn(async move { me3.lookup_app_background(lookup_app_rx).await; });
+        tokio::spawn(async move { me4.apps_gc_task().await; });
         me
     }
 
@@ -359,8 +361,21 @@ impl Scheduler {
             },
         };
 
-        let apps = self.apps.read().await;
-        let app = apps.get(&appid).ok_or(SchedError::NoRouteMapping)?;
+        let mut app = None;
+
+        for _ in 0..3 {
+            app = self.apps.lock().await.get(&appid).cloned();
+            if app.is_some() {
+                break;
+            }
+
+            // Notify the worker thread
+            drop(self.lookup_app_tx.try_send(appid.clone()));
+
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+
+        let app = app.ok_or(SchedError::NoRouteMapping)?;
 
         // Backend retries.
         for _ in 0..3usize {
@@ -438,28 +453,6 @@ impl Scheduler {
         Err(SchedError::RequestFailedAfterRetries.into())
     }
 
-    pub async fn check_config_update(&self, url: &str) -> Result<()> {
-        let res = self.fetch_client.clone().fetch(tarpc::context::current(), RequestObject {
-            url: url.to_string(),
-            method: "GET".into(),
-            ..Default::default()
-        }).await??.map_err(|_| ConfigurationError::FetchConfig)?;
-        if res.status != 200 {
-            return Err(ConfigurationError::FetchConfig.into());
-        }
-        let body = match res.body {
-            HttpBody::Binary(x) => String::from_utf8(x)?,
-            HttpBody::Text(t) => t,
-        };
-        let config: Config = toml::from_str(&body)?;
-        if config != **self.config.load() {
-            self.config.store(Arc::new(config));
-            self.populate_config().await;
-            info!("configuration updated");
-        }
-        Ok(())
-    }
-
     /// Query each runtime for its health/load status, etc.
     pub async fn query_runtimes(&self) {
         let mut to_drop = vec![];
@@ -488,7 +481,6 @@ impl Scheduler {
 
     /// Discover new runtimes behind each specified address. (with load balancing)
     pub async fn discover_runtimes(&self) {
-        let config = self.config.load();
         let new_clients = self
             .local_config
             .runtime_cluster
@@ -510,7 +502,6 @@ impl Scheduler {
             });
         let new_clients: Vec<Option<(RuntimeId, RuntimeServiceClient)>> =
             futures::future::join_all(new_clients).await;
-        drop(config);
 
         let mut clients = self.clients.write().await;
         for item in new_clients {
@@ -566,110 +557,130 @@ impl Scheduler {
                     });
             }
             Ok(None) => {
-                warn!("lookup_route_background: mapping not found for {}{}", domain, path);
+                warn!("do_lookup_route_background: mapping not found for {}{}", domain, path);
             }
             Err(e) => {
-                warn!("error looking up route: {:?}", e);
+                warn!("do_lookup_route_background: error looking up route: {:?}", e);
             }
         }
     }
 
-    async fn populate_config(&self) {
-        let config = self.config.load();
+    async fn apps_gc_task(&self) {
+        loop {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            let apps: Vec<(AppId, ([u8; 32], WorkerConfiguration))> = self.apps.lock().await.iter().map(|(k, v)| {
+                (k.clone(), (v.bundle_hash, v.config.clone()))
+            }).collect();
 
-        // Update app list.
-        let apps = self.apps.read().await;
-
-        let new_apps_config: BTreeMap<AppId, &AppConfig> =
-            config.apps.iter().map(|x| (x.id.clone(), x)).collect();
-
-        // Figure out newly added apps
-        let mut unseen_appids: BTreeSet<AppId> =
-            new_apps_config.iter().map(|(k, _)| k.clone()).collect();
-        for (k, _) in apps.iter() {
-            unseen_appids.remove(k);
-        }
-
-        // Release lock.
-        drop(apps);
-
-        // Build new apps.
-        let mut unseen_apps: Vec<(AppId, AppState)> = vec![];
-
-        // unseen_appids is a subset of keys(new_apps_config) so we can unwrap here
-        // Concurrently fetch bundles
-        let app_bundles: Vec<_> = unseen_appids
-            .iter()
-            .map(|id| new_apps_config.get(&id).unwrap().bundle.clone())
-            .map(|bundle_url| async move {
-                info!("fetching bundle for app {}", bundle_url);
-                // TODO: limit body size
-                self.fetch_client.clone().fetch(tarpc::context::current(), RequestObject {
-                    url: bundle_url,
-                    method: "GET".into(),
-                    ..Default::default()
-                }).await.ok().and_then(|x| x.ok()).and_then(|x| x.ok())
-                    .filter(|x| x.status == 200)
-                    .map(|x| match x.body {
-                        HttpBody::Binary(x) => x,
-                        HttpBody::Text(x) => Vec::from(x),
-                    })
-            })
-            .collect();
-        let app_bundles = futures::future::join_all(app_bundles).await;
-
-        for (id, fetch_result) in unseen_appids.into_iter().zip(app_bundles.into_iter()) {
-            info!("loading app {}", id.0);
-            let app_config = new_apps_config.get(&id).unwrap();
-            let bundle = match fetch_result {
-                Some(x) => x,
-                None => {
-                    info!("fetch failed: app {} ({})", id.0, app_config.bundle);
-                    continue;
+            for (id, (bundle_hash, worker_config)) in apps {
+                match self.kv_client.app_metadata_get(&id.0).await {
+                    Ok(Some(config)) => {
+                        if let Ok(config) = serde_json::from_slice::<AppConfig>(&config) {
+                            if let Ok(expected_bundle_hash) = base64::decode(&config.bundle_hash) {
+                                if expected_bundle_hash != bundle_hash
+                                    || config.env != worker_config.env
+                                    || decode_kv_namespaces(&config.kv_namespaces) != worker_config.kv_namespaces {
+                                    info!("app changed. removing app {} from cache", id.0);
+                                    self.apps.lock().await.remove(&id);
+                                }
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        info!("app deleted. removing app {} from cache", id.0);
+                        self.apps.lock().await.remove(&id);
+                    }
+                    _ => {}
                 }
-            };
-
-            let mut config = self.worker_config.clone();
-            config.env = app_config.env.clone();
-            config.kv_namespaces = decode_kv_namespaces(&app_config.kv_namespaces);
-
-            let state = AppState {
-                id: id.clone(),
-                config,
-                bundle,
-                ready_instances: AsyncMutex::new(VecDeque::new()),
-            };
-            unseen_apps.push((id, state));
-        }
-
-        // Take a write lock.
-        let mut apps = self.apps.write().await;
-
-        // Add new apps.
-        for (id, state) in unseen_apps {
-            apps.insert(id, state);
-        }
-
-        // Drop removed apps.
-        let mut apps_to_remove = vec![];
-        for (k, _) in apps.iter() {
-            if !new_apps_config.contains_key(k) {
-                apps_to_remove.push(k.clone());
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         }
-        for k in apps_to_remove {
-            apps.remove(&k);
+    }
+
+    async fn lookup_app_background(&self, mut rx: Receiver<AppId>) {
+        loop {
+            let appid = match rx.recv().await {
+                Some(x) => x,
+                None => return,
+            };
+            self.do_lookup_app_background(appid).await;
+
+            // Don't stress kv too much
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    async fn do_lookup_app_background(&self, id: AppId) {
+        // TODO: Periodically query the database for no-longer-valid apps.
+
+        // Double check
+        if self.apps.lock().await.get(&id).is_some() {
+            return;
         }
 
-        drop(apps);
+        let config: AppConfig = match self.kv_client.app_metadata_get(&id.0).await {
+            Ok(Some(metadata)) => {
+                match serde_json::from_slice(&metadata) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        error!("cannot decode app metadata for app {}: {:?}", id.0, e);
+                        return;
+                    }
+                }
+            }
+            Ok(None) => {
+                warn!("do_lookup_app_background: app {} not found", id.0);
+                return;
+            }
+            Err(e) => {
+                warn!("do_lookup_app_background: error fetching app metadata for {}: {:?}", id.0, e);
+                return;
+            }
+        };
 
-        drop(config);
+        let bundle_hash = match decode_bundle_hash(&config.bundle_hash) {
+            Some(x) => x,
+            None => {
+                warn!("do_lookup_app_background: bad bundle hash (app {})", id.0);
+                return;
+            }
+        };
 
-        // Trigger a runtime discovery with new configuration
-        self.discover_runtimes().await;
+        let bundle = self.bundle_cache.lock().await.get(&bundle_hash).cloned();
+        let bundle = match bundle {
+            Some(x) => x,
+            None => {
+                info!("fetching bundle {}", base64::encode(&bundle_hash));
+                let bundle = match self.kv_client.app_bundle_get(&bundle_hash).await {
+                    Ok(Some(x)) => Arc::new(x),
+                    Ok(None) => {
+                        warn!("do_lookup_app_background: app bundle not found");
+                        return;
+                    }
+                    Err(e) => {
+                        warn!("do_lookup_app_background: db error: {:?}", e);
+                        return;
+                    }
+                };
+                self.bundle_cache.lock().await.insert(bundle_hash, bundle.clone());
+                bundle
+            }
+        };
 
-        // ... and query their status.
-        self.query_runtimes().await;
+        let mut target_config = self.worker_config.clone();
+        target_config.env = config.env.clone();
+        target_config.kv_namespaces = decode_kv_namespaces(&config.kv_namespaces);
+        
+        let state = AppState {
+            id: id.clone(),
+            config: target_config,
+            bundle_hash,
+            bundle,
+            ready_instances: AsyncMutex::new(VecDeque::new()),
+        };
+
+        info!("inserting app: {}", id.0);
+        self.apps.lock().await.insert(id, Arc::new(state));
     }
 }
 

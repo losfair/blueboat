@@ -44,9 +44,10 @@ sleep 1
 ./target/release/rusty-workers-fetchd --rpc-listen 127.0.0.1:3000 &
 ./target/release/rusty-workers-runtime --rpc-listen 127.0.0.1:3001 \
     --tikv-cluster 127.0.0.1:2379 &
-./target/release/rusty-workers-proxy --config http://127.0.0.1:3100/config.toml \
+./target/release/rusty-workers-proxy \
     --fetch-service 127.0.0.1:3000 \
     --http-listen 127.0.0.1:3080 \
+    --tikv-cluster 127.0.0.1:2379 \
     --runtimes 127.0.0.1:3001 &
 
 wait

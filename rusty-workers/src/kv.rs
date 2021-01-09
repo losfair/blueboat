@@ -1,10 +1,50 @@
 use crate::types::*;
 use std::collections::BTreeMap;
+use tikv_client::{KvPair, Key};
+
+macro_rules! impl_scan_prefix {
+    ($name:ident, $cb_value_ty:ty, $scan_func:ident, $deref_key:ident, $deref_value:ident) => {
+        async fn $name(&self, prefix: &[u8], mut cb: impl FnMut(&[u8], $cb_value_ty) -> bool) -> GenericResult<()> {
+            assert!(prefix.len() > 0, "scan_prefix: prefix must be non-empty");
+            assert!(*prefix.last().unwrap() == 0, "scan_prefix: prefix must end with zero");
+    
+            let batch_size: u32 = 20;
+    
+            let mut start_prefix = prefix.to_vec();
+            let mut end_prefix = prefix.to_vec();
+            *end_prefix.last_mut().unwrap() = 1;
+    
+            loop {
+                let batch = self.raw.$scan_func(start_prefix..end_prefix.clone(), batch_size).await
+                    .map_err(|e| GenericError::Other(format!("scan_prefix: {:?}", e)))?;
+                for item in batch.iter() {
+                    let key: &[u8] = $deref_key(item);
+                    if key.starts_with(prefix) {
+                        if !cb(&key[prefix.len()..], $deref_value(item)) {
+                            return Ok(());
+                        }
+                    } else {
+                        error!("scan_prefix: invalid data from database");
+                        return Ok(());
+                    }
+                }
+                if batch.len() == batch_size as usize {
+                    // The immediate next key
+                    start_prefix = join_slices(&[$deref_key(batch.last().unwrap()), &[0u8]]);
+                } else {
+                    return Ok(());
+                }
+            }
+        }
+    };
+}
 
 /// Will be used a lot so keep it short.
 pub static PREFIX_WORKER_DATA_V1: &'static [u8] = b"V1\x00W\x00";
 
 pub static PREFIX_APP_METADATA_V1: &'static [u8] = b"V1\x00APPMD\x00";
+
+pub static PREFIX_APP_BUNDLE_V1: &'static [u8] = b"V1\x00APPBUNDLE\x00";
 
 pub static PREFIX_ROUTE_MAPPING_V1: &'static [u8] = b"V1\x00ROUTEMAP\x00";
 
@@ -32,39 +72,8 @@ impl KvClient {
             .map_err(|e| GenericError::Other(format!("delete_prefix: {:?}", e)))
     }
 
-    async fn scan_prefix(&self, prefix: &[u8], mut cb: impl FnMut(&[u8], &[u8]) -> bool) -> GenericResult<()> {
-        assert!(prefix.len() > 0, "scan_prefix: prefix must be non-empty");
-        assert!(*prefix.last().unwrap() == 0, "scan_prefix: prefix must end with zero");
-
-        let batch_size: u32 = 20;
-
-        let mut start_prefix = prefix.to_vec();
-        let mut end_prefix = prefix.to_vec();
-        *end_prefix.last_mut().unwrap() = 1;
-
-        loop {
-            let batch = self.raw.scan(start_prefix..end_prefix.clone(), batch_size).await
-                .map_err(|e| GenericError::Other(format!("scan_prefix: {:?}", e)))?;
-            for item in batch.iter() {
-                let key: &[u8] = (&item.0).into();
-                if key.starts_with(prefix) {
-                    if !cb(&key[prefix.len()..], &item.1) {
-                        return Ok(());
-                    }
-                } else {
-                    error!("scan_prefix: invalid data from database");
-                    return Ok(());
-                }
-            }
-            if batch.len() == batch_size as usize {
-                // The immediate next key
-                start_prefix = batch.into_iter().rev().next().unwrap().0.into();
-                start_prefix.extend_from_slice(&[0u8]);
-            } else {
-                return Ok(());
-            }
-        }
-    }
+    impl_scan_prefix!(scan_prefix, &[u8], scan, kvp_deref_key, kvp_deref_value);
+    impl_scan_prefix!(scan_prefix_keys, (), scan_keys, key_deref, mk_unit);
 
     pub async fn worker_data_get(&self, namespace_id: &[u8; 16], key: &[u8]) -> GenericResult<Option<Vec<u8>>> {
         self.raw.get(make_worker_data_key(namespace_id, key)).await
@@ -141,11 +150,11 @@ impl KvClient {
 
     pub async fn app_metadata_for_each(
         &self,
-        mut callback: impl FnMut(&str, &[u8]) -> bool,
+        mut callback: impl FnMut(&str) -> bool,
     ) -> GenericResult<()> {
-        self.scan_prefix(PREFIX_APP_METADATA_V1, |k, v| {
+        self.scan_prefix_keys(PREFIX_APP_METADATA_V1, |k, ()| {
             let appid = std::str::from_utf8(k).unwrap_or("");
-            callback(appid, v)
+            callback(appid)
         }).await?;
         Ok(())
     }
@@ -167,6 +176,24 @@ impl KvClient {
         self.raw.delete(key).await
             .map_err(|e| GenericError::Other(format!("app_metadata_delete: {:?}", e)))
     }
+
+    pub async fn app_bundle_get(&self, hash: &[u8; 32]) -> GenericResult<Option<Vec<u8>>> {
+        let key = join_slices(&[PREFIX_APP_BUNDLE_V1, hash]);
+        self.raw.get(key).await
+            .map_err(|e| GenericError::Other(format!("app_bundle_get: {:?}", e)))
+    }
+
+    pub async fn app_bundle_put(&self, hash: &[u8; 32], value: Vec<u8>) -> GenericResult<()> {
+        let key = join_slices(&[PREFIX_APP_BUNDLE_V1, hash]);
+        self.raw.put(key, value).await
+            .map_err(|e| GenericError::Other(format!("app_bundle_put: {:?}", e)))
+    }
+
+    pub async fn app_bundle_delete(&self, hash: &[u8; 32]) -> GenericResult<()> {
+        let key = join_slices(&[PREFIX_APP_BUNDLE_V1, hash]);
+        self.raw.delete(key).await
+            .map_err(|e| GenericError::Other(format!("app_bundle_delete: {:?}", e)))
+    }
 }
 
 fn make_worker_data_key(namespace_id: &[u8; 16], key: &[u8]) -> Vec<u8> {
@@ -179,4 +206,20 @@ fn join_slices(slices: &[&[u8]]) -> Vec<u8> {
         buf.extend_from_slice(s);
     }
     buf
+}
+
+fn kvp_deref_key(p: &KvPair) -> &[u8] {
+    (&p.0).into()
+}
+
+fn kvp_deref_value(p: &KvPair) -> &[u8] {
+    &p.1
+}
+
+fn key_deref(k: &Key) -> &[u8] {
+    k.into()
+}
+
+fn mk_unit(_: &Key) -> () {
+    ()
 }

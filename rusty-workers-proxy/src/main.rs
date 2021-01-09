@@ -25,10 +25,6 @@ struct Opt {
     #[structopt(short = "l", long)]
     http_listen: SocketAddr,
 
-    /// Path to configuration
-    #[structopt(short = "c", long, env = "RW_CONFIG_URL")]
-    config: String,
-
     #[structopt(long, env = "RW_FETCH_SERVICE")]
     fetch_service: SocketAddr,
 
@@ -95,6 +91,14 @@ struct Opt {
     /// TiKV cluster.
     #[structopt(long, env = "RW_TIKV_CLUSTER")]
     pub tikv_cluster: String,
+
+    /// Size of app cache.
+    #[structopt(long, env = "RW_APP_CACHE_SIZE", default_value = "100")]
+    pub app_cache_size: usize,
+
+    /// Size of bundle cache.
+    #[structopt(long, env = "RW_BUNDLE_CACHE_SIZE", default_value = "50")]
+    pub bundle_cache_size: usize,
 }
 
 #[tokio::main]
@@ -109,7 +113,6 @@ async fn main() -> Result<()> {
         runtime_cluster.push(elem.parse()?);
     }
 
-    let fetch_client = rusty_workers::rpc::FetchServiceClient::connect(opt.fetch_service).await?;
     let kv_client = rusty_workers::kv::KvClient::new(opt.tikv_cluster.split(",").collect()).await?;
 
     SCHEDULER
@@ -134,27 +137,14 @@ async fn main() -> Result<()> {
                 route_cache_lru_ttl_ms: opt.route_cache_lru_ttl_ms,
                 route_cache_ttl_ms: opt.route_cache_ttl_ms,
                 route_cache_size: opt.route_cache_size,
+                app_cache_size: opt.app_cache_size,
+                bundle_cache_size: opt.bundle_cache_size,
                 runtime_cluster,
             },
-            fetch_client,
             kv_client,
         ))
         .unwrap_or_else(|_| panic!("cannot set scheduler"));
 
-    let config_url = opt.config;
-    tokio::spawn(async move {
-        loop {
-            if let Err(e) = SCHEDULER
-                .get()
-                .unwrap()
-                .check_config_update(&config_url)
-                .await
-            {
-                warn!("check_config_update: {:?}", e);
-            }
-            tokio::time::sleep(std::time::Duration::from_secs(53)).await;
-        }
-    });
     tokio::spawn(async move {
         loop {
             let scheduler = SCHEDULER.get().unwrap();

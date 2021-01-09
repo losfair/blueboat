@@ -9,6 +9,14 @@ use structopt::StructOpt;
 use tokio::io::AsyncReadExt;
 use rusty_workers::kv::KvClient;
 use rusty_workers::app::AppConfig;
+use sha2::Digest;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+enum CliError {
+    #[error("bad bundle hash")]
+    BadBundleHash,
+}
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "rusty-workers-cli", about = "Rusty Workers (cli)")]
@@ -90,6 +98,10 @@ enum AppCmd {
     GetApp {
         appid: String,
     },
+    #[structopt(name = "add-bundle")]
+    AddBundle {
+        path: String,
+    }
 }
 
 #[derive(Debug, StructOpt)]
@@ -201,15 +213,15 @@ async fn main() -> Result<()> {
                 }
                 AppCmd::AddRoute { domain, path, appid } => {
                     client.route_mapping_insert(&domain, &path, appid).await?;
-                    println!("null");
+                    println!("OK");
                 }
                 AppCmd::DeleteDomain { domain } => {
                     client.route_mapping_delete_domain(&domain).await?;
-                    println!("null");
+                    println!("OK");
                 }
                 AppCmd::DeleteRoute { domain, path } => {
                     client.route_mapping_delete(&domain, &path).await?;
-                    println!("null");
+                    println!("OK");
                 }
                 AppCmd::LookupRoute { domain, path } => {
                     let result = client.route_mapping_lookup(&domain, &path).await?;
@@ -218,39 +230,50 @@ async fn main() -> Result<()> {
                 AppCmd::AllApps => {
                     print!("[");
                     let mut first = true;
-                    client.app_metadata_for_each(|_, config| {
+                    client.app_metadata_for_each(|k| {
                         if first {
                             first = false;
                         } else {
                             print!(",");
                         }
-                        let config: AppConfig = match serde_json::from_slice(config) {
-                            Ok(x) => x,
-                            Err(_) => {
-                                print!("null");
-                                return true;
-                            }
-                        };
-                        print!("{}", serde_json::to_string(&config).unwrap());
+                        print!("{}", serde_json::to_string(k).unwrap());
                         true
                     }).await?;
                     println!("]");
                 }
                 AppCmd::AddApp { config } => {
                     let config = read_file(&config).await?;
-                    let config: AppConfig = serde_json::from_str(&config)?;
+                    let config: AppConfig = toml::from_str(&config)?;
+
+                    let bundle_hash = rusty_workers::app::decode_bundle_hash(&config.bundle_hash)
+                        .ok_or_else(|| CliError::BadBundleHash)?;
+                    if client.app_bundle_get(&bundle_hash).await?.is_none() {
+                        println!("bundle does not exist");
+                    }
+
                     client.app_metadata_put(&config.id.0, serde_json::to_vec(&config)?).await?;
-                    println!("null");
+                    println!("OK");
                 }
                 AppCmd::DeleteApp { appid } => {
+                    // Don't delete bundle as this is shared
                     client.app_metadata_delete(&appid).await?;
-                    println!("null");
+                    println!("OK");
                 }
                 AppCmd::GetApp { appid } => {
                     let result: Option<AppConfig> = client.app_metadata_get(&appid).await?
                         .map(|x| serde_json::from_slice(&x))
                         .transpose()?;
                     println!("{}", serde_json::to_string(&result)?);
+                }
+                AppCmd::AddBundle { path } => {
+                    let bundle = read_file_raw(&path).await?;
+
+                    let mut hasher = sha2::Sha256::new();
+                    hasher.update(&bundle);
+                    let hash: [u8; 32] = *hasher.finalize().as_ref();
+
+                    client.app_bundle_put(&hash, bundle).await?;
+                    println!("{}", rusty_workers::app::encode_bundle_hash(&hash));
                 }
             }
         }

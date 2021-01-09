@@ -1,19 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
-use rusty_workers::app::AppConfig;
-
-#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
-pub struct Config {
-    pub apps: Vec<AppConfig>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            apps: Default::default(),
-        }
-    }
-}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LocalConfig {
@@ -26,4 +12,6 @@ pub struct LocalConfig {
     pub route_cache_lru_ttl_ms: u64,
     pub route_cache_ttl_ms: u64,
     pub route_cache_size: usize,
+    pub app_cache_size: usize,
+    pub bundle_cache_size: usize,
 }
