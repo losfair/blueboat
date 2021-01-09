@@ -31,7 +31,7 @@ spec:
             memory: 1280Mi
         env:
         - name: RUST_LOG
-          value: rusty_workers_runtime=info,rusty_workers=info
+          value: rusty_workers_runtime=debug,rusty_workers=debug
         - name: RW_HIGH_MEMORY_THRESHOLD_BYTES
           value: "1073741824"
         - name: RW_ISOLATE_POOL_SIZE
@@ -44,5 +44,11 @@ spec:
           value: "180000"
         - name: RW_MAX_ISOLATE_MEMORY_BYTES
           value: "16777216"
+        - name: RW_EXECUTION_CONCURRENCY
+          value: "10" # we have two cores but let's rise this a bit
+        - name: RW_CPU_WAIT_TIMEOUT_MS
+          value: "1000"
+        - name: RW_TIKV_CLUSTER
+          value: "10.120.0.4:2379"
         ports:
         - containerPort: 3000
