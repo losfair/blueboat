@@ -52,5 +52,7 @@ spec:
           value: "1000"
         - name: RW_APP_CACHE_SIZE
           value: "50"
+        - name: RW_TIKV_CLUSTER
+          value: "10.120.0.4:2379"
         ports:
         - containerPort: 8080
