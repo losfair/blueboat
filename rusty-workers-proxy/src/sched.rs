@@ -1,4 +1,5 @@
 use crate::config::*;
+use rusty_workers::app::*;
 use anyhow::Result;
 use arc_swap::ArcSwap;
 use futures::StreamExt;

@@ -86,6 +86,24 @@ impl KvClient {
         self.delete_prefix(&prefix).await
     }
 
+    pub async fn route_mapping_for_each(
+        &self,
+        mut callback: impl FnMut(&str, &str, &str) -> bool,
+    ) -> GenericResult<()> {
+        self.scan_prefix(PREFIX_ROUTE_MAPPING_V1, |k, v| {
+            use std::str::from_utf8;
+            let mut parts = k.split(|x| *x == 0);
+            let domain = parts.next().unwrap_or(b"");
+            let path = parts.next().unwrap_or(b"");
+            callback(
+                from_utf8(domain).unwrap_or(""),
+                from_utf8(path).unwrap_or(""),
+                from_utf8(v).unwrap_or("")
+            )
+        }).await?;
+        Ok(())
+    }
+
     pub async fn route_mapping_list_for_domain(
         &self,
         domain: &str,
@@ -121,12 +139,22 @@ impl KvClient {
             .map_err(|e| GenericError::Other(format!("route_mapping_delete: {:?}", e)))
     }
 
+    pub async fn app_metadata_for_each(
+        &self,
+        mut callback: impl FnMut(&str, &[u8]) -> bool,
+    ) -> GenericResult<()> {
+        self.scan_prefix(PREFIX_APP_METADATA_V1, |k, v| {
+            let appid = std::str::from_utf8(k).unwrap_or("");
+            callback(appid, v)
+        }).await?;
+        Ok(())
+    }
+
     pub async fn app_metadata_get(&self, appid: &str) -> GenericResult<Option<Vec<u8>>> {
         let key = join_slices(&[PREFIX_APP_METADATA_V1, appid.as_bytes()]);
         self.raw.get(key).await
             .map_err(|e| GenericError::Other(format!("app_metadata_get: {:?}", e)))
     }
-
 
     pub async fn app_metadata_put(&self, appid: &str, value: Vec<u8>) -> GenericResult<()> {
         let key = join_slices(&[PREFIX_APP_METADATA_V1, appid.as_bytes()]);

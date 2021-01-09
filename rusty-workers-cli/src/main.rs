@@ -8,6 +8,7 @@ use std::net::SocketAddr;
 use structopt::StructOpt;
 use tokio::io::AsyncReadExt;
 use rusty_workers::kv::KvClient;
+use rusty_workers::app::AppConfig;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "rusty-workers-cli", about = "Rusty Workers (cli)")]
@@ -41,6 +42,8 @@ enum Cmd {
 
 #[derive(Debug, StructOpt)]
 enum AppCmd {
+    #[structopt(name = "all-routes")]
+    AllRoutes,
     #[structopt(name = "list-routes")]
     ListRoutes {
         domain: String,
@@ -72,6 +75,20 @@ enum AppCmd {
 
         #[structopt(long)]
         path: String,
+    },
+    #[structopt(name = "all-apps")]
+    AllApps,
+    #[structopt(name = "add-app")]
+    AddApp {
+        config: String,
+    },
+    #[structopt(name = "delete-app")]
+    DeleteApp {
+        appid: String,
+    },
+    #[structopt(name = "get-app")]
+    GetApp {
+        appid: String,
     },
 }
 
@@ -160,6 +177,24 @@ async fn main() -> Result<()> {
         Cmd::App { tikv_pd, op } => {
             let client = KvClient::new(vec![tikv_pd]).await?;
             match op {
+                AppCmd::AllRoutes => {
+                    print!("[");
+                    let mut first = true;
+                    client.route_mapping_for_each(|domain, path, appid| {
+                        if first {
+                            first = false;
+                        } else {
+                            print!(",");
+                        }
+                        print!("{}", serde_json::to_string(&serde_json::json!({
+                            "domain": domain,
+                            "path": path,
+                            "appid": appid,
+                        })).unwrap());
+                        true
+                    }).await?;
+                    println!("]");
+                }
                 AppCmd::ListRoutes { domain } => {
                     let routes = client.route_mapping_list_for_domain(&domain, |_| true).await?;
                     println!("{}", serde_json::to_string(&routes)?);
@@ -178,6 +213,43 @@ async fn main() -> Result<()> {
                 }
                 AppCmd::LookupRoute { domain, path } => {
                     let result = client.route_mapping_lookup(&domain, &path).await?;
+                    println!("{}", serde_json::to_string(&result)?);
+                }
+                AppCmd::AllApps => {
+                    print!("[");
+                    let mut first = true;
+                    client.app_metadata_for_each(|_, config| {
+                        if first {
+                            first = false;
+                        } else {
+                            print!(",");
+                        }
+                        let config: AppConfig = match serde_json::from_slice(config) {
+                            Ok(x) => x,
+                            Err(_) => {
+                                print!("null");
+                                return true;
+                            }
+                        };
+                        print!("{}", serde_json::to_string(&config).unwrap());
+                        true
+                    }).await?;
+                    println!("]");
+                }
+                AppCmd::AddApp { config } => {
+                    let config = read_file(&config).await?;
+                    let config: AppConfig = serde_json::from_str(&config)?;
+                    client.app_metadata_put(&config.id.0, serde_json::to_vec(&config)?).await?;
+                    println!("null");
+                }
+                AppCmd::DeleteApp { appid } => {
+                    client.app_metadata_delete(&appid).await?;
+                    println!("null");
+                }
+                AppCmd::GetApp { appid } => {
+                    let result: Option<AppConfig> = client.app_metadata_get(&appid).await?
+                        .map(|x| serde_json::from_slice(&x))
+                        .transpose()?;
                     println!("{}", serde_json::to_string(&result)?);
                 }
             }

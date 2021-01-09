@@ -4,6 +4,7 @@ extern crate log;
 pub mod rpc;
 pub mod types;
 pub mod util;
+pub mod app;
 
 #[cfg(feature = "kv")]
 pub mod kv;
