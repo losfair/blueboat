@@ -274,6 +274,9 @@ impl Instance {
 
         let worker_handle = state.handle.clone();
 
+        // Take an execution thread.
+        let mut permit = worker_runtime.execution_token().acquire();
+
         // Take a HandleScope and initialize the environment.
         {
             let scope = &mut v8::HandleScope::new(context_scope);
@@ -316,6 +319,8 @@ impl Instance {
             state.io_waiter = None; // drop it
             state.done = false;
 
+            drop(permit);
+
             let task = match state.task_rx.blocking_recv() {
                 Some(x) => x,
                 None => {
@@ -323,6 +328,7 @@ impl Instance {
                     break;
                 }
             };
+            permit = worker_runtime.execution_token().acquire();
             let event = task.make_event();
             let io_scope = state.populate_with_task(task)?;
             state.start_timer();
@@ -378,6 +384,8 @@ impl Instance {
                 // Renew lifetime
                 let state = InstanceState::get(scope);
 
+                drop(permit);
+
                 let (callback, data) = match state.io_waiter.as_mut().unwrap().wait() {
                     Some(x) => x,
                     None => {
@@ -392,6 +400,8 @@ impl Instance {
                         return Err(GenericError::Execution(ExecutionError::IoTimeout));
                     }
                 };
+
+                permit = worker_runtime.execution_token().acquire();
                 state.start_timer();
 
                 let callback = v8::Local::<'_, v8::Function>::new(scope, callback);

@@ -9,6 +9,7 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::sync::RwLock as AsyncRwLock;
+use crate::semaphore::Semaphore;
 
 pub struct Runtime {
     id: RuntimeId,
@@ -16,6 +17,7 @@ pub struct Runtime {
     statistics_update_tx: tokio::sync::mpsc::Sender<(WorkerHandle, InstanceStatistics)>,
     config: Config,
     pool: IsolateThreadPool,
+    execution_token: Semaphore,
 }
 
 struct WorkerState {
@@ -40,6 +42,8 @@ impl Runtime {
         let max_inactive_time_ms = config.max_inactive_time_ms;
         let max_isolate_memory_bytes = config.max_isolate_memory_bytes;
         let isolate_pool_size = config.isolate_pool_size;
+        let execution_concurrency = config.execution_concurrency;
+
         let rt = Arc::new(Runtime {
             id: RuntimeId::generate(),
             instances: AsyncRwLock::new(LruCache::with_expiry_duration_and_capacity(
@@ -55,6 +59,7 @@ impl Runtime {
                 },
             )
             .await,
+            execution_token: Semaphore::new(execution_concurrency),
         });
         let rt_weak = Arc::downgrade(&rt);
         tokio::spawn(statistics_update_worker(rt_weak, statistics_update_rx));
@@ -63,6 +68,10 @@ impl Runtime {
 
     pub fn id(&self) -> RuntimeId {
         self.id.clone()
+    }
+
+    pub fn execution_token(&self) -> &Semaphore {
+        &self.execution_token
     }
 
     fn instance_thread(

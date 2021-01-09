@@ -26,3 +26,4 @@ serde = { version = "1", features = ["derive"] }
 slab = "0.4"
 rand = "0.8"
 tar = "0.4"
+crossbeam = "0.8"
