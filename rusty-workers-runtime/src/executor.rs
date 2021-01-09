@@ -245,6 +245,12 @@ impl Instance {
         isolate.set_slot(Option::<DoubleMleGuard>::None);
         isolate.set_slot(Option::<TerminationReasonBox>::None);
         isolate.set_slot(Option::<InstanceState>::None);
+
+        // Reset memory limit.
+        isolate.remove_near_heap_limit_callback(
+            crate::executor::on_memory_limit_exceeded,
+            0,
+        );
     }
 
     fn compile<'s>(

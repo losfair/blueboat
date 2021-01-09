@@ -178,6 +178,10 @@ fn isolate_worker(
 
         job(&mut context_scope);
 
+        // Release scopes.
+        drop(context_scope);
+        drop(isolate_scope);
+
         // Cleanup instance state so that we can reuse it.
         // Keep in sync with InstanceHandle::do_remote_termination.
 
@@ -188,24 +192,15 @@ fn isolate_worker(
         generation.0 += 1;
 
         // Cleanup termination.
-        context_scope.cancel_terminate_execution();
+        isolate.cancel_terminate_execution();
 
         // Drop the lock.
         drop(generation);
 
-        // Cleanup slots.
-        crate::executor::Instance::cleanup(&mut context_scope);
+        // Cleanup instance-specific state.
+        crate::executor::Instance::cleanup(&mut isolate);
 
-        // Reset memory limit.
-        context_scope.remove_near_heap_limit_callback(
-            crate::executor::on_memory_limit_exceeded,
-            config.max_memory_bytes,
-        );
-
-        drop(context_scope);
-        drop(isolate_scope);
-
-        // Run GC. Time limit 500ms.
+        // Run GC.
         let gc_start = std::time::Instant::now();
         isolate.low_memory_notification();
         let gc_end = std::time::Instant::now();
