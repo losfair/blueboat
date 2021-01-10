@@ -76,14 +76,6 @@ struct Opt {
     #[structopt(long, env = "RW_DROPOUT_RATE", default_value = "0.001")]
     pub dropout_rate: f32,
 
-    /// Time-to-live for routing cache entries in milliseconds. (LRU limit)
-    #[structopt(long, env = "RW_ROUTE_CACHE_LRU_TTL_MS", default_value = "30000")]
-    pub route_cache_lru_ttl_ms: u64,
-
-    /// Time-to-live for routing cache entries in milliseconds. (hard limit)
-    #[structopt(long, env = "RW_ROUTE_CACHE_TTL_MS", default_value = "60000")]
-    pub route_cache_ttl_ms: u64,
-
     /// Routing cache size.
     #[structopt(long, env = "RW_ROUTE_CACHE_SIZE", default_value = "1000")]
     pub route_cache_size: usize,
@@ -130,8 +122,6 @@ async fn main() -> Result<()> {
                 request_timeout_ms: opt.request_timeout_ms,
                 max_request_body_size_bytes: opt.max_request_body_size_bytes,
                 dropout_rate: opt.dropout_rate,
-                route_cache_lru_ttl_ms: opt.route_cache_lru_ttl_ms,
-                route_cache_ttl_ms: opt.route_cache_ttl_ms,
                 route_cache_size: opt.route_cache_size,
                 app_cache_size: opt.app_cache_size,
                 runtime_cluster,

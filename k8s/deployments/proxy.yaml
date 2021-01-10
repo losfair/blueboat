@@ -44,10 +44,6 @@ spec:
         - name: RUNTIMES
           # Query it 4 times when doing discovery
           value: __NET_PREFIX__.4:3000,__NET_PREFIX__.4:3000,__NET_PREFIX__.4:3000,__NET_PREFIX__.4:3000
-        - name: RW_ROUTE_CACHE_LRU_TTL_MS
-          value: "300000"
-        - name: RW_ROUTE_CACHE_TTL_MS
-          value: "300000"
         - name: RW_ROUTE_CACHE_SIZE
           value: "1000"
         - name: RW_APP_CACHE_SIZE

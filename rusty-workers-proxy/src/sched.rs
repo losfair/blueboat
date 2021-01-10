@@ -38,17 +38,11 @@ pub struct Scheduler {
     worker_config: WorkerConfiguration,
     clients: AsyncRwLock<BTreeMap<RuntimeId, RtState>>,
     apps: AsyncMutex<LruCache<AppId, Arc<AppState>>>,
-    route_cache: AsyncMutex<LruCache<String, BTreeMap<String, RouteCacheEntry>>>, // domain -> (prefix -> appid)
+    route_cache: AsyncMutex<LruCache<String, BTreeMap<String, AppId>>>, // domain -> (prefix -> appid)
     terminate_queue: tokio::sync::mpsc::Sender<ReadyInstance>,
     kv_client: KvClient,
     lookup_route_tx: Sender<(String, String)>,
     lookup_app_tx: Sender<AppId>,
-}
-
-#[derive(Clone)]
-struct RouteCacheEntry {
-    appid: AppId,
-    expire_after: Instant,
 }
 
 /// State of a backing runtime.
@@ -93,12 +87,6 @@ struct ReadyInstance {
 
     /// The tarpc client.
     client: RuntimeServiceClient,
-}
-
-impl RouteCacheEntry {
-    fn is_expired(&self) -> bool {
-        Instant::now() > self.expire_after
-    }
 }
 
 impl ReadyInstance {
@@ -237,8 +225,6 @@ impl Scheduler {
                 }
             }
         });
-
-        let route_cache_lru_ttl_ms = local_config.route_cache_lru_ttl_ms;
         let route_cache_size = local_config.route_cache_size;
         let app_cache_size = local_config.app_cache_size;
 
@@ -249,10 +235,7 @@ impl Scheduler {
             worker_config,
             clients: AsyncRwLock::new(BTreeMap::new()),
             apps: AsyncMutex::new(LruCache::with_capacity(app_cache_size)),
-            route_cache: AsyncMutex::new(LruCache::with_expiry_duration_and_capacity(
-                Duration::from_millis(route_cache_lru_ttl_ms),
-                route_cache_size,
-            )),
+            route_cache: AsyncMutex::new(LruCache::with_capacity(route_cache_size)),
             terminate_queue: terminate_queue_tx,
             kv_client,
             lookup_route_tx,
@@ -261,9 +244,11 @@ impl Scheduler {
         let me2 = me.clone();
         let me3 = me.clone();
         let me4 = me.clone();
+        let me5 = me.clone();
         tokio::spawn(async move { me2.lookup_route_background(lookup_route_rx).await; });
         tokio::spawn(async move { me3.lookup_app_background(lookup_app_rx).await; });
         tokio::spawn(async move { me4.apps_gc_task().await; });
+        tokio::spawn(async move { me5.route_cache_gc_task().await; });
         me
     }
 
@@ -297,7 +282,6 @@ impl Scheduler {
             appid = route_cache
                 .get(&host)
                 .and_then(|submappings| lookup_submappings(uri.path(), submappings))
-                .filter(|x| !x.is_expired())
                 .cloned();
             drop(route_cache);
 
@@ -311,7 +295,7 @@ impl Scheduler {
             tokio::time::sleep(Duration::from_millis(500)).await;
         };
 
-        let appid = appid.ok_or(SchedError::NoRouteMapping)?.appid;
+        let appid = appid.ok_or(SchedError::NoRouteMapping)?;
 
         let method = req.method().as_str().to_string();
         let mut headers = BTreeMap::new();
@@ -531,40 +515,52 @@ impl Scheduler {
         }
     }
 
-    async fn do_lookup_route_background(&self, domain: String, path: String) {
+    async fn do_lookup_route_background(&self, domain: String, _path: String) {
         // Double check
         let mut route_cache = self.route_cache.lock().await;
-        if let Some(x) = route_cache.get(&domain) {
-            if let Some(x) = lookup_submappings(&path, x) {
-                if !x.is_expired() {
-                    return;
-                }
-            }
+        if let Some(_) = route_cache.get(&domain) {
+            return;
         }
         drop(route_cache);
 
-        match self.kv_client.route_mapping_lookup(&domain, &path).await {
-            Ok(Some(appid)) => {
-                info!("inserting route: {}{} -> {}", domain, path, appid);
-                let mut route_cache = self.route_cache.lock().await;
-                route_cache.entry(domain).or_insert(BTreeMap::new())
-                    .insert(path.to_string(), RouteCacheEntry {
-                        appid: AppId(appid),
-                        expire_after: Instant::now() + Duration::from_millis(self.local_config.route_cache_ttl_ms),
-                    });
-            }
-            Ok(None) => {
-                warn!("do_lookup_route_background: mapping not found for {}{}", domain, path);
+        match self.kv_client.route_mapping_list_for_domain(&domain, |_| true).await {
+            Ok(map) => {
+                let map: BTreeMap<_, _> = map.into_iter().map(|(k, v)| (k, AppId(v))).collect();
+                info!("do_lookup_route_background: updating routing for domain {}: {:?}", domain, map);
+                self.route_cache.lock().await.insert(domain, map);
             }
             Err(e) => {
-                warn!("do_lookup_route_background: error looking up route: {:?}", e);
+                warn!("do_lookup_route_background: error looking up route for domain {}: {:?}", domain, e);
+            }
+        }
+    }
+
+    async fn route_cache_gc_task(&self) {
+        loop {
+            let domains: Vec<String> = self.route_cache.lock().await.peek_iter().map(|x| x.0.clone()).collect();
+            for domain in domains {
+                match self.kv_client.route_mapping_list_for_domain(&domain, |_| true).await {
+                    Ok(map) => {
+                        let map: BTreeMap<_, _> = map.into_iter().map(|(k, v)| (k, AppId(v))).collect();
+                        let mut route_cache = self.route_cache.lock().await;
+                        if let Some(entry) = route_cache.peek(&domain) {
+                            if entry != &map {
+                                info!("route for domain {} changed. flushing cache", domain);
+                                // Remove instead of update to prevent updating LRU timestamp.
+                                // TODO: patch LruCache.
+                                route_cache.remove(&domain);
+                            }
+                        }
+                    }
+                    Err(_) => {}
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         }
     }
 
     async fn apps_gc_task(&self) {
         loop {
-            tokio::time::sleep(Duration::from_secs(10)).await;
             let apps: Vec<(AppId, ([u8; 16], WorkerConfiguration))> = self.apps.lock().await.iter().map(|(k, v)| {
                 (k.clone(), (v.bundle_id, v.config.clone()))
             }).collect();
@@ -706,7 +702,7 @@ fn decode_kv_namespaces(namespaces: &Vec<KvNamespaceConfig>) -> BTreeMap<String,
     }).collect()
 }
 
-fn lookup_submappings<'a>(path: &str, submappings: &'a BTreeMap<String, RouteCacheEntry>) -> Option<&'a RouteCacheEntry> {
+fn lookup_submappings<'a>(path: &str, submappings: &'a BTreeMap<String, AppId>) -> Option<&'a AppId> {
     // Match in reverse order.
     for (k, v) in submappings.iter().rev() {
         if path.starts_with(k) {
