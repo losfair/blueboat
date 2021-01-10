@@ -43,11 +43,17 @@ sleep 1
 
 ./target/release/rusty-workers-fetchd --rpc-listen 127.0.0.1:3000 &
 ./target/release/rusty-workers-runtime --rpc-listen 127.0.0.1:3001 \
-    --tikv-cluster 127.0.0.1:2379 &
+    --tikv-cluster 127.0.0.1:2379 \
+    --max-num-of-instances 100 \
+    --isolate-pool-size 200 \
+    --execution-concurrency 20 \
+    --max-concurrent-requests 50 &
 ./target/release/rusty-workers-proxy \
     --fetch-service 127.0.0.1:3000 \
     --http-listen 127.0.0.1:3080 \
     --tikv-cluster 127.0.0.1:2379 \
-    --runtimes 127.0.0.1:3001 &
+    --runtimes 127.0.0.1:3001 \
+    --dropout-rate 0.0002 \
+    --max-ready-instances-per-app 80 &
 
 wait
