@@ -631,7 +631,7 @@ impl Scheduler {
             }
         };
 
-        let bundle_id = match decode_bundle_id(&config.bundle_id) {
+        let bundle_id = match decode_id128(&config.bundle_id) {
             Some(x) => x,
             None => {
                 warn!("do_lookup_app_background: bad bundle hash (app {})", id.0);

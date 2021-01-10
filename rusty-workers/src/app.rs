@@ -31,7 +31,7 @@ pub struct AppRoute {
 #[serde(transparent)]
 pub struct AppId(pub String);
 
-pub fn decode_bundle_id(raw: &str) -> Option<[u8; 16]> {
+pub fn decode_id128(raw: &str) -> Option<[u8; 16]> {
     base64::decode(raw)
         .ok()
         .filter(|x| x.len() == 16)
@@ -42,6 +42,6 @@ pub fn decode_bundle_id(raw: &str) -> Option<[u8; 16]> {
         })
 }
 
-pub fn encode_bundle_id(raw: &[u8; 16]) -> String {
+pub fn encode_id128(raw: &[u8; 16]) -> String {
     base64::encode(raw)
 }

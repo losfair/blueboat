@@ -40,7 +40,7 @@ macro_rules! impl_scan_prefix {
 }
 
 /// Will be used a lot so keep it short.
-pub static PREFIX_WORKER_DATA_V1: &'static [u8] = b"V1\x00W\x00";
+pub static PREFIX_WORKER_DATA_V2: &'static [u8] = b"V2\x00W\x00";
 
 pub static PREFIX_APP_METADATA_V1: &'static [u8] = b"V1\x00APPMD\x00";
 
@@ -74,6 +74,24 @@ impl KvClient {
 
     impl_scan_prefix!(scan_prefix, &[u8], scan, kvp_deref_key, kvp_deref_value);
     impl_scan_prefix!(scan_prefix_keys, (), scan_keys, key_deref, mk_unit);
+
+    pub async fn worker_data_for_each_key_in_namespace(
+        &self,
+        namespace_id: &[u8; 16],
+        mut callback: impl FnMut(&[u8]) -> bool,
+    ) -> GenericResult<()> {
+        let prefix = join_slices(&[PREFIX_WORKER_DATA_V2, namespace_id, b"\x00"]);
+        self.scan_prefix_keys(&prefix, |k, ()| callback(k)).await?;
+        Ok(())
+    }
+
+    pub async fn worker_data_delete_namespace(
+        &self,
+        namespace_id: &[u8; 16],
+    ) -> GenericResult<()> {
+        let prefix = join_slices(&[PREFIX_WORKER_DATA_V2, namespace_id, b"\x00"]);
+        self.delete_prefix(&prefix).await
+    }
 
     pub async fn worker_data_get(&self, namespace_id: &[u8; 16], key: &[u8]) -> GenericResult<Option<Vec<u8>>> {
         self.raw.get(make_worker_data_key(namespace_id, key)).await
@@ -215,7 +233,7 @@ impl KvClient {
 }
 
 fn make_worker_data_key(namespace_id: &[u8; 16], key: &[u8]) -> Vec<u8> {
-    join_slices(&[PREFIX_WORKER_DATA_V1, namespace_id, key])
+    join_slices(&[PREFIX_WORKER_DATA_V2, namespace_id, b"\x00", key])
 }
 
 fn join_slices(slices: &[&[u8]]) -> Vec<u8> {

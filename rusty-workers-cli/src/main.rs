@@ -14,8 +14,8 @@ use rand::Rng;
 
 #[derive(Debug, Error)]
 enum CliError {
-    #[error("bad bundle id")]
-    BadBundleId,
+    #[error("bad id128")]
+    BadId128,
 }
 
 #[derive(Debug, StructOpt)]
@@ -106,6 +106,46 @@ enum AppCmd {
     #[structopt(name = "delete-bundle")]
     DeleteBundle {
         id: String,
+    },
+    #[structopt(name = "list-worker-data")]
+    ListWorkerData {
+        namespace: String,
+        #[structopt(long)]
+        base64_key: bool,
+    },
+    #[structopt(name = "get-worker-data")]
+    GetWorkerData {
+        namespace: String,
+        #[structopt(long)]
+        key: String,
+        #[structopt(long)]
+        base64_key: bool,
+        #[structopt(long)]
+        base64_value: bool,
+    },
+    #[structopt(name = "put-worker-data")]
+    PutWorkerData {
+        namespace: String,
+        #[structopt(long)]
+        key: String,
+        #[structopt(long)]
+        value: String,
+        #[structopt(long)]
+        base64_key: bool,
+        #[structopt(long)]
+        base64_value: bool,
+    },
+    #[structopt(name = "delete-worker-data")]
+    DeleteWorkerData {
+        namespace: String,
+        #[structopt(long)]
+        key: String,
+        #[structopt(long)]
+        base64_key: bool,
+    },
+    #[structopt(name = "delete-worker-data-namespace")]
+    DeleteWorkerDataNamespace {
+        namespace: String,
     },
 }
 
@@ -256,7 +296,7 @@ async fn main() -> Result<()> {
                     let mut bundle_id = [0u8; 16];
                     rand::thread_rng().fill(&mut bundle_id);
                     client.app_bundle_put(&bundle_id, bundle).await?;
-                    config.bundle_id = rusty_workers::app::encode_bundle_id(&bundle_id);
+                    config.bundle_id = rusty_workers::app::encode_id128(&bundle_id);
 
                     client.app_metadata_put(&config.id.0, serde_json::to_vec(&config)?).await?;
                     println!("OK");
@@ -292,6 +332,78 @@ async fn main() -> Result<()> {
                     client.app_bundle_delete_dirty(&id).await?;
                     println!("OK");
                 }
+                AppCmd::ListWorkerData { namespace, base64_key } => {
+                    let namespace = rusty_workers::app::decode_id128(&namespace)
+                        .ok_or_else(|| CliError::BadId128)?;
+                    print!("[");
+                    let mut first = true;
+                    client.worker_data_for_each_key_in_namespace(&namespace, |k| {
+                        if first {
+                            first = false;
+                        } else {
+                            print!(",");
+                        }
+                        if !base64_key {
+                            print!("{}", serde_json::to_string(&std::str::from_utf8(&k).ok()).unwrap());
+                        } else {
+                            print!("{}", serde_json::to_string(&base64::encode(k)).unwrap());
+                        }
+                        true
+                    }).await?;
+                    println!("]");
+                }
+                AppCmd::GetWorkerData { namespace, key, base64_key, base64_value } => {
+                    let namespace = rusty_workers::app::decode_id128(&namespace)
+                        .ok_or_else(|| CliError::BadId128)?;
+                    let key = if !base64_key {
+                        key.as_bytes().to_vec()
+                    } else {
+                        base64::decode(&key)?
+                    };
+                    let value = client.worker_data_get(&namespace, &key).await?;
+                    if let Some(v) = value {
+                        if !base64_value {
+                            println!("{}", serde_json::to_string(std::str::from_utf8(&v)?).unwrap());
+                        } else {
+                            println!("{}", serde_json::to_string(&base64::encode(v)).unwrap());
+                        }
+                    } else {
+                        println!("null");
+                    }
+                }
+                AppCmd::PutWorkerData { namespace, key, value, base64_key, base64_value } => {
+                    let namespace = rusty_workers::app::decode_id128(&namespace)
+                        .ok_or_else(|| CliError::BadId128)?;
+                    let key = if !base64_key {
+                        key.as_bytes().to_vec()
+                    } else {
+                        base64::decode(&key)?
+                    };
+                    let value = if !base64_value {
+                        value.as_bytes().to_vec()
+                    } else {
+                        base64::decode(&value)?
+                    };
+                    client.worker_data_put(&namespace, &key, value).await?;
+                    println!("OK");
+                }
+                AppCmd::DeleteWorkerData { namespace, key, base64_key } => {
+                    let namespace = rusty_workers::app::decode_id128(&namespace)
+                        .ok_or_else(|| CliError::BadId128)?;
+                    let key = if !base64_key {
+                        key.as_bytes().to_vec()
+                    } else {
+                        base64::decode(&key)?
+                    };
+                    client.worker_data_delete(&namespace, &key).await?;
+                    println!("OK");
+                }
+                AppCmd::DeleteWorkerDataNamespace { namespace } => {
+                    let namespace = rusty_workers::app::decode_id128(&namespace)
+                        .ok_or_else(|| CliError::BadId128)?;
+                    client.worker_data_delete_namespace(&namespace).await?;
+                    println!("OK");
+                }
             }
         }
     }
@@ -322,9 +434,9 @@ async fn cleanup_previous_app(client: &KvClient, appid: &rusty_workers::app::App
     if let Some(prev_md) = client.app_metadata_get(&appid.0).await? {
         if let Ok(prev_config) = serde_json::from_slice::<AppConfig>(&prev_md) {
             client.app_bundle_delete(
-                &rusty_workers::app::decode_bundle_id(
+                &rusty_workers::app::decode_id128(
                     &prev_config.bundle_id
-                ).ok_or_else(|| CliError::BadBundleId)?
+                ).ok_or_else(|| CliError::BadId128)?
             ).await?;
             warn!("deleted previous bundle");
         } else {
