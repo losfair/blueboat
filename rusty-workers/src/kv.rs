@@ -1,6 +1,7 @@
 use crate::types::*;
 use std::collections::BTreeMap;
 use tikv_client::{KvPair, Key};
+use std::time::SystemTime;
 
 macro_rules! impl_scan_prefix {
     ($name:ident, $cb_value_ty:ty, $scan_func:ident, $deref_key:ident, $deref_value:ident) => {
@@ -47,6 +48,8 @@ pub static PREFIX_APP_METADATA_V1: &'static [u8] = b"V1\x00APPMD\x00";
 pub static PREFIX_APP_BUNDLE_V1: &'static [u8] = b"V1\x00APPBUNDLE\x00";
 
 pub static PREFIX_ROUTE_MAPPING_V1: &'static [u8] = b"V1\x00ROUTEMAP\x00";
+
+pub static PREFIX_LOG_V1: &'static [u8] = b"V1\x00LOG\x00";
 
 pub struct KvClient {
     raw: tikv_client::RawClient,
@@ -230,6 +233,66 @@ impl KvClient {
         self.raw.delete(key).await
             .map_err(|e| GenericError::Other(format!("app_bundle_delete: {:?}", e)))
     }
+
+    pub async fn log_range(
+        &self,
+        topic: &str,
+        range: std::ops::Range<SystemTime>,
+        mut callback: impl FnMut(&str, &str) -> bool,
+    ) -> GenericResult<()> {
+        let batch_size: u32 = 20;
+        let trim_prefix = join_slices(&[PREFIX_LOG_V1, topic.as_bytes(), b"\x00"]);
+        let start_prefix = join_slices(&[PREFIX_LOG_V1, topic.as_bytes(), b"\x00", make_time_str(range.start).as_bytes()]);
+        let end_prefix = join_slices(&[PREFIX_LOG_V1, topic.as_bytes(), b"\x00", make_time_str(range.end).as_bytes()]);
+        let mut current_prefix = start_prefix.clone();
+
+        loop {
+            let batch = self.raw.scan(current_prefix..end_prefix.clone(), batch_size).await
+                .map_err(|e| GenericError::Other(format!("log_range: {:?}", e)))?;
+            for item in batch.iter() {
+                let key: &[u8] = (&item.0).into();
+                let key = match std::str::from_utf8(&key[trim_prefix.len()..]) {
+                    Ok(x) => x,
+                    Err(_) => continue,
+                };
+                let value = match std::str::from_utf8(&item.1) {
+                    Ok(x) => x,
+                    Err(_) => continue,
+                };
+                if !callback(key, value) {
+                    return Ok(());
+                }
+            }
+
+            if batch.len() == batch_size as usize {
+                current_prefix = join_slices(&[(&batch.last().unwrap().0).into(), &[0u8]]);
+            } else {
+                return Ok(());
+            }
+        }
+    }
+
+    pub async fn log_put(&self, topic: &str, time: SystemTime, text: &str) -> GenericResult<()> {
+        let key = join_slices(&[PREFIX_LOG_V1, topic.as_bytes(), b"\x00", make_time_str(time).as_bytes()]);
+        self.raw.put(key, text).await
+            .map_err(|e| GenericError::Other(format!("log_put: {:?}", e)))
+    }
+
+    pub async fn log_delete_range(
+        &self,
+        topic: &str,
+        range: std::ops::Range<SystemTime>,
+    ) -> GenericResult<()> {
+        let start_prefix = join_slices(&[PREFIX_LOG_V1, topic.as_bytes(), b"\x00", make_time_str(range.start).as_bytes()]);
+        let end_prefix = join_slices(&[PREFIX_LOG_V1, topic.as_bytes(), b"\x00", make_time_str(range.end).as_bytes()]);
+        self.raw.delete_range(start_prefix..end_prefix).await
+            .map_err(|e| GenericError::Other(format!("log_delete_range: {:?}", e)))
+    }
+}
+
+fn make_time_str(time: SystemTime) -> String {
+    let time = chrono::DateTime::<chrono::Utc>::from(time);
+    format!("{}", time.format("%Y-%m-%dT%H:%M:%S%.6f"))
 }
 
 fn make_worker_data_key(namespace_id: &[u8; 16], key: &[u8]) -> Vec<u8> {

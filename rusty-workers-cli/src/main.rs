@@ -11,6 +11,7 @@ use rusty_workers::kv::KvClient;
 use rusty_workers::app::AppConfig;
 use thiserror::Error;
 use rand::Rng;
+use std::time::SystemTime;
 
 #[derive(Debug, Error)]
 enum CliError {
@@ -146,6 +147,18 @@ enum AppCmd {
     #[structopt(name = "delete-worker-data-namespace")]
     DeleteWorkerDataNamespace {
         namespace: String,
+    },
+    #[structopt(name = "logs")]
+    Logs {
+        appid: String,
+        #[structopt(long)]
+        since: String,
+    },
+    #[structopt(name = "delete-logs")]
+    DeleteLogs {
+        appid: String,
+        #[structopt(long)]
+        before: String,
     },
 }
 
@@ -305,6 +318,12 @@ async fn main() -> Result<()> {
                     let appid = rusty_workers::app::AppId(appid);
                     cleanup_previous_app(&client, &appid).await?;
                     client.app_metadata_delete(&appid.0).await?;
+
+                    client.log_delete_range(
+                        &format!("app-{}", appid.0),
+                        SystemTime::UNIX_EPOCH..SystemTime::now(),
+                    ).await?;
+
                     println!("OK");
                 }
                 AppCmd::GetApp { appid } => {
@@ -402,6 +421,39 @@ async fn main() -> Result<()> {
                     let namespace = rusty_workers::app::decode_id128(&namespace)
                         .ok_or_else(|| CliError::BadId128)?;
                     client.worker_data_delete_namespace(&namespace).await?;
+                    println!("OK");
+                }
+                AppCmd::Logs { appid, since } => {
+                    let now = SystemTime::now();
+                    let since = now - parse_duration::parse(&since)?;
+
+                    print!("[");
+                    let mut first = true;
+                    client.log_range(
+                        &format!("app-{}", appid),
+                        since..now,
+                        |time, text| {
+                            if first {
+                                first = false;
+                            } else {
+                                print!(",");
+                            }
+                            let item = serde_json::to_string(&serde_json::json!({
+                                "time": time,
+                                "text": text,
+                            })).unwrap();
+                            print!("{}", item);
+                            true
+                        }
+                    ).await?;
+                    println!("]");
+                }
+                AppCmd::DeleteLogs { appid, before } => {
+                    let end = SystemTime::now() - parse_duration::parse(&before)?;
+                    client.log_delete_range(
+                        &format!("app-{}", appid),
+                        SystemTime::UNIX_EPOCH..end,
+                    ).await?;
                     println!("OK");
                 }
             }

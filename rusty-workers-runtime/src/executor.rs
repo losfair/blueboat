@@ -52,6 +52,8 @@ struct InstanceState {
     done: bool,
 
     fetch_response_channel: Option<tokio::sync::oneshot::Sender<ExecutionResult<ResponseObject>>>,
+
+    appid: String,
 }
 
 pub struct InstanceHandle {
@@ -151,6 +153,7 @@ impl Instance {
         rt: tokio::runtime::Handle,
         worker_runtime: Arc<Runtime>,
         worker_handle: WorkerHandle,
+        appid: String,
         bundle: Vec<u8>,
         conf: &WorkerConfiguration,
     ) -> GenericResult<(Self, InstanceHandle, InstanceTimeControl)> {
@@ -236,6 +239,7 @@ impl Instance {
                 io_waiter: None,
                 done: false,
                 fetch_response_channel: None,
+                appid,
             }),
         };
         Ok((instance, handle, time_control))
@@ -541,6 +545,11 @@ fn call_service_callback(
                 match call {
                     SyncCall::Log(s) => {
                         debug!("log: {}", s);
+                        let state = InstanceState::get(scope);
+                        state.worker_runtime.write_log(
+                            format!("app-{}", state.appid),
+                            s,
+                        );
                     }
                     SyncCall::Done => {
                         let state = InstanceState::get(scope);

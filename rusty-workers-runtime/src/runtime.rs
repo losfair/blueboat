@@ -6,7 +6,7 @@ use rusty_v8 as v8;
 use rusty_workers::types::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
-use std::time::Duration;
+use std::time::{SystemTime, Duration};
 use tokio::sync::oneshot;
 use tokio::sync::RwLock as AsyncRwLock;
 use crate::semaphore::{Semaphore, Permit};
@@ -20,11 +20,18 @@ pub struct Runtime {
     pool: IsolateThreadPool,
     execution_token: Semaphore,
     kv: Option<KvClient>,
+    log_tx: tokio::sync::mpsc::Sender<LogEntry>,
 }
 
 struct WorkerState {
     handle: Arc<InstanceHandle>,
     memory_bytes: AtomicUsize,
+}
+
+struct LogEntry {
+    topic: String,
+    time: SystemTime,
+    text: String,
 }
 
 pub struct InstanceStatistics {
@@ -40,6 +47,7 @@ pub fn init() {
 impl Runtime {
     pub async fn new(config: Config) -> GenericResult<Arc<Self>> {
         let (statistics_update_tx, statistics_update_rx) = tokio::sync::mpsc::channel(100);
+        let (log_tx, log_rx) = tokio::sync::mpsc::channel(1000);
         let max_num_of_instances = config.max_num_of_instances;
         let max_inactive_time_ms = config.max_inactive_time_ms;
         let max_isolate_memory_bytes = config.max_isolate_memory_bytes;
@@ -72,9 +80,12 @@ impl Runtime {
             .await,
             execution_token: Semaphore::new(execution_concurrency),
             kv,
+            log_tx,
         });
         let rt_weak = Arc::downgrade(&rt);
+        let rt_weak_2 = rt_weak.clone();
         tokio::spawn(statistics_update_worker(rt_weak, statistics_update_rx));
+        tokio::spawn(log_worker(rt_weak_2, log_rx));
         Ok(rt)
     }
 
@@ -96,6 +107,7 @@ impl Runtime {
         rt: tokio::runtime::Handle,
         worker_runtime: Arc<Runtime>,
         worker_handle: WorkerHandle,
+        appid: String,
         bundle: Vec<u8>,
         configuration: &WorkerConfiguration,
         result_tx: oneshot::Sender<Result<(InstanceHandle, InstanceTimeControl), GenericError>>,
@@ -105,6 +117,7 @@ impl Runtime {
             rt,
             worker_runtime,
             worker_handle.clone(),
+            appid,
             bundle,
             configuration,
         ) {
@@ -216,7 +229,7 @@ impl Runtime {
 
     pub async fn spawn(
         self: &Arc<Self>,
-        _appid: String,
+        appid: String,
         bundle: Vec<u8>,
         configuration: &WorkerConfiguration,
     ) -> GenericResult<WorkerHandle> {
@@ -236,6 +249,7 @@ impl Runtime {
                         rt,
                         this,
                         worker_handle_2,
+                        appid,
                         bundle,
                         &configuration,
                         result_tx,
@@ -310,6 +324,14 @@ impl Runtime {
             info!("gc: removed {} instances", remove_count);
         }
     }
+
+    pub fn write_log(&self, topic: impl Into<String>, text: impl Into<String>) {
+        drop(self.log_tx.try_send(LogEntry {
+            topic: topic.into(),
+            time: SystemTime::now(),
+            text: text.into(),
+        }));
+    }
 }
 
 async fn wait_until(deadline: Option<tokio::time::Instant>) {
@@ -317,6 +339,24 @@ async fn wait_until(deadline: Option<tokio::time::Instant>) {
         tokio::time::sleep_until(deadline).await;
     } else {
         futures::future::pending::<()>().await;
+    }
+}
+
+async fn log_worker(rt: Weak<Runtime>, mut rx: tokio::sync::mpsc::Receiver<LogEntry>) {
+    loop {
+        let entry = if let Some(x) = rx.recv().await {
+            x
+        } else {
+            break;
+        };
+        let rt = if let Some(x) = rt.upgrade() {
+            x
+        } else {
+            break;
+        };
+        if let Some(ref kv) = rt.kv {
+            drop(kv.log_put(&entry.topic, entry.time, &entry.text).await);
+        }
     }
 }
 
