@@ -485,6 +485,7 @@ impl InstanceState {
         isolate.get_heap_statistics(&mut stats);
         let isolate_config = InstanceState::get(isolate).worker_runtime.isolate_config();
 
+        // Exclude arraybuffer size here since we have separate checks when constructing arraybuffers
         let total_heap_size = stats.total_heap_size();
         if total_heap_size > isolate_config.max_memory_bytes
             || isolate_config.max_memory_bytes - total_heap_size < isolate_config.host_entry_threshold_memory_bytes {
@@ -501,7 +502,7 @@ fn update_stats(worker_runtime: &Runtime, worker_handle: &WorkerHandle, scope: &
     worker_runtime.update_stats(
         worker_handle,
         InstanceStatistics {
-            used_memory_bytes: stats.total_heap_size(),
+            used_memory_bytes: stats.total_heap_size() + stats.external_memory(), // heap + arraybuffers
         },
     );
 }
@@ -511,7 +512,7 @@ extern "C" fn on_promise_rejection(_msg: v8::PromiseRejectMessage<'_>) {
 }
 
 fn protected_js<F: FnOnce(&mut v8::HandleScope<'_>)>(scope: &mut v8::HandleScope<'_>, f: F) -> GenericResult<()> {
-    if protected_call(|| {
+    if _do_protected_call(|| {
         f(scope)
     }).is_none() {
         scope.set_slot::<Poison>(Poison);
@@ -542,19 +543,18 @@ extern "C" fn oom_protected_callback(_: *const std::os::raw::c_char, _: bool) {
     }
 }
 
-fn protected_call<F: FnOnce() -> R, R>(f: F) -> Option<R> {
+fn _do_protected_call<F: FnOnce() -> R, R>(f: F) -> Option<R> {
     unsafe {
         JMP_ENV.with(|x| {
             let inner = &mut *x.get();
             if inner.is_some() {
-                panic!("protected_call: re-entering");
+                panic!("_do_protected_call: re-entering");
             }
             *inner = Some([0; 32]);
 
             let ret = if setjmp(inner.as_mut().unwrap()) == 0 {
                 Some(f())
             } else {
-                info!("protected_call: got failure");
                 None
             };
 
