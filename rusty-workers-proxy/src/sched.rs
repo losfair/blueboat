@@ -335,11 +335,7 @@ impl Scheduler {
             headers,
             method,
             url,
-            body: if full_body.len() == 0 {
-                None
-            } else {
-                Some(HttpBody::Binary(full_body))
-            },
+            body: HttpBody::Binary(full_body),
         };
 
         let mut app = None;
@@ -414,7 +410,6 @@ impl Scheduler {
 
             // Build response.
             let mut res = hyper::Response::new(match fetch_res.body {
-                HttpBody::Text(s) => hyper::Body::from(s),
                 HttpBody::Binary(bytes) => hyper::Body::from(bytes),
             });
 

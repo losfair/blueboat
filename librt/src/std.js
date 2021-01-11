@@ -6,11 +6,11 @@ class Console {
     }
 
     log(text) {
-        _callService({
+        _callServiceWrapper({
             Sync: {
                 Log: "" + text
             }
-        });
+        }, []);
     }
 }
 
@@ -55,20 +55,17 @@ class FetchEvent {
         }
 
         let body = await res.arrayBuffer();
-        _callService({
+        _callServiceWrapper({
             Sync: {
                 SendFetchResponse: {
                     status: res.status,
-                    body: {
-                        Binary: Array.from(new Uint8Array(body)),
-                    },
                     headers: headers,
                 }
             }
-        });
-        _callService({
+        }, [body]);
+        _callServiceWrapper({
             Sync: "Done",
-        })
+        }, [])
     }
 }
 
@@ -135,11 +132,11 @@ function scheduleTimeoutOrInterval(callback, ms, args, isInterval) {
     }
 
     function schedule(ms, callback) {
-        _callService({
+        _callServiceWrapper({
             Async: {
                 SetTimeout: ms,
             }
-        }, callback);
+        }, [], callback);
     }
 
     schedule(ms, onFire);
@@ -201,12 +198,8 @@ export function _dispatchEvent(ev) {
             );
             
             let body = null;
-            if(rawReq.body) {
-                if(rawReq.body.Text) {
-                    body = rawReq.body.Text;
-                } else {
-                    body = new Uint8Array(rawReq.body.Binary).buffer;
-                }
+            if(rawReq.body && rawReq.body.length) {
+                body = new Uint8Array(rawReq.body.Binary).buffer;
             }
 
             let req = new workerFetch.Request(rawReq.url, {
@@ -230,20 +223,20 @@ export function _dispatchEvent(ev) {
 }
 
 export function getFileFromBundle(name) {
-    return _callService({
+    return _callServiceWrapper({
         Sync: {
             GetFile: name,
         }
-    });
+    }, []);
 }
 
 export const crypto = {
     getRandomValues(n) {
-        return _callService({
+        return _callServiceWrapper({
             Sync: {
                 GetRandomValues: n,
             }
-        });
+        }, []);
     }
 };
 
@@ -257,19 +250,18 @@ class KvNamespace {
     }
 
     /**
-     * @param {ArrayBuffer | ArrayLike<number>} key
+     * @param {ArrayBuffer} key
      * @returns {Promise<ArrayBuffer>}
      */
     getRaw(key) {
         return new Promise((resolve, reject) => {
-            _callService({
+            _callServiceWrapper({
                 Async: {
                     KvGet: {
                         namespace: this.name,
-                        key: Array.from(new Uint8Array(key)),
                     }
                 }
-            }, (result) => {
+            }, [key], (result) => {
                 if(result.Err) {
                     reject(new Error(result.Err));
                 } else if(result.Ok.Err) {
@@ -291,7 +283,7 @@ class KvNamespace {
      */
     async get(key) {
         let keyRaw = new TextEncoder().encode(key);
-        let buf = await this.getRaw(keyRaw);
+        let buf = await this.getRaw(keyRaw.buffer);
         if(buf !== null) {
             return new TextDecoder().decode(buf);
         } else {
@@ -300,21 +292,19 @@ class KvNamespace {
     }
 
     /**
-     * @param {ArrayBuffer | ArrayLike<number>} key
-     * @param {ArrayBuffer | ArrayLike<number>} value
+     * @param {ArrayBuffer} key
+     * @param {ArrayBuffer} value
      * @returns {Promise<void>}
      */
     putRaw(key, value) {
         return new Promise((resolve, reject) => {
-            _callService({
+            _callServiceWrapper({
                 Async: {
                     KvPut: {
                         namespace: this.name,
-                        key: Array.from(new Uint8Array(key)),
-                        value: Array.from(new Uint8Array(value)),
                     }
                 }
-            }, (result) => {
+            }, [key, value], (result) => {
                 if(result.Err) {
                     reject(new Error(result.Err));
                 } else if(result.Ok.Err) {
@@ -334,23 +324,22 @@ class KvNamespace {
     async put(key, value) {
         let keyRaw = new TextEncoder().encode(key);
         let valueRaw = new TextEncoder().encode(value);
-        await this.putRaw(keyRaw, valueRaw);
+        await this.putRaw(keyRaw.buffer, valueRaw.buffer);
     }
 
     /**
-     * @param {ArrayBuffer | ArrayLike<number>} key
+     * @param {ArrayBuffer} key
      * @returns {Promise<void>}
      */
     deleteRaw(key) {
         return new Promise((resolve, reject) => {
-            _callService({
+            _callServiceWrapper({
                 Async: {
                     KvDelete: {
                         namespace: this.name,
-                        key: Array.from(new Uint8Array(key)),
                     }
                 }
-            }, (result) => {
+            }, [key], (result) => {
                 if(result.Err) {
                     reject(new Error(result.Err));
                 } else if(result.Ok.Err) {
@@ -368,7 +357,7 @@ class KvNamespace {
      */
     async delete(key) {
         let keyRaw = new TextEncoder().encode(key);
-        await this.deleteRaw(keyRaw);
+        await this.deleteRaw(keyRaw.buffer);
     }
 }
 
@@ -385,3 +374,8 @@ export const Request = workerFetch.Request;
 export const Response = workerFetch.Response;
 export const Headers = workerFetch.Headers;
 export const fetch = workerFetch.fetch;
+
+function _callServiceWrapper(cmd, buffers, cb) {
+    let serialized = JSON.stringify(cmd);
+    return _callService(serialized, buffers, cb);
+}

@@ -1,4 +1,4 @@
-use crate::interface::AsyncCall;
+use crate::interface::{JsBuffer, AsyncCall, AsyncCallV};
 use crate::runtime::Runtime;
 use anyhow::Result;
 use rusty_v8 as v8;
@@ -177,13 +177,18 @@ impl IoProcessor {
 
 impl IoProcessorSharedState {
     async fn handle_task(self: Arc<Self>, task: AsyncCall) -> Result<String> {
-        match task {
-            AsyncCall::SetTimeout(n) => {
+        match task.v {
+            AsyncCallV::SetTimeout(n) => {
                 let dur = Duration::from_millis(n);
                 tokio::time::sleep(dur).await;
                 Ok("null".into())
             }
-            AsyncCall::Fetch(req) => {
+            AsyncCallV::Fetch(mut req) => {
+                let body = task.buffers.get(0)
+                    .ok_or_else(|| GenericError::Other("missing body".into()))?
+                    .read_to_vec();
+                req.body = HttpBody::Binary(body);
+
                 let mut fetch_client_locked = self.fetch_client.lock().await;
                 let mut fetch_client = if let Some(ref inner) = *fetch_client_locked {
                     inner.clone()
@@ -198,7 +203,10 @@ impl IoProcessorSharedState {
                     fetch_client.fetch(tarpc::context::current(), req).await??;
                 Ok(serde_json::to_string(&fetch_result)?)
             }
-            AsyncCall::KvGet { namespace, key } => {
+            AsyncCallV::KvGet { namespace } => {
+                let key = task.buffers.get(0)
+                    .ok_or_else(|| GenericError::Other("missing key".into()))?
+                    .read_to_vec();
                 let namespace_id = match self.conf.kv_namespaces.get(&namespace) {
                     Some(id) => id,
                     None => return Ok(mk_user_error("namespace does not exist")?),
@@ -211,7 +219,13 @@ impl IoProcessorSharedState {
                 let result = kv.worker_data_get(namespace_id, &key).await?;
                 Ok(mk_user_ok(result)?)
             }
-            AsyncCall::KvPut { namespace, key, value } => {
+            AsyncCallV::KvPut { namespace } => {
+                let key = task.buffers.get(0)
+                    .ok_or_else(|| GenericError::Other("missing key".into()))?
+                    .read_to_vec();
+                let value = task.buffers.get(1)
+                    .ok_or_else(|| GenericError::Other("missing value".into()))?
+                    .read_to_vec();
                 let namespace_id = match self.conf.kv_namespaces.get(&namespace) {
                     Some(id) => id,
                     None => return Ok(mk_user_error("namespace does not exist")?),
@@ -224,7 +238,10 @@ impl IoProcessorSharedState {
                 kv.worker_data_put(namespace_id, &key, value).await?;
                 Ok(mk_user_ok(())?)
             }
-            AsyncCall::KvDelete { namespace, key } => {
+            AsyncCallV::KvDelete { namespace } => {
+                let key = task.buffers.get(0)
+                    .ok_or_else(|| GenericError::Other("missing key".into()))?
+                    .read_to_vec();
                 let namespace_id = match self.conf.kv_namespaces.get(&namespace) {
                     Some(id) => id,
                     None => return Ok(mk_user_error("namespace does not exist")?),

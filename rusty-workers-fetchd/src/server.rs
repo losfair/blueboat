@@ -78,13 +78,10 @@ async fn run_fetch(state: &FetchState, req: RequestObject) -> Result<ResponseObj
 
     headers.remove(HeaderName::from_bytes(b"host")?); // No override
 
-    if let Some(body) = req.body {
-        let body = match body {
-            HttpBody::Text(s) => Body::from(s),
-            HttpBody::Binary(bytes) => Body::from(bytes),
-        };
-        *target_req.body_mut() = Some(body);
-    }
+    let body = match req.body {
+        HttpBody::Binary(bytes) => Body::from(bytes),
+    };
+    *target_req.body_mut() = Some(body);
 
     let mut res = state.client.execute(target_req).await?;
 

@@ -140,15 +140,6 @@ pub fn native_to_js<'s, T: serde::Serialize>(
     Ok(js_value)
 }
 
-pub fn js_to_native<'s, T: serde::de::DeserializeOwned>(
-    scope: &mut v8::HandleScope<'s>,
-    v: v8::Local<'s, v8::Value>,
-) -> GenericResult<T> {
-    let json_text = v8::json::stringify(scope, v).check()?;
-    serde_json::from_str(json_text.to_rust_string_lossy(scope).as_str())
-        .map_err(|_| GenericError::Conversion)
-}
-
 fn get_exception(isolate: &mut v8::Isolate) -> TerminationReason {
     *isolate
         .get_slot_mut::<Option<TerminationReasonBox>>()

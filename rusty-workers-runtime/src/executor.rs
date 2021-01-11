@@ -579,7 +579,20 @@ fn call_service_callback(
 ) {
     wrap_callback(scope, |scope| {
         let scope = &mut v8::HandleScope::new(scope);
-        let call: ServiceCall = js_to_native(scope, args.get(0))?;
+        let call = v8::Local::<'_, v8::String>::try_from(args.get(0))?;
+        let call: ServiceCall = serde_json::from_str(call.to_rust_string_lossy(scope).as_str())
+            .map_err(|_| GenericError::Conversion)?;
+        let buffers = v8::Local::<'_, v8::Array>::try_from(args.get(1))?;
+        let buffers_count = buffers.length();
+
+        // Collect buffers.
+        let mut local_buffers: Vec<v8::SharedRef<v8::BackingStore>> = vec![];
+        for i in 0..buffers_count {
+            let value = buffers.get_index(scope, i).ok_or(JsError::new(JsErrorKind::Error, None))?;
+            let value = v8::Local::<'_, v8::ArrayBuffer>::try_from(value)?;
+            local_buffers.push(value.get_backing_store());
+        }
+
         match call {
             ServiceCall::Sync(call) => {
                 match call {
@@ -595,7 +608,11 @@ fn call_service_callback(
                         let state = InstanceState::get(scope);
                         state.done = true;
                     }
-                    SyncCall::SendFetchResponse(res) => {
+                    SyncCall::SendFetchResponse(mut res) => {
+                        let body = local_buffers.get(0)
+                            .ok_or_else(|| JsError::new(JsErrorKind::Error, Some("SendFetchResponse: missing buffer".into())))?
+                            .read_to_vec();
+                        res.body = HttpBody::Binary(body);
                         InstanceState::try_send_fetch_response(scope, Ok(res));
                     }
                     SyncCall::GetRandomValues(len) => {
@@ -629,10 +646,13 @@ fn call_service_callback(
                 }
             }
             ServiceCall::Async(call) => {
-                let callback = v8::Local::<'_, v8::Function>::try_from(args.get(1))?;
+                let callback = v8::Local::<'_, v8::Function>::try_from(args.get(2))?;
                 let callback = v8::Global::new(scope, callback);
                 let state = InstanceState::get(scope);
-                state.io_waiter()?.issue(false, call, callback)?;
+                state.io_waiter()?.issue(false, AsyncCall {
+                    v: call,
+                    buffers: local_buffers,
+                }, callback)?;
             }
         }
         Ok(())

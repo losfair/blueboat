@@ -29,25 +29,28 @@ pub struct RequestObject {
     pub headers: BTreeMap<String, Vec<String>>,
     pub method: String,
     pub url: String,
-    pub body: Option<HttpBody>,
+
+    #[serde(default)]
+    pub body: HttpBody,
 }
 
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]
 pub struct ResponseObject {
     pub headers: BTreeMap<String, Vec<String>>,
     pub status: u16,
+
+    #[serde(default)]
     pub body: HttpBody,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum HttpBody {
     Binary(Vec<u8>),
-    Text(String),
 }
 
 impl Default for HttpBody {
     fn default() -> Self {
-        Self::Text("".into())
+        Self::Binary(vec![])
     }
 }
 
