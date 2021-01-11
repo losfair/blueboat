@@ -665,6 +665,25 @@ fn wrap_callback<'s, F: FnOnce(&mut v8::HandleScope<'s>) -> JsResult<()>>(
     scope: &mut v8::HandleScope<'s>,
     f: F,
 ) {
+    // Check we have enough heap memory to safely enter host environment.
+    match InstanceState::check_host_entry_memory(scope) {
+        Ok(()) => {}
+        Err(e) => {
+            // Release any data allocated on native heap.
+            drop(e);
+            drop(f);
+            
+            // OOM can still happen here and longjmp's are allowed.
+            // So don't allocate on native heap.
+            let message = v8::String::new(scope, "no enough memory when calling into host")
+                .unwrap_or_else(|| v8::String::empty(scope));
+            let exception = v8::Exception::range_error(scope, message);
+            scope.throw_exception(exception);
+            return;
+        }
+    }
+
+    // Now we know we are safe, let's enter the actual callback.
     // An assertion that we cannot `longjmp` out in case we OOM'd in a callback.
     let jmp_env = unsafe {
         (*JMP_ENV.with(|x| x.get())).take().expect("wrap_callback: not in protected call")
