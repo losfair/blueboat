@@ -131,7 +131,7 @@ fn isolate_worker(
     config: &IsolateConfig,
     job_rx: &mut mpsc::Receiver<IsolateJob>,
 ) {
-    // Don't allocate any budget at start. Let `Instance::new` reset it.
+    // Don't allocate any budget for arraybuffers at start.
     let pool = crate::mm::MemoryPool::new(0);
 
     let params = v8::Isolate::create_params()
@@ -168,6 +168,10 @@ fn isolate_worker(
             Some(x) => x,
             None => break,
         };
+
+        // Reset arraybuffer memory pool budget for librt initialization.
+        // Hardcoded to 16 MiB here.
+        isolate.get_slot::<MemoryPoolBox>().unwrap().0.reset(1048576 * 16);
 
         // Enter context.
         let mut isolate_scope = v8::HandleScope::new(&mut isolate);
