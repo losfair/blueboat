@@ -4,18 +4,39 @@
 
 A cloud-native distributed serverless workers platform.
 
-This is a **work in progress**.
-
 ## Features
 
 - [x] JavaScript and WebAssembly engine powered by V8
 - [x] Fetch API
-- [x] Dynamic execution cluster scheduler
+- [x] Highly scalable execution engine
 - [x] Kubernetes integration
-- [x] Key-value store API
+- [x] Strongly-consistent key-value store
+- [ ] Transactional key-value store API
 - [ ] Web Crypto API
 
 ## Getting started
+
+### Prerequisites
+
+- [Rust](https://www.rust-lang.org/) nightly >= 1.50
+- [Node.js](https://nodejs.org/) and [npm](https://www.npmjs.com/)
+- [TiKV](https://github.com/tikv/tikv) with [Placement Driver](https://github.com/tikv/pd) ([how to build](https://pingcap.com/blog/building-running-and-benchmarking-tikv-and-tidb/))
+
+### Build
+
+```bash
+make librt-deps
+make
+```
+
+Find the built binaries in `target/release` and copy them to one of your PATH directories:
+
+- `rusty-workers-proxy`
+- `rusty-workers-runtime`
+- `rusty-workers-fetchd`
+- `rusty-workers-cli`
+
+### Start services
 
 See `run_all.sh` as an example of getting everything up and running. Here are some commands
 to start each service manually:
@@ -30,7 +51,7 @@ pd-server --name=pd1 \
     --initial-cluster="pd1=http://127.0.0.1:2380" \
     --log-file=playground/pd1.log
 
-# Start TiKV instances.
+# Start TiKV nodes.
 tikv-server --pd-endpoints="127.0.0.1:2379" \
     --addr="127.0.0.1:20160" \
     --status-addr="127.0.0.1:20181" \
@@ -70,6 +91,24 @@ rusty-workers-proxy \
     --http-listen 0.0.0.0:3080 \
     --tikv-cluster 127.0.0.1:2379 \
     --runtimes 127.0.0.1:3001
+```
+
+### Deploy your first application
+
+rusty-workers does not come with its own management UI yet but you can interact with the cluster using `rusty-workers-cli`:
+
+```bash
+# Set TiKV PD address
+export TIKV_PD="127.0.0.1:2379"
+
+# Deploy an app
+rusty-workers-cli app add-app ./counter.toml --bundle ./counter.js.tar
+
+# Add a route to the app
+rusty-workers-cli app add-route localhost --path /counter --appid 19640b0c-1dff-4b20-9599-0b4c4a11da3f
+
+# List all routes
+rusty-workers-cli app all-routes
 ```
 
 ## Deployment
