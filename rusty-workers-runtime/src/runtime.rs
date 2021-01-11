@@ -21,6 +21,7 @@ pub struct Runtime {
     execution_token: Semaphore,
     kv: Option<KvClient>,
     log_tx: tokio::sync::mpsc::Sender<LogEntry>,
+    isolate_config: IsolateConfig, 
 }
 
 struct WorkerState {
@@ -50,7 +51,7 @@ impl Runtime {
         let (log_tx, log_rx) = tokio::sync::mpsc::channel(1000);
         let max_num_of_instances = config.max_num_of_instances;
         let max_inactive_time_ms = config.max_inactive_time_ms;
-        let initial_isolate_memory_bytes = config.initial_isolate_memory_bytes;
+        let max_isolate_memory_bytes = config.max_isolate_memory_bytes;
         let isolate_pool_size = config.isolate_pool_size;
         let execution_concurrency = config.execution_concurrency;
 
@@ -63,6 +64,16 @@ impl Runtime {
             None
         };
 
+        let isolate_config = IsolateConfig {
+            max_memory_bytes: max_isolate_memory_bytes,
+            host_entry_threshold_memory_bytes: 1048576,
+        };
+        let isolate_pool = IsolateThreadPool::new(
+            isolate_pool_size,
+            isolate_config.clone(),
+        )
+        .await;
+
         let rt = Arc::new(Runtime {
             id: RuntimeId::generate(),
             instances: AsyncRwLock::new(LruCache::with_expiry_duration_and_capacity(
@@ -71,13 +82,8 @@ impl Runtime {
             )), // arbitrary choices
             statistics_update_tx,
             config,
-            pool: IsolateThreadPool::new(
-                isolate_pool_size,
-                IsolateConfig {
-                    initial_memory_bytes: initial_isolate_memory_bytes,
-                },
-            )
-            .await,
+            pool: isolate_pool,
+            isolate_config,
             execution_token: Semaphore::new(execution_concurrency),
             kv,
             log_tx,
@@ -100,6 +106,10 @@ impl Runtime {
 
     pub fn kv(&self) -> Option<&KvClient> {
         self.kv.as_ref()
+    }
+
+    pub fn isolate_config(&self) -> &IsolateConfig {
+        &self.isolate_config
     }
 
     fn instance_thread(

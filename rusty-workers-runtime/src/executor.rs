@@ -10,7 +10,6 @@ use rusty_v8 as v8;
 use rusty_workers::types::*;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
-use std::ffi::c_void;
 use std::io::Read;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -182,14 +181,10 @@ impl Instance {
         let termination_reason =
             TerminationReasonBox(Arc::new(Mutex::new(TerminationReason::Unknown)));
 
-        // Initialize isolate.
-        let isolate_ptr = isolate as *mut v8::Isolate;
-
         // Isolate initialization set. Needs cleanup.
         isolate.set_microtasks_policy(v8::MicrotasksPolicy::Auto);
         isolate.set_promise_reject_callback(on_promise_rejection);
         isolate.set_slot(Some(termination_reason.clone()));
-        isolate.add_near_heap_limit_callback(on_memory_limit_exceeded, isolate_ptr as _);
         isolate.set_oom_error_handler(oom_protected_callback);
 
         // Reset memory pool.
@@ -239,12 +234,6 @@ impl Instance {
     pub fn cleanup(isolate: &mut v8::Isolate) {
         isolate.set_slot(Option::<TerminationReasonBox>::None);
         isolate.set_slot(Option::<InstanceState>::None);
-
-        // Reset memory limit.
-        isolate.remove_near_heap_limit_callback(
-            crate::executor::on_memory_limit_exceeded,
-            1048576,
-        );
     }
 
     fn compile<'s>(
@@ -293,12 +282,9 @@ impl Instance {
             // Now start the timer, since we are starting to run user code.
             InstanceState::get(try_catch).start_timer();
 
-            if protected_call(|| {
-                script.run(try_catch.as_mut());
-            }).is_none() {
-                try_catch.set_slot::<Poison>(Poison);
-                return Err(GenericError::Execution(ExecutionError::MemoryLimitExceeded));
-            }
+            protected_js(try_catch.as_mut(), |scope| {
+                script.run(scope);
+            })?;
             try_catch.check_on_init()?;
         }
         info!("worker instance {} ready", worker_handle.id);
@@ -349,12 +335,9 @@ impl Instance {
             let recv = v8::undefined(scope);
             let event_js = native_to_js(scope, &event)?;
 
-            if protected_call(|| {
+            protected_js(scope, |scope| {
                 callback.call(scope, recv.into(), &[event_js]);
-            }).is_none() {
-                scope.set_slot::<Poison>(Poison);
-                return Err(GenericError::Execution(ExecutionError::MemoryLimitExceeded));
-            }
+            })?;
 
             // Drive to completion.
             loop {
@@ -412,12 +395,9 @@ impl Instance {
                 let callback = v8::Local::<'_, v8::Function>::new(scope, callback);
                 let json_text = v8::String::new(scope, data.as_str()).check()?;
                 let data = v8::json::parse(scope, json_text.into()).check()?;
-                if protected_call(|| {
+                protected_js(scope, |scope| {
                     callback.call(scope, recv.into(), &[data]);
-                }).is_none() {
-                    scope.set_slot::<Poison>(Poison);
-                    return Err(GenericError::Execution(ExecutionError::MemoryLimitExceeded));
-                }
+                })?;
             }
 
             // Script marked itself as done but we haven't got any response.
@@ -499,6 +479,20 @@ impl InstanceState {
             false
         }
     }
+
+    fn check_host_entry_memory(isolate: &mut v8::Isolate) -> GenericResult<()> {
+        let mut stats = v8::HeapStatistics::default();
+        isolate.get_heap_statistics(&mut stats);
+        let isolate_config = InstanceState::get(isolate).worker_runtime.isolate_config();
+
+        let total_heap_size = stats.total_heap_size();
+        if total_heap_size > isolate_config.max_memory_bytes
+            || isolate_config.max_memory_bytes - total_heap_size < isolate_config.host_entry_threshold_memory_bytes {
+                return Err(GenericError::Execution(ExecutionError::MemoryLimitExceeded));
+            }
+
+        Ok(())
+    }
 }
 
 fn update_stats(worker_runtime: &Runtime, worker_handle: &WorkerHandle, scope: &mut v8::Isolate) {
@@ -512,25 +506,20 @@ fn update_stats(worker_runtime: &Runtime, worker_handle: &WorkerHandle, scope: &
     );
 }
 
-pub extern "C" fn on_memory_limit_exceeded(
-    data: *mut c_void,
-    current_heap_limit: usize,
-    _initial_heap_limit: usize,
-) -> usize {
-    let grow_unit: usize = 1048576;
-    let isolate = unsafe { &mut *(data as *mut v8::Isolate) };
-
-    info!("on_memory_limit_exceeded called with current_heap_limit: {}", current_heap_limit);
-
-    if !isolate.get_slot::<MemoryPoolBox>().unwrap().0.acquire_bytes(grow_unit) {
-        warn!("memory limit exceeded: worker {}", InstanceState::get(isolate).handle.id);
-        terminate_with_reason(isolate, TerminationReason::MemoryLimit);
-    }
-    current_heap_limit + grow_unit
-}
-
 extern "C" fn on_promise_rejection(_msg: v8::PromiseRejectMessage<'_>) {
     debug!("unhandled promise rejection");
+}
+
+fn protected_js<F: FnOnce(&mut v8::HandleScope<'_>)>(scope: &mut v8::HandleScope<'_>, f: F) -> GenericResult<()> {
+    if protected_call(|| {
+        f(scope)
+    }).is_none() {
+        scope.set_slot::<Poison>(Poison);
+        Err(GenericError::Execution(ExecutionError::MemoryLimitExceeded))
+    } else {
+        InstanceState::check_host_entry_memory(scope)?;
+        Ok(())
+    }
 }
 
 thread_local! {
@@ -648,4 +637,27 @@ fn call_service_callback(
         }
         Ok(())
     })
+}
+
+/// Converts a `Result` from a callback function into a JavaScript exception.
+fn wrap_callback<'s, F: FnOnce(&mut v8::HandleScope<'s>) -> JsResult<()>>(
+    scope: &mut v8::HandleScope<'s>,
+    f: F,
+) {
+    // An assertion that we cannot `longjmp` out in case we OOM'd in a callback.
+    let jmp_env = unsafe {
+        (*JMP_ENV.with(|x| x.get())).take().expect("wrap_callback: not in protected call")
+    };
+
+    match f(scope) {
+        Ok(()) => {}
+        Err(e) => {
+            debug!("Throwing JS exception: {:?}", e);
+            let exception = e.build(scope);
+            scope.throw_exception(exception);
+        }
+    }
+    unsafe {
+        (*JMP_ENV.with(|x| x.get())) = Some(jmp_env);
+    }
 }

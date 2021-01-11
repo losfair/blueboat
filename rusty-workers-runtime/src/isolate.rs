@@ -25,7 +25,9 @@ struct IsolateThread {
 
 #[derive(Debug, Clone)]
 pub struct IsolateConfig {
-    pub initial_memory_bytes: usize,
+    pub max_memory_bytes: usize,
+
+    pub host_entry_threshold_memory_bytes: usize,
 }
 
 struct ThreadGuard<'a> {
@@ -118,7 +120,7 @@ impl IsolateThread {
         let (job_tx, mut job_rx) = mpsc::channel(1);
         std::thread::spawn(move || loop {
             isolate_worker(&config, &mut job_rx);
-            std::thread::sleep(std::time::Duration::from_secs(1));
+            std::thread::sleep(std::time::Duration::from_millis(100));
             info!("restarting isolate worker");
         });
         Self { job_tx }
@@ -134,7 +136,7 @@ fn isolate_worker(
 
     let params = v8::Isolate::create_params()
         .array_buffer_allocator(pool.clone().get_allocator())
-        .heap_limits(0, config.initial_memory_bytes);
+        .heap_limits(0, config.max_memory_bytes);
 
     // Must not be moved
     let mut isolate = v8::Isolate::new(params);

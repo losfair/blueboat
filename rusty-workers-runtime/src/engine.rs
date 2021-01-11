@@ -1,4 +1,3 @@
-use crate::error::*;
 use rusty_v8 as v8;
 use rusty_workers::types::*;
 use std::sync::{Arc, Mutex};
@@ -19,9 +18,6 @@ pub enum TerminationReason {
 
     /// Time limit exceeded.
     TimeLimit,
-
-    /// Memory limit exceeded.
-    MemoryLimit,
 }
 
 /// Utility trait for converting a `Global` into a `Local`.
@@ -91,7 +87,6 @@ where
                             ExecutionError::RuntimeThrowsException
                         }
                         TerminationReason::TimeLimit => ExecutionError::TimeLimitExceeded,
-                        TerminationReason::MemoryLimit => ExecutionError::MemoryLimitExceeded,
                     }
                 } else {
                     // Otherwise this is a normal exception thrown from JavaScript.
@@ -100,21 +95,6 @@ where
                 Err(e)
             }
             None => Ok(()),
-        }
-    }
-}
-
-/// Converts a `Result` from a callback function into a JavaScript exception.
-pub fn wrap_callback<'s, F: FnOnce(&mut v8::HandleScope<'s>) -> JsResult<()>>(
-    scope: &mut v8::HandleScope<'s>,
-    f: F,
-) {
-    match f(scope) {
-        Ok(()) => {}
-        Err(e) => {
-            debug!("Throwing JS exception: {:?}", e);
-            let exception = e.build(scope);
-            scope.throw_exception(exception);
         }
     }
 }
@@ -167,16 +147,6 @@ pub fn js_to_native<'s, T: serde::de::DeserializeOwned>(
     let json_text = v8::json::stringify(scope, v).check()?;
     serde_json::from_str(json_text.to_rust_string_lossy(scope).as_str())
         .map_err(|_| GenericError::Conversion)
-}
-
-pub fn terminate_with_reason(isolate: &mut v8::Isolate, reason: TerminationReason) {
-    let termination_reason = isolate
-        .get_slot::<Option<TerminationReasonBox>>()
-        .unwrap()
-        .as_ref()
-        .unwrap();
-    *termination_reason.0.lock().unwrap() = reason;
-    isolate.terminate_execution();
 }
 
 fn get_exception(isolate: &mut v8::Isolate) -> TerminationReason {
