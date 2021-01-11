@@ -529,6 +529,7 @@ thread_local! {
 }
 
 extern "C" {
+    #[ffi_returns_twice]
     fn setjmp(env: &mut [usize; 32]) -> i32;
     fn longjmp(env: &[usize; 32], data: i32) -> !;
 }

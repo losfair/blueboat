@@ -1,4 +1,5 @@
 #![feature(trait_alias)]
+#![feature(ffi_returns_twice)]
 
 #[macro_use]
 extern crate log;
