@@ -101,14 +101,44 @@ rusty-workers does not come with its own management UI yet but you can interact 
 # Set TiKV PD address
 export TIKV_PD="127.0.0.1:2379"
 
-# Deploy an app
+# Create app configuration
+cat > counter.toml << EOF
+id = "19640b0c-1dff-4b20-9599-0b4c4a11da3f"
+kv_namespaces = {
+    { name = "test", id = "S7qrF3VatqaEsFCROU6wNA==" },
+}
+EOF
+
+# Create app
+cat > counter.js << EOF
+addEventListener("fetch", async (event) => {
+    event.respondWith(handleRequest(event.request));
+});
+
+async function handleRequest(request) {
+    let counter = await kv.test.get("counter");
+    counter = (counter === null ? 0 : parseInt(counter)) + 1;
+
+    await kv.test.put("counter", "" + counter);
+    return new Response("New counter: " + counter);
+}
+EOF
+
+# Bundle the app
+mkdir tmp
+cd tmp
+cp ../counter.js ./index.js
+tar c . > ../counter.js.tar
+cd ..
+rm -r tmp
+
+# Deploy it
 rusty-workers-cli app add-app ./counter.toml --bundle ./counter.js.tar
 
 # Add a route to the app
 rusty-workers-cli app add-route localhost --path /counter --appid 19640b0c-1dff-4b20-9599-0b4c4a11da3f
 
-# List all routes
-rusty-workers-cli app all-routes
+# Open a browser and navigate to http://localhost:3080/counter !
 ```
 
 ## Deployment
