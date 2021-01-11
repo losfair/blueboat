@@ -13,6 +13,7 @@ mod isolate;
 mod runtime;
 mod server;
 mod semaphore;
+mod mm;
 
 use anyhow::Result;
 use std::net::SocketAddr;

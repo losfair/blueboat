@@ -2,7 +2,7 @@ all: runtime cli fetchd proxy
 
 runtime:
 	cd librt && npm run build
-	cd rusty-workers-runtime && cargo build --release
+	V8_FROM_SOURCE=1 cd rusty-workers-runtime && cargo build --release
 
 cli:
 	cd rusty-workers-cli && cargo build --release

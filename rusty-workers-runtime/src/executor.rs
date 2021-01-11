@@ -2,13 +2,12 @@ use crate::engine::*;
 use crate::error::*;
 use crate::interface::*;
 use crate::io::*;
-use crate::isolate::{IsolateGeneration, IsolateGenerationBox};
+use crate::isolate::{IsolateGeneration, IsolateGenerationBox, MemoryPoolBox, Poison};
 use crate::runtime::{InstanceStatistics, Runtime};
 use maplit::btreemap;
 use rand::Rng;
 use rusty_v8 as v8;
 use rusty_workers::types::*;
-use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::ffi::c_void;
@@ -16,12 +15,7 @@ use std::io::Read;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
-
-const SAFE_AREA_SIZE: usize = 1048576;
-
-thread_local! {
-    static PROMISE_REJECTION: Cell<Option<String>> = Cell::new(None);
-}
+use std::cell::UnsafeCell;
 
 pub struct Instance {
     state: Option<InstanceState>,
@@ -75,10 +69,6 @@ enum Task {
         tokio::sync::oneshot::Sender<ExecutionResult<ResponseObject>>,
         IoScopeConsumer,
     ),
-}
-
-struct DoubleMleGuard {
-    triggered_mle: bool,
 }
 
 impl Task {
@@ -198,11 +188,12 @@ impl Instance {
         // Isolate initialization set. Needs cleanup.
         isolate.set_microtasks_policy(v8::MicrotasksPolicy::Auto);
         isolate.set_promise_reject_callback(on_promise_rejection);
-        isolate.set_slot(Some(DoubleMleGuard {
-            triggered_mle: false,
-        }));
         isolate.set_slot(Some(termination_reason.clone()));
         isolate.add_near_heap_limit_callback(on_memory_limit_exceeded, isolate_ptr as _);
+        isolate.set_oom_error_handler(oom_protected_callback);
+
+        // Reset memory pool.
+        isolate.get_slot::<MemoryPoolBox>().unwrap().0.reset((conf.executor.max_memory_mb as usize) * 1048576);
 
         // Allocate a channel of size 1. We don't want to put back pressure here.
         // The (async) sending side would block.
@@ -246,14 +237,13 @@ impl Instance {
     }
 
     pub fn cleanup(isolate: &mut v8::Isolate) {
-        isolate.set_slot(Option::<DoubleMleGuard>::None);
         isolate.set_slot(Option::<TerminationReasonBox>::None);
         isolate.set_slot(Option::<InstanceState>::None);
 
         // Reset memory limit.
         isolate.remove_near_heap_limit_callback(
             crate::executor::on_memory_limit_exceeded,
-            0,
+            1048576,
         );
     }
 
@@ -303,7 +293,12 @@ impl Instance {
             // Now start the timer, since we are starting to run user code.
             InstanceState::get(try_catch).start_timer();
 
-            script.run(try_catch.as_mut());
+            if protected_call(|| {
+                script.run(try_catch.as_mut());
+            }).is_none() {
+                try_catch.set_slot::<Poison>(Poison);
+                return Err(GenericError::Execution(ExecutionError::MemoryLimitExceeded));
+            }
             try_catch.check_on_init()?;
         }
         info!("worker instance {} ready", worker_handle.id);
@@ -353,7 +348,13 @@ impl Instance {
                 .map_err(|_| GenericError::Other("bad _dispatchEvent".into()))?;
             let recv = v8::undefined(scope);
             let event_js = native_to_js(scope, &event)?;
-            callback.call(scope, recv.into(), &[event_js]);
+
+            if protected_call(|| {
+                callback.call(scope, recv.into(), &[event_js]);
+            }).is_none() {
+                scope.set_slot::<Poison>(Poison);
+                return Err(GenericError::Execution(ExecutionError::MemoryLimitExceeded));
+            }
 
             // Drive to completion.
             loop {
@@ -411,7 +412,12 @@ impl Instance {
                 let callback = v8::Local::<'_, v8::Function>::new(scope, callback);
                 let json_text = v8::String::new(scope, data.as_str()).check()?;
                 let data = v8::json::parse(scope, json_text.into()).check()?;
-                callback.call(scope, recv.into(), &[data]);
+                if protected_call(|| {
+                    callback.call(scope, recv.into(), &[data]);
+                }).is_none() {
+                    scope.set_slot::<Poison>(Poison);
+                    return Err(GenericError::Execution(ExecutionError::MemoryLimitExceeded));
+                }
             }
 
             // Script marked itself as done but we haven't got any response.
@@ -511,25 +517,70 @@ pub extern "C" fn on_memory_limit_exceeded(
     current_heap_limit: usize,
     _initial_heap_limit: usize,
 ) -> usize {
+    let grow_unit: usize = 1048576;
     let isolate = unsafe { &mut *(data as *mut v8::Isolate) };
-    let double_mle_guard = isolate
-        .get_slot_mut::<Option<DoubleMleGuard>>()
-        .unwrap()
-        .as_mut()
-        .unwrap();
-    if double_mle_guard.triggered_mle {
-        // Proceed as this isn't fatal
-        error!("double mle detected. safe area too small?");
-    } else {
-        // Execution may not terminate immediately if we are in native code. So allocate some "safe area" here.
-        double_mle_guard.triggered_mle = true;
+
+    info!("on_memory_limit_exceeded called with current_heap_limit: {}", current_heap_limit);
+
+    if !isolate.get_slot::<MemoryPoolBox>().unwrap().0.acquire_bytes(grow_unit) {
+        warn!("memory limit exceeded: worker {}", InstanceState::get(isolate).handle.id);
         terminate_with_reason(isolate, TerminationReason::MemoryLimit);
     }
-    return current_heap_limit + SAFE_AREA_SIZE;
+    current_heap_limit + grow_unit
 }
 
 extern "C" fn on_promise_rejection(_msg: v8::PromiseRejectMessage<'_>) {
-    PROMISE_REJECTION.with(|x| x.set(Some("unhandled promise rejection".into())));
+    debug!("unhandled promise rejection");
+}
+
+thread_local! {
+    // TODO: Get the defs from libc.
+    static JMP_ENV: UnsafeCell<Option<[usize; 32]>> = UnsafeCell::new(None);
+}
+
+extern "C" {
+    fn setjmp(env: &mut [usize; 32]) -> i32;
+    fn longjmp(env: &[usize; 32], data: i32) -> !;
+}
+
+extern "C" fn oom_protected_callback(_: *const std::os::raw::c_char, _: bool) {
+    unsafe {
+        if let Some(ref mut buf) = *JMP_ENV.with(|x| x.get()) {
+            longjmp(buf, 1);
+        } else {
+            panic!("oom_protected_callback: unprotected OOM");
+        }
+    }
+}
+
+fn protected_call<F: FnOnce() -> R, R>(f: F) -> Option<R> {
+    unsafe {
+        JMP_ENV.with(|x| {
+            let inner = &mut *x.get();
+            if inner.is_some() {
+                panic!("protected_call: re-entering");
+            }
+            *inner = Some([0; 32]);
+
+            let ret = if setjmp(inner.as_mut().unwrap()) == 0 {
+                Some(f())
+            } else {
+                info!("protected_call: got failure");
+                None
+            };
+
+            *x.get() = None;
+            ret
+        })
+    }
+}
+
+fn acquire_arraybuffer_precheck(isolate: &mut v8::Isolate, n: usize) -> GenericResult<()> {
+    if isolate.get_slot::<MemoryPoolBox>().unwrap().0.acquire_precheck(n) {
+        Ok(())
+    } else {
+        Err(GenericError::Execution(ExecutionError::MemoryLimitExceeded))
+    }
 }
 
 fn call_service_callback(
@@ -562,6 +613,7 @@ fn call_service_callback(
                         if len > 65536 {
                             return Err(JsError::new(JsErrorKind::Error, Some("SyncCall::GetRandomValues invoked with length greater than 65536".into())));
                         }
+                        acquire_arraybuffer_precheck(scope, len)?;
                         let buf = v8::ArrayBuffer::new(scope, len);
                         let backing = buf.get_backing_store();
                         let mut rng = rand::thread_rng();
@@ -574,6 +626,7 @@ fn call_service_callback(
                         let state = InstanceState::get(scope);
                         if let Some(file) = state.files.get(&name) {
                             let file = file.clone();
+                            acquire_arraybuffer_precheck(scope, file.len())?;
                             let buf = v8::ArrayBuffer::new(scope, file.len());
                             let backing = buf.get_backing_store();
                             for (i, byte) in backing.iter().enumerate() {

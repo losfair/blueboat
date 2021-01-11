@@ -1939,7 +1939,7 @@ dependencies = [
 [[package]]
 name = "rusty_v8"
 version = "0.15.0"
-source = "git+https://github.com/losfair/rusty_v8?rev=9228b1cee25f96f2ca88eb9ac4e22a9d2b3f8838#9228b1cee25f96f2ca88eb9ac4e22a9d2b3f8838"
+source = "git+https://github.com/losfair/rusty_v8?rev=d39e8bf708b30809c78dfb039744fc9618db5f33#d39e8bf708b30809c78dfb039744fc9618db5f33"
 dependencies = [
  "bitflags",
  "cargo_gn",

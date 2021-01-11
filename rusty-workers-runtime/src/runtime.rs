@@ -50,7 +50,7 @@ impl Runtime {
         let (log_tx, log_rx) = tokio::sync::mpsc::channel(1000);
         let max_num_of_instances = config.max_num_of_instances;
         let max_inactive_time_ms = config.max_inactive_time_ms;
-        let max_isolate_memory_bytes = config.max_isolate_memory_bytes;
+        let initial_isolate_memory_bytes = config.initial_isolate_memory_bytes;
         let isolate_pool_size = config.isolate_pool_size;
         let execution_concurrency = config.execution_concurrency;
 
@@ -74,7 +74,7 @@ impl Runtime {
             pool: IsolateThreadPool::new(
                 isolate_pool_size,
                 IsolateConfig {
-                    max_memory_bytes: max_isolate_memory_bytes,
+                    initial_memory_bytes: initial_isolate_memory_bytes,
                 },
             )
             .await,

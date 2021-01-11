@@ -3,9 +3,12 @@
 use rusty_v8 as v8;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Semaphore};
+use crate::mm::MemoryPool;
 
 /// JavaScript-side runtime.
 static LIBRT: &'static str = include_str!("../../librt/dist/main.js");
+
+pub struct Poison;
 
 pub struct IsolateThreadPool {
     /// Manage the pool as a stack to optimize for cache.
@@ -22,7 +25,7 @@ struct IsolateThread {
 
 #[derive(Debug, Clone)]
 pub struct IsolateConfig {
-    pub max_memory_bytes: usize,
+    pub initial_memory_bytes: usize,
 }
 
 struct ThreadGuard<'a> {
@@ -54,6 +57,9 @@ pub struct IsolateGeneration(pub u64);
 
 #[derive(Clone)]
 pub struct IsolateGenerationBox(pub Arc<std::sync::Mutex<IsolateGeneration>>);
+
+#[derive(Clone)]
+pub struct MemoryPoolBox(pub Arc<MemoryPool>);
 
 impl IsolateThreadPool {
     pub async fn new(size: usize, config: IsolateConfig) -> Self {
@@ -109,22 +115,26 @@ impl IsolateThreadPool {
 
 impl IsolateThread {
     pub async fn new(config: IsolateConfig) -> Self {
-        let (job_tx, job_rx) = mpsc::channel(1);
-        let (init_tx, init_rx) = oneshot::channel();
-        std::thread::spawn(|| isolate_worker(config, init_tx, job_rx));
-        init_rx
-            .await
-            .expect("IsolateThread::new: isolate_worker did not send a response");
+        let (job_tx, mut job_rx) = mpsc::channel(1);
+        std::thread::spawn(move || loop {
+            isolate_worker(&config, &mut job_rx);
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            info!("restarting isolate worker");
+        });
         Self { job_tx }
     }
 }
 
 fn isolate_worker(
-    config: IsolateConfig,
-    init_tx: oneshot::Sender<()>,
-    mut job_rx: mpsc::Receiver<IsolateJob>,
+    config: &IsolateConfig,
+    job_rx: &mut mpsc::Receiver<IsolateJob>,
 ) {
-    let params = v8::Isolate::create_params().heap_limits(0, config.max_memory_bytes);
+    // Don't allocate any budget at start. Let `Instance::new` reset it.
+    let pool = crate::mm::MemoryPool::new(0);
+
+    let params = v8::Isolate::create_params()
+        .array_buffer_allocator(pool.clone().get_allocator())
+        .heap_limits(0, config.initial_memory_bytes);
 
     // Must not be moved
     let mut isolate = v8::Isolate::new(params);
@@ -146,11 +156,10 @@ fn isolate_worker(
         librt_persistent = v8::Global::new(scope, librt);
     }
 
-    // May fail if the receiver side is cancelled
-    drop(init_tx.send(()));
-
     let generation = IsolateGenerationBox(Arc::new(std::sync::Mutex::new(IsolateGeneration(0))));
     isolate.set_slot(generation.clone());
+
+    isolate.set_slot(MemoryPoolBox(pool));
 
     loop {
         let job = match job_rx.blocking_recv() {
@@ -181,6 +190,11 @@ fn isolate_worker(
         // Release scopes.
         drop(context_scope);
         drop(isolate_scope);
+
+        if isolate.get_slot::<Poison>().is_some() {
+            error!("isolated poisoned, dropping worker");
+            return;
+        }
 
         // Cleanup instance state so that we can reuse it.
         // Keep in sync with InstanceHandle::do_remote_termination.

@@ -26,9 +26,9 @@ pub struct Config {
     #[structopt(long, env = "RW_MAX_INACTIVE_TIME_MS", default_value = "120000")]
     pub max_inactive_time_ms: u64,
 
-    /// Max isolate memory in bytes. Defaults to 16 MiB.
-    #[structopt(long, env = "RW_MAX_ISOLATE_MEMORY_BYTES", default_value = "16777216")]
-    pub max_isolate_memory_bytes: usize,
+    /// Initial isolate memory in bytes. Defaults to 4 MiB.
+    #[structopt(long, env = "RW_INITIAL_ISOLATE_MEMORY_BYTES", default_value = "4194304")]
+    pub initial_isolate_memory_bytes: usize,
 
     /// Max number of parallel execution threads.
     #[structopt(long, env = "RW_EXECUTION_CONCURRENCY", default_value = "4")]
