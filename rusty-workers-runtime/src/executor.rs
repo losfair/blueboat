@@ -188,7 +188,7 @@ impl Instance {
         isolate.set_oom_error_handler(oom_protected_callback);
 
         // Reset memory pool.
-        isolate.get_slot::<MemoryPoolBox>().unwrap().0.reset((conf.executor.max_memory_mb as usize) * 1048576);
+        isolate.get_slot::<MemoryPoolBox>().unwrap().0.reset((conf.executor.max_ab_memory_mb as usize) * 1048576);
 
         // Allocate a channel of size 1. We don't want to put back pressure here.
         // The (async) sending side would block.

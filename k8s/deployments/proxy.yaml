@@ -37,7 +37,7 @@ spec:
           value: "10"
         - name: RW_MAX_IO_PER_REQUEST
           value: "50"
-        - name: RW_MAX_MEMORY_MB
+        - name: RW_MAX_AB_MEMORY_MB
           value: "16"
         - name: RW_MAX_TIME_MS
           value: "200"

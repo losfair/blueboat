@@ -26,7 +26,7 @@ pub struct Config {
     #[structopt(long, env = "RW_MAX_INACTIVE_TIME_MS", default_value = "120000")]
     pub max_inactive_time_ms: u64,
 
-    /// Max isolate memory in bytes. Defaults to 32 MiB.
+    /// Max isolate heap memory in bytes, excluding ArrayBuffer's. Defaults to 32 MiB.
     #[structopt(long, env = "RW_MAX_ISOLATE_MEMORY_BYTES", default_value = "33554432")]
     pub max_isolate_memory_bytes: usize,
 

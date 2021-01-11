@@ -43,7 +43,7 @@ spec:
         - name: RW_MAX_INACTIVE_TIME_MS
           value: "180000"
         - name: RW_MAX_ISOLATE_MEMORY_BYTES
-          value: "16777216"
+          value: "33554432"
         - name: RW_EXECUTION_CONCURRENCY
           value: "10" # we have two cores but let's rise this a bit
         - name: RW_CPU_WAIT_TIMEOUT_MS

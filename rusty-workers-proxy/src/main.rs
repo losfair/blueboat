@@ -32,9 +32,9 @@ struct Opt {
     #[structopt(long, env = "RUNTIMES")]
     runtimes: String,
 
-    /// Max memory per worker, in MB
-    #[structopt(long, env = "RW_MAX_MEMORY_MB", default_value = "16")]
-    max_memory_mb: u32,
+    /// Max ArrayBuffer memory per worker, in MB
+    #[structopt(long, env = "RW_MAX_AB_MEMORY_MB", default_value = "16")]
+    max_ab_memory_mb: u32,
 
     /// Max CPU time, in milliseconds
     #[structopt(long, env = "RW_MAX_TIME_MS", default_value = "100")]
@@ -107,7 +107,7 @@ async fn main() -> Result<()> {
         .set(sched::Scheduler::new(
             WorkerConfiguration {
                 executor: ExecutorConfiguration {
-                    max_memory_mb: opt.max_memory_mb,
+                    max_ab_memory_mb: opt.max_ab_memory_mb,
                     max_time_ms: opt.max_time_ms,
                     max_io_concurrency: opt.max_io_concurrency,
                     max_io_per_request: opt.max_io_per_request,

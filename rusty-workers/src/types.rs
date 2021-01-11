@@ -13,7 +13,7 @@ pub struct WorkerConfiguration {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct ExecutorConfiguration {
-    pub max_memory_mb: u32,
+    pub max_ab_memory_mb: u32,
     pub max_time_ms: u32,
     pub max_io_concurrency: u32,
     pub max_io_per_request: u32,
