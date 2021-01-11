@@ -54,6 +54,7 @@ sleep 1
     --tikv-cluster 127.0.0.1:2379 \
     --runtimes 127.0.0.1:3001 \
     --dropout-rate 0.0002 \
+    --max-time-ms 2000 \
     --max-ready-instances-per-app 80 &
 
 wait
