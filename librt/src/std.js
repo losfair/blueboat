@@ -198,7 +198,7 @@ export function _dispatchEvent(ev) {
             );
             
             let body = null;
-            if(rawReq.body && rawReq.body.length) {
+            if(rawReq.body && rawReq.body.Binary.length) {
                 body = new Uint8Array(rawReq.body.Binary).buffer;
             }
 
