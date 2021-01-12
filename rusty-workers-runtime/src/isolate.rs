@@ -1,9 +1,9 @@
 //! V8 isolate owner threads and pools.
 
+use crate::mm::MemoryPool;
 use rusty_v8 as v8;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, Semaphore};
-use crate::mm::MemoryPool;
 
 /// JavaScript-side runtime.
 static LIBRT: &'static str = include_str!("../../librt/dist/main.js");
@@ -127,10 +127,7 @@ impl IsolateThread {
     }
 }
 
-fn isolate_worker(
-    config: &IsolateConfig,
-    job_rx: &mut mpsc::Receiver<IsolateJob>,
-) {
+fn isolate_worker(config: &IsolateConfig, job_rx: &mut mpsc::Receiver<IsolateJob>) {
     // Don't allocate any budget for arraybuffers at start.
     let pool = crate::mm::MemoryPool::new(0);
 
@@ -171,7 +168,11 @@ fn isolate_worker(
 
         // Reset arraybuffer memory pool budget for librt initialization.
         // Hardcoded to 16 MiB here.
-        isolate.get_slot::<MemoryPoolBox>().unwrap().0.reset(1048576 * 16);
+        isolate
+            .get_slot::<MemoryPoolBox>()
+            .unwrap()
+            .0
+            .reset(1048576 * 16);
 
         // Enter context.
         let mut isolate_scope = v8::HandleScope::new(&mut isolate);
@@ -224,6 +225,9 @@ fn isolate_worker(
         let gc_start = std::time::Instant::now();
         isolate.low_memory_notification();
         let gc_end = std::time::Instant::now();
-        info!("Isolate recycled. GC time: {:?}", gc_end.duration_since(gc_start));
+        info!(
+            "Isolate recycled. GC time: {:?}",
+            gc_end.duration_since(gc_start)
+        );
     }
 }

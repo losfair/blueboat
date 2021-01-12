@@ -2,16 +2,16 @@
 extern crate log;
 
 use anyhow::Result;
+use rand::Rng;
+use rusty_workers::app::AppConfig;
+use rusty_workers::kv::KvClient;
 use rusty_workers::tarpc;
 use rusty_workers::types::*;
 use std::net::SocketAddr;
-use structopt::StructOpt;
-use tokio::io::AsyncReadExt;
-use rusty_workers::kv::KvClient;
-use rusty_workers::app::AppConfig;
-use thiserror::Error;
-use rand::Rng;
 use std::time::SystemTime;
+use structopt::StructOpt;
+use thiserror::Error;
+use tokio::io::AsyncReadExt;
 
 #[derive(Debug, Error)]
 enum CliError {
@@ -46,7 +46,7 @@ enum Cmd {
 
         #[structopt(subcommand)]
         op: AppCmd,
-    }
+    },
 }
 
 #[derive(Debug, StructOpt)]
@@ -54,9 +54,7 @@ enum AppCmd {
     #[structopt(name = "all-routes")]
     AllRoutes,
     #[structopt(name = "list-routes")]
-    ListRoutes {
-        domain: String,
-    },
+    ListRoutes { domain: String },
     #[structopt(name = "add-route")]
     AddRoute {
         domain: String,
@@ -68,9 +66,7 @@ enum AppCmd {
         appid: String,
     },
     #[structopt(name = "delete-domain")]
-    DeleteDomain {
-        domain: String,
-    },
+    DeleteDomain { domain: String },
     #[structopt(name = "delete-route")]
     DeleteRoute {
         domain: String,
@@ -95,19 +91,13 @@ enum AppCmd {
         bundle: String,
     },
     #[structopt(name = "delete-app")]
-    DeleteApp {
-        appid: String,
-    },
+    DeleteApp { appid: String },
     #[structopt(name = "get-app")]
-    GetApp {
-        appid: String,
-    },
+    GetApp { appid: String },
     #[structopt(name = "all-bundles")]
     AllBundles,
     #[structopt(name = "delete-bundle")]
-    DeleteBundle {
-        id: String,
-    },
+    DeleteBundle { id: String },
     #[structopt(name = "list-worker-data")]
     ListWorkerData {
         namespace: String,
@@ -145,9 +135,7 @@ enum AppCmd {
         base64_key: bool,
     },
     #[structopt(name = "delete-worker-data-namespace")]
-    DeleteWorkerDataNamespace {
-        namespace: String,
-    },
+    DeleteWorkerDataNamespace { namespace: String },
     #[structopt(name = "logs")]
     Logs {
         appid: String,
@@ -250,26 +238,38 @@ async fn main() -> Result<()> {
                 AppCmd::AllRoutes => {
                     print!("[");
                     let mut first = true;
-                    client.route_mapping_for_each(|domain, path, appid| {
-                        if first {
-                            first = false;
-                        } else {
-                            print!(",");
-                        }
-                        print!("{}", serde_json::to_string(&serde_json::json!({
-                            "domain": domain,
-                            "path": path,
-                            "appid": appid,
-                        })).unwrap());
-                        true
-                    }).await?;
+                    client
+                        .route_mapping_for_each(|domain, path, appid| {
+                            if first {
+                                first = false;
+                            } else {
+                                print!(",");
+                            }
+                            print!(
+                                "{}",
+                                serde_json::to_string(&serde_json::json!({
+                                    "domain": domain,
+                                    "path": path,
+                                    "appid": appid,
+                                }))
+                                .unwrap()
+                            );
+                            true
+                        })
+                        .await?;
                     println!("]");
                 }
                 AppCmd::ListRoutes { domain } => {
-                    let routes = client.route_mapping_list_for_domain(&domain, |_| true).await?;
+                    let routes = client
+                        .route_mapping_list_for_domain(&domain, |_| true)
+                        .await?;
                     println!("{}", serde_json::to_string(&routes)?);
                 }
-                AppCmd::AddRoute { domain, path, appid } => {
+                AppCmd::AddRoute {
+                    domain,
+                    path,
+                    appid,
+                } => {
                     client.route_mapping_insert(&domain, &path, appid).await?;
                     println!("OK");
                 }
@@ -288,15 +288,17 @@ async fn main() -> Result<()> {
                 AppCmd::AllApps => {
                     print!("[");
                     let mut first = true;
-                    client.app_metadata_for_each(|k| {
-                        if first {
-                            first = false;
-                        } else {
-                            print!(",");
-                        }
-                        print!("{}", serde_json::to_string(k).unwrap());
-                        true
-                    }).await?;
+                    client
+                        .app_metadata_for_each(|k| {
+                            if first {
+                                first = false;
+                            } else {
+                                print!(",");
+                            }
+                            print!("{}", serde_json::to_string(k).unwrap());
+                            true
+                        })
+                        .await?;
                     println!("]");
                 }
                 AppCmd::AddApp { config, bundle } => {
@@ -311,7 +313,9 @@ async fn main() -> Result<()> {
                     client.app_bundle_put(&bundle_id, bundle).await?;
                     config.bundle_id = rusty_workers::app::encode_id128(&bundle_id);
 
-                    client.app_metadata_put(&config.id.0, serde_json::to_vec(&config)?).await?;
+                    client
+                        .app_metadata_put(&config.id.0, serde_json::to_vec(&config)?)
+                        .await?;
                     println!("OK");
                 }
                 AppCmd::DeleteApp { appid } => {
@@ -319,15 +323,19 @@ async fn main() -> Result<()> {
                     cleanup_previous_app(&client, &appid).await?;
                     client.app_metadata_delete(&appid.0).await?;
 
-                    client.log_delete_range(
-                        &format!("app-{}", appid.0),
-                        SystemTime::UNIX_EPOCH..SystemTime::now(),
-                    ).await?;
+                    client
+                        .log_delete_range(
+                            &format!("app-{}", appid.0),
+                            SystemTime::UNIX_EPOCH..SystemTime::now(),
+                        )
+                        .await?;
 
                     println!("OK");
                 }
                 AppCmd::GetApp { appid } => {
-                    let result: Option<AppConfig> = client.app_metadata_get(&appid).await?
+                    let result: Option<AppConfig> = client
+                        .app_metadata_get(&appid)
+                        .await?
                         .map(|x| serde_json::from_slice(&x))
                         .transpose()?;
                     println!("{}", serde_json::to_string(&result)?);
@@ -335,15 +343,17 @@ async fn main() -> Result<()> {
                 AppCmd::AllBundles => {
                     print!("[");
                     let mut first = true;
-                    client.app_bundle_for_each(|id| {
-                        if first {
-                            first = false;
-                        } else {
-                            print!(",");
-                        }
-                        print!("{}", serde_json::to_string(&base64::encode(id)).unwrap());
-                        true
-                    }).await?;
+                    client
+                        .app_bundle_for_each(|id| {
+                            if first {
+                                first = false;
+                            } else {
+                                print!(",");
+                            }
+                            print!("{}", serde_json::to_string(&base64::encode(id)).unwrap());
+                            true
+                        })
+                        .await?;
                     println!("]");
                 }
                 AppCmd::DeleteBundle { id } => {
@@ -351,27 +361,40 @@ async fn main() -> Result<()> {
                     client.app_bundle_delete_dirty(&id).await?;
                     println!("OK");
                 }
-                AppCmd::ListWorkerData { namespace, base64_key } => {
+                AppCmd::ListWorkerData {
+                    namespace,
+                    base64_key,
+                } => {
                     let namespace = rusty_workers::app::decode_id128(&namespace)
                         .ok_or_else(|| CliError::BadId128)?;
                     print!("[");
                     let mut first = true;
-                    client.worker_data_for_each_key_in_namespace(&namespace, |k| {
-                        if first {
-                            first = false;
-                        } else {
-                            print!(",");
-                        }
-                        if !base64_key {
-                            print!("{}", serde_json::to_string(&std::str::from_utf8(&k).ok()).unwrap());
-                        } else {
-                            print!("{}", serde_json::to_string(&base64::encode(k)).unwrap());
-                        }
-                        true
-                    }).await?;
+                    client
+                        .worker_data_for_each_key_in_namespace(&namespace, |k| {
+                            if first {
+                                first = false;
+                            } else {
+                                print!(",");
+                            }
+                            if !base64_key {
+                                print!(
+                                    "{}",
+                                    serde_json::to_string(&std::str::from_utf8(&k).ok()).unwrap()
+                                );
+                            } else {
+                                print!("{}", serde_json::to_string(&base64::encode(k)).unwrap());
+                            }
+                            true
+                        })
+                        .await?;
                     println!("]");
                 }
-                AppCmd::GetWorkerData { namespace, key, base64_key, base64_value } => {
+                AppCmd::GetWorkerData {
+                    namespace,
+                    key,
+                    base64_key,
+                    base64_value,
+                } => {
                     let namespace = rusty_workers::app::decode_id128(&namespace)
                         .ok_or_else(|| CliError::BadId128)?;
                     let key = if !base64_key {
@@ -382,7 +405,10 @@ async fn main() -> Result<()> {
                     let value = client.worker_data_get(&namespace, &key).await?;
                     if let Some(v) = value {
                         if !base64_value {
-                            println!("{}", serde_json::to_string(std::str::from_utf8(&v)?).unwrap());
+                            println!(
+                                "{}",
+                                serde_json::to_string(std::str::from_utf8(&v)?).unwrap()
+                            );
                         } else {
                             println!("{}", serde_json::to_string(&base64::encode(v)).unwrap());
                         }
@@ -390,7 +416,13 @@ async fn main() -> Result<()> {
                         println!("null");
                     }
                 }
-                AppCmd::PutWorkerData { namespace, key, value, base64_key, base64_value } => {
+                AppCmd::PutWorkerData {
+                    namespace,
+                    key,
+                    value,
+                    base64_key,
+                    base64_value,
+                } => {
                     let namespace = rusty_workers::app::decode_id128(&namespace)
                         .ok_or_else(|| CliError::BadId128)?;
                     let key = if !base64_key {
@@ -406,7 +438,11 @@ async fn main() -> Result<()> {
                     client.worker_data_put(&namespace, &key, value).await?;
                     println!("OK");
                 }
-                AppCmd::DeleteWorkerData { namespace, key, base64_key } => {
+                AppCmd::DeleteWorkerData {
+                    namespace,
+                    key,
+                    base64_key,
+                } => {
                     let namespace = rusty_workers::app::decode_id128(&namespace)
                         .ok_or_else(|| CliError::BadId128)?;
                     let key = if !base64_key {
@@ -429,10 +465,8 @@ async fn main() -> Result<()> {
 
                     print!("[");
                     let mut first = true;
-                    client.log_range(
-                        &format!("app-{}", appid),
-                        since..now,
-                        |time, text| {
+                    client
+                        .log_range(&format!("app-{}", appid), since..now, |time, text| {
                             if first {
                                 first = false;
                             } else {
@@ -441,19 +475,19 @@ async fn main() -> Result<()> {
                             let item = serde_json::to_string(&serde_json::json!({
                                 "time": time,
                                 "text": text,
-                            })).unwrap();
+                            }))
+                            .unwrap();
                             print!("{}", item);
                             true
-                        }
-                    ).await?;
+                        })
+                        .await?;
                     println!("]");
                 }
                 AppCmd::DeleteLogs { appid, before } => {
                     let end = SystemTime::now() - parse_duration::parse(&before)?;
-                    client.log_delete_range(
-                        &format!("app-{}", appid),
-                        SystemTime::UNIX_EPOCH..end,
-                    ).await?;
+                    client
+                        .log_delete_range(&format!("app-{}", appid), SystemTime::UNIX_EPOCH..end)
+                        .await?;
                     println!("OK");
                 }
             }
@@ -485,11 +519,12 @@ fn make_context() -> tarpc::context::Context {
 async fn cleanup_previous_app(client: &KvClient, appid: &rusty_workers::app::AppId) -> Result<()> {
     if let Some(prev_md) = client.app_metadata_get(&appid.0).await? {
         if let Ok(prev_config) = serde_json::from_slice::<AppConfig>(&prev_md) {
-            client.app_bundle_delete(
-                &rusty_workers::app::decode_id128(
-                    &prev_config.bundle_id
-                ).ok_or_else(|| CliError::BadId128)?
-            ).await?;
+            client
+                .app_bundle_delete(
+                    &rusty_workers::app::decode_id128(&prev_config.bundle_id)
+                        .ok_or_else(|| CliError::BadId128)?,
+                )
+                .await?;
             warn!("deleted previous bundle");
         } else {
             warn!("unable to decode previous metadata");

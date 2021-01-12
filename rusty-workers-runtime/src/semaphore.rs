@@ -1,4 +1,4 @@
-use crossbeam::channel::{Sender, Receiver};
+use crossbeam::channel::{Receiver, Sender};
 
 pub struct Semaphore {
     tx: Sender<()>,
@@ -15,10 +15,7 @@ impl Semaphore {
         for _ in 0..n {
             tx.send(()).unwrap();
         }
-        Self {
-            tx,
-            rx,
-        }
+        Self { tx, rx }
     }
 
     pub fn acquire_timeout<'a>(&'a self, timeout: std::time::Duration) -> Option<Permit<'a>> {

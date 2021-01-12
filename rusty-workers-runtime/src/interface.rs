@@ -1,6 +1,6 @@
+use rusty_v8 as v8;
 use rusty_workers::types::*;
 use serde::{Deserialize, Serialize};
-use rusty_v8 as v8;
 use std::cell::Cell;
 use std::io::Read;
 
@@ -28,15 +28,9 @@ pub struct AsyncCall {
 pub enum AsyncCallV {
     SetTimeout(u64),
     Fetch(RequestObject),
-    KvGet {
-        namespace: String,
-    },
-    KvPut {
-        namespace: String,
-    },
-    KvDelete {
-        namespace: String,
-    },
+    KvGet { namespace: String },
+    KvPut { namespace: String },
+    KvDelete { namespace: String },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

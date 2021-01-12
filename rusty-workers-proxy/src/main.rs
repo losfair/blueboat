@@ -8,8 +8,8 @@ use anyhow::Result;
 use once_cell::sync::OnceCell;
 use rusty_workers::types::*;
 use std::net::SocketAddr;
-use structopt::StructOpt;
 use std::sync::Arc;
+use structopt::StructOpt;
 
 use crate::config::*;
 use hyper::service::{make_service_fn, service_fn};

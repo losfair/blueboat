@@ -1,6 +1,6 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::ffi::c_void;
 use rusty_v8 as v8;
+use std::ffi::c_void;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 pub struct MemoryPool {
@@ -33,9 +33,13 @@ impl MemoryPool {
             if current < n {
                 return false;
             }
-    
+
             // TODO: Figure out a better ordering
-            if self.remaining_bytes.compare_and_swap(current, current - n, Ordering::SeqCst) == current {
+            if self
+                .remaining_bytes
+                .compare_and_swap(current, current - n, Ordering::SeqCst)
+                == current
+            {
                 return true;
             }
         }
@@ -46,9 +50,7 @@ impl MemoryPool {
     }
 
     pub fn get_allocator(self: Arc<Self>) -> v8::UniqueRef<v8::Allocator> {
-        unsafe {
-            v8::new_rust_allocator(Arc::into_raw(self), VTABLE)
-        }
+        unsafe { v8::new_rust_allocator(Arc::into_raw(self), VTABLE) }
     }
 }
 
@@ -94,8 +96,7 @@ unsafe extern "C" fn reallocate(
             return std::ptr::null_mut();
         }
     }
-    let old_store =
-        Box::from_raw(std::slice::from_raw_parts_mut(prev as *mut u8, oldlen));
+    let old_store = Box::from_raw(std::slice::from_raw_parts_mut(prev as *mut u8, oldlen));
     let mut new_store = Vec::with_capacity(newlen);
     let copy_len = oldlen.min(newlen);
     new_store.extend_from_slice(&old_store[..copy_len]);

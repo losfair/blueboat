@@ -8,13 +8,13 @@ use maplit::btreemap;
 use rand::Rng;
 use rusty_v8 as v8;
 use rusty_workers::types::*;
+use std::cell::{Cell, UnsafeCell};
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::io::Read;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
-use std::cell::{Cell, UnsafeCell};
 
 pub struct Instance {
     state: Option<InstanceState>,
@@ -188,7 +188,11 @@ impl Instance {
         isolate.set_oom_error_handler(oom_protected_callback);
 
         // Reset memory pool.
-        isolate.get_slot::<MemoryPoolBox>().unwrap().0.reset((conf.executor.max_ab_memory_mb as usize) * 1048576);
+        isolate
+            .get_slot::<MemoryPoolBox>()
+            .unwrap()
+            .0
+            .reset((conf.executor.max_ab_memory_mb as usize) * 1048576);
 
         // Allocate a channel of size 1. We don't want to put back pressure here.
         // The (async) sending side would block.
@@ -399,7 +403,10 @@ impl Instance {
                 acquire_arraybuffer_precheck(scope, data.len())?;
                 let json_data = v8::ArrayBuffer::new(scope, data.len());
                 let json_data_backing = json_data.get_backing_store();
-                json_data_backing.iter().enumerate().for_each(|(i, x)| x.set(data[i]));
+                json_data_backing
+                    .iter()
+                    .enumerate()
+                    .for_each(|(i, x)| x.set(data[i]));
 
                 protected_js(scope, |scope| {
                     callback.call(scope, recv.into(), &[json_data.into()]);
@@ -494,9 +501,11 @@ impl InstanceState {
         // Exclude arraybuffer size here since we have separate checks when constructing arraybuffers
         let total_heap_size = stats.total_heap_size();
         if total_heap_size > isolate_config.max_memory_bytes
-            || isolate_config.max_memory_bytes - total_heap_size < isolate_config.host_entry_threshold_memory_bytes {
-                return Err(GenericError::Execution(ExecutionError::MemoryLimitExceeded));
-            }
+            || isolate_config.max_memory_bytes - total_heap_size
+                < isolate_config.host_entry_threshold_memory_bytes
+        {
+            return Err(GenericError::Execution(ExecutionError::MemoryLimitExceeded));
+        }
 
         Ok(())
     }
@@ -517,10 +526,11 @@ extern "C" fn on_promise_rejection(_msg: v8::PromiseRejectMessage<'_>) {
     debug!("unhandled promise rejection");
 }
 
-fn protected_js<F: FnOnce(&mut v8::HandleScope<'_>)>(scope: &mut v8::HandleScope<'_>, f: F) -> GenericResult<()> {
-    if _do_protected_call(|| {
-        f(scope)
-    }).is_none() {
+fn protected_js<F: FnOnce(&mut v8::HandleScope<'_>)>(
+    scope: &mut v8::HandleScope<'_>,
+    f: F,
+) -> GenericResult<()> {
+    if _do_protected_call(|| f(scope)).is_none() {
         scope.set_slot::<Poison>(Poison);
         Err(GenericError::Execution(ExecutionError::MemoryLimitExceeded))
     } else {
@@ -572,7 +582,12 @@ fn _do_protected_call<F: FnOnce() -> R, R>(f: F) -> Option<R> {
 }
 
 fn acquire_arraybuffer_precheck(isolate: &mut v8::Isolate, n: usize) -> GenericResult<()> {
-    if isolate.get_slot::<MemoryPoolBox>().unwrap().0.acquire_precheck(n) {
+    if isolate
+        .get_slot::<MemoryPoolBox>()
+        .unwrap()
+        .0
+        .acquire_precheck(n)
+    {
         Ok(())
     } else {
         Err(GenericError::Execution(ExecutionError::MemoryLimitExceeded))
@@ -591,7 +606,10 @@ fn call_service_callback(
 
         // Large buffers are passed independently so we can enforce a small call_buf_len here.
         if call_buf_len > 65536 {
-            return Err(JsError::new(JsErrorKind::Error, Some("call string too large".into())));
+            return Err(JsError::new(
+                JsErrorKind::Error,
+                Some("call string too large".into()),
+            ));
         }
 
         // Decode string to UTF-8 arraybuffer first.
@@ -604,20 +622,25 @@ fn call_service_callback(
         let call_reader = ReadableByteCellSlice::new(&call_backing);
 
         // Now decode to the ServiceCall type.
-        let call: ServiceCall = serde_json::from_reader(call_reader)
-            .map_err(|_| GenericError::Conversion)?;
+        let call: ServiceCall =
+            serde_json::from_reader(call_reader).map_err(|_| GenericError::Conversion)?;
         let buffers = v8::Local::<'_, v8::Array>::try_from(args.get(1))?;
         let buffers_count = buffers.length();
 
         // FIXME: Hardcoded limit here. Should we change this?
         if buffers_count > 256 {
-            return Err(JsError::new(JsErrorKind::Error, Some("too many buffers".into())));
+            return Err(JsError::new(
+                JsErrorKind::Error,
+                Some("too many buffers".into()),
+            ));
         }
 
         // Collect buffers.
         let mut local_buffers: Vec<v8::SharedRef<v8::BackingStore>> = vec![];
         for i in 0..buffers_count {
-            let value = buffers.get_index(scope, i).ok_or(JsError::new(JsErrorKind::Error, None))?;
+            let value = buffers
+                .get_index(scope, i)
+                .ok_or(JsError::new(JsErrorKind::Error, None))?;
             let value = v8::Local::<'_, v8::ArrayBuffer>::try_from(value)?;
             local_buffers.push(value.get_backing_store());
         }
@@ -628,18 +651,23 @@ fn call_service_callback(
                     SyncCall::Log(s) => {
                         debug!("log: {}", s);
                         let state = InstanceState::get(scope);
-                        state.worker_runtime.write_log(
-                            format!("app-{}", state.appid),
-                            s,
-                        );
+                        state
+                            .worker_runtime
+                            .write_log(format!("app-{}", state.appid), s);
                     }
                     SyncCall::Done => {
                         let state = InstanceState::get(scope);
                         state.done = true;
                     }
                     SyncCall::SendFetchResponse(mut res) => {
-                        let body = local_buffers.get(0)
-                            .ok_or_else(|| JsError::new(JsErrorKind::Error, Some("SendFetchResponse: missing buffer".into())))?
+                        let body = local_buffers
+                            .get(0)
+                            .ok_or_else(|| {
+                                JsError::new(
+                                    JsErrorKind::Error,
+                                    Some("SendFetchResponse: missing buffer".into()),
+                                )
+                            })?
                             .read_to_vec();
                         res.body = HttpBody::Binary(body);
                         InstanceState::try_send_fetch_response(scope, Ok(res));
@@ -678,10 +706,14 @@ fn call_service_callback(
                 let callback = v8::Local::<'_, v8::Function>::try_from(args.get(2))?;
                 let callback = v8::Global::new(scope, callback);
                 let state = InstanceState::get(scope);
-                state.io_waiter()?.issue(false, AsyncCall {
-                    v: call,
-                    buffers: local_buffers,
-                }, callback)?;
+                state.io_waiter()?.issue(
+                    false,
+                    AsyncCall {
+                        v: call,
+                        buffers: local_buffers,
+                    },
+                    callback,
+                )?;
             }
         }
         Ok(())
@@ -692,7 +724,7 @@ fn write_utf8_to_arraybuffer(
     scope: &mut v8::HandleScope<'_>,
     src: v8::Local<'_, v8::String>,
     buf: v8::Local<'_, v8::ArrayBuffer>,
-    num_utf16_read_out: Option<&mut usize>
+    num_utf16_read_out: Option<&mut usize>,
 ) -> usize {
     let backing = buf.get_backing_store();
     let backing: &[Cell<u8>] = &backing;
@@ -714,7 +746,7 @@ fn wrap_callback<'s, F: FnOnce(&mut v8::HandleScope<'s>) -> JsResult<()>>(
             // Release any data allocated on native heap.
             drop(e);
             drop(f);
-            
+
             // OOM can still happen here and longjmp's are allowed.
             // So don't allocate on native heap.
             let message = v8::String::new(scope, "no enough memory when calling into host")
@@ -728,7 +760,9 @@ fn wrap_callback<'s, F: FnOnce(&mut v8::HandleScope<'s>) -> JsResult<()>>(
     // Now we know we are safe, let's enter the actual callback.
     // An assertion that we cannot `longjmp` out in case we OOM'd in a callback.
     let jmp_env = unsafe {
-        (*JMP_ENV.with(|x| x.get())).take().expect("wrap_callback: not in protected call")
+        (*JMP_ENV.with(|x| x.get()))
+            .take()
+            .expect("wrap_callback: not in protected call")
     };
 
     match f(scope) {

@@ -48,10 +48,9 @@ impl From<GenericError> for JsError {
                 JsErrorKind::TypeError,
                 Some(format!("typeck error: expected {}", expected)),
             ),
-            GenericError::Execution(ExecutionError::MemoryLimitExceeded) => Self::new(
-                JsErrorKind::Error,
-                Some(format!("memory limit exceeded")),
-            ),
+            GenericError::Execution(ExecutionError::MemoryLimitExceeded) => {
+                Self::new(JsErrorKind::Error, Some(format!("memory limit exceeded")))
+            }
             _ => Self::new(JsErrorKind::Error, Some("generic error".into())),
         }
     }

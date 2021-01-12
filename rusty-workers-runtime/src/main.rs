@@ -11,10 +11,10 @@ mod executor;
 mod interface;
 mod io;
 mod isolate;
-mod runtime;
-mod server;
-mod semaphore;
 mod mm;
+mod runtime;
+mod semaphore;
+mod server;
 
 use anyhow::Result;
 use std::net::SocketAddr;

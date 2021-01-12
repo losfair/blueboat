@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
@@ -32,14 +32,11 @@ pub struct AppRoute {
 pub struct AppId(pub String);
 
 pub fn decode_id128(raw: &str) -> Option<[u8; 16]> {
-    base64::decode(raw)
-        .ok()
-        .filter(|x| x.len() == 16)
-        .map(|x| {
-            let mut slice = [0u8; 16];
-            slice.copy_from_slice(&x);
-            slice
-        })
+    base64::decode(raw).ok().filter(|x| x.len() == 16).map(|x| {
+        let mut slice = [0u8; 16];
+        slice.copy_from_slice(&x);
+        slice
+    })
 }
 
 pub fn encode_id128(raw: &[u8; 16]) -> String {

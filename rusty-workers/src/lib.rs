@@ -1,10 +1,10 @@
 #[macro_use]
 extern crate log;
 
+pub mod app;
 pub mod rpc;
 pub mod types;
 pub mod util;
-pub mod app;
 
 #[cfg(feature = "kv")]
 pub mod kv;

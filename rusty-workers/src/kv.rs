@@ -1,22 +1,32 @@
 use crate::types::*;
 use std::collections::BTreeMap;
-use tikv_client::{KvPair, Key};
 use std::time::SystemTime;
+use tikv_client::{Key, KvPair};
 
 macro_rules! impl_scan_prefix {
     ($name:ident, $cb_value_ty:ty, $scan_func:ident, $deref_key:ident, $deref_value:ident) => {
-        async fn $name(&self, prefix: &[u8], mut cb: impl FnMut(&[u8], $cb_value_ty) -> bool) -> GenericResult<()> {
+        async fn $name(
+            &self,
+            prefix: &[u8],
+            mut cb: impl FnMut(&[u8], $cb_value_ty) -> bool,
+        ) -> GenericResult<()> {
             assert!(prefix.len() > 0, "scan_prefix: prefix must be non-empty");
-            assert!(*prefix.last().unwrap() == 0, "scan_prefix: prefix must end with zero");
-    
+            assert!(
+                *prefix.last().unwrap() == 0,
+                "scan_prefix: prefix must end with zero"
+            );
+
             let batch_size: u32 = 20;
-    
+
             let mut start_prefix = prefix.to_vec();
             let mut end_prefix = prefix.to_vec();
             *end_prefix.last_mut().unwrap() = 1;
-    
+
             loop {
-                let batch = self.raw.$scan_func(start_prefix..end_prefix.clone(), batch_size).await
+                let batch = self
+                    .raw
+                    .$scan_func(start_prefix..end_prefix.clone(), batch_size)
+                    .await
                     .map_err(|e| GenericError::Other(format!("scan_prefix: {:?}", e)))?;
                 for item in batch.iter() {
                     let key: &[u8] = $deref_key(item);
@@ -57,21 +67,25 @@ pub struct KvClient {
 
 impl KvClient {
     pub async fn new<S: Into<String>>(pd_endpoints: Vec<S>) -> GenericResult<Self> {
-        let raw = tikv_client::RawClient::new(pd_endpoints).await
+        let raw = tikv_client::RawClient::new(pd_endpoints)
+            .await
             .map_err(|e| GenericError::Other(format!("tikv initialization failed: {:?}", e)))?;
-        Ok(Self {
-            raw,
-        })
+        Ok(Self { raw })
     }
 
     async fn delete_prefix(&self, prefix: &[u8]) -> GenericResult<()> {
         assert!(prefix.len() > 0, "delete_prefix: prefix must be non-empty");
-        assert!(*prefix.last().unwrap() == 0, "delete_prefix: prefix must end with zero");
+        assert!(
+            *prefix.last().unwrap() == 0,
+            "delete_prefix: prefix must end with zero"
+        );
         let start_prefix = prefix.to_vec();
         let mut end_prefix = prefix.to_vec();
         *end_prefix.last_mut().unwrap() = 1;
 
-        self.raw.delete_range(start_prefix..end_prefix).await
+        self.raw
+            .delete_range(start_prefix..end_prefix)
+            .await
             .map_err(|e| GenericError::Other(format!("delete_prefix: {:?}", e)))
     }
 
@@ -88,26 +102,42 @@ impl KvClient {
         Ok(())
     }
 
-    pub async fn worker_data_delete_namespace(
-        &self,
-        namespace_id: &[u8; 16],
-    ) -> GenericResult<()> {
+    pub async fn worker_data_delete_namespace(&self, namespace_id: &[u8; 16]) -> GenericResult<()> {
         let prefix = join_slices(&[PREFIX_WORKER_DATA_V2, namespace_id, b"\x00"]);
         self.delete_prefix(&prefix).await
     }
 
-    pub async fn worker_data_get(&self, namespace_id: &[u8; 16], key: &[u8]) -> GenericResult<Option<Vec<u8>>> {
-        self.raw.get(make_worker_data_key(namespace_id, key)).await
+    pub async fn worker_data_get(
+        &self,
+        namespace_id: &[u8; 16],
+        key: &[u8],
+    ) -> GenericResult<Option<Vec<u8>>> {
+        self.raw
+            .get(make_worker_data_key(namespace_id, key))
+            .await
             .map_err(|e| GenericError::Other(format!("worker_data_get: {:?}", e)))
     }
 
-    pub async fn worker_data_put(&self, namespace_id: &[u8; 16], key: &[u8], value: Vec<u8>) -> GenericResult<()> {
-        self.raw.put(make_worker_data_key(namespace_id, key), value).await
+    pub async fn worker_data_put(
+        &self,
+        namespace_id: &[u8; 16],
+        key: &[u8],
+        value: Vec<u8>,
+    ) -> GenericResult<()> {
+        self.raw
+            .put(make_worker_data_key(namespace_id, key), value)
+            .await
             .map_err(|e| GenericError::Other(format!("worker_data_put: {:?}", e)))
     }
 
-    pub async fn worker_data_delete(&self, namespace_id: &[u8; 16], key: &[u8]) -> GenericResult<()> {
-        self.raw.delete(make_worker_data_key(namespace_id, key)).await
+    pub async fn worker_data_delete(
+        &self,
+        namespace_id: &[u8; 16],
+        key: &[u8],
+    ) -> GenericResult<()> {
+        self.raw
+            .delete(make_worker_data_key(namespace_id, key))
+            .await
             .map_err(|e| GenericError::Other(format!("worker_data_delete: {:?}", e)))
     }
 
@@ -128,9 +158,10 @@ impl KvClient {
             callback(
                 from_utf8(domain).unwrap_or(""),
                 from_utf8(path).unwrap_or(""),
-                from_utf8(v).unwrap_or("")
+                from_utf8(v).unwrap_or(""),
             )
-        }).await?;
+        })
+        .await?;
         Ok(())
     }
 
@@ -143,29 +174,58 @@ impl KvClient {
         let mut result = BTreeMap::new();
         self.scan_prefix(&prefix, |k, v| {
             if filter(k) {
-                result.insert(String::from_utf8_lossy(k).into_owned(), String::from_utf8_lossy(v).into_owned());
+                result.insert(
+                    String::from_utf8_lossy(k).into_owned(),
+                    String::from_utf8_lossy(v).into_owned(),
+                );
             }
             true
-        }).await?;
+        })
+        .await?;
         Ok(result)
     }
 
-    pub async fn route_mapping_lookup(&self, domain: &str, path: &str) -> GenericResult<Option<String>> {
-        let matches = self.route_mapping_list_for_domain(domain, |x| path.as_bytes().starts_with(x)).await?;
+    pub async fn route_mapping_lookup(
+        &self,
+        domain: &str,
+        path: &str,
+    ) -> GenericResult<Option<String>> {
+        let matches = self
+            .route_mapping_list_for_domain(domain, |x| path.as_bytes().starts_with(x))
+            .await?;
 
         // Most specific match
         Ok(matches.into_iter().rev().next().map(|x| x.1))
     }
 
-    pub async fn route_mapping_insert(&self, domain: &str, path: &str, appid: String) -> GenericResult<()> {
-        let key = join_slices(&[PREFIX_ROUTE_MAPPING_V1, domain.as_bytes(), b"\x00", path.as_bytes()]);
-        self.raw.put(key, Vec::from(appid)).await
+    pub async fn route_mapping_insert(
+        &self,
+        domain: &str,
+        path: &str,
+        appid: String,
+    ) -> GenericResult<()> {
+        let key = join_slices(&[
+            PREFIX_ROUTE_MAPPING_V1,
+            domain.as_bytes(),
+            b"\x00",
+            path.as_bytes(),
+        ]);
+        self.raw
+            .put(key, Vec::from(appid))
+            .await
             .map_err(|e| GenericError::Other(format!("route_mapping_insert: {:?}", e)))
     }
 
     pub async fn route_mapping_delete(&self, domain: &str, path: &str) -> GenericResult<()> {
-        let key = join_slices(&[PREFIX_ROUTE_MAPPING_V1, domain.as_bytes(), b"\x00", path.as_bytes()]);
-        self.raw.delete(key).await
+        let key = join_slices(&[
+            PREFIX_ROUTE_MAPPING_V1,
+            domain.as_bytes(),
+            b"\x00",
+            path.as_bytes(),
+        ]);
+        self.raw
+            .delete(key)
+            .await
             .map_err(|e| GenericError::Other(format!("route_mapping_delete: {:?}", e)))
     }
 
@@ -176,47 +236,57 @@ impl KvClient {
         self.scan_prefix_keys(PREFIX_APP_METADATA_V1, |k, ()| {
             let appid = std::str::from_utf8(k).unwrap_or("");
             callback(appid)
-        }).await?;
+        })
+        .await?;
         Ok(())
     }
 
     pub async fn app_metadata_get(&self, appid: &str) -> GenericResult<Option<Vec<u8>>> {
         let key = join_slices(&[PREFIX_APP_METADATA_V1, appid.as_bytes()]);
-        self.raw.get(key).await
+        self.raw
+            .get(key)
+            .await
             .map_err(|e| GenericError::Other(format!("app_metadata_get: {:?}", e)))
     }
 
     pub async fn app_metadata_put(&self, appid: &str, value: Vec<u8>) -> GenericResult<()> {
         let key = join_slices(&[PREFIX_APP_METADATA_V1, appid.as_bytes()]);
-        self.raw.put(key, value).await
+        self.raw
+            .put(key, value)
+            .await
             .map_err(|e| GenericError::Other(format!("app_metadata_put: {:?}", e)))
     }
 
     pub async fn app_metadata_delete(&self, appid: &str) -> GenericResult<()> {
         let key = join_slices(&[PREFIX_APP_METADATA_V1, appid.as_bytes()]);
-        self.raw.delete(key).await
+        self.raw
+            .delete(key)
+            .await
             .map_err(|e| GenericError::Other(format!("app_metadata_delete: {:?}", e)))
     }
 
     pub async fn app_bundle_for_each(
-        &self, 
+        &self,
         mut callback: impl FnMut(&[u8]) -> bool,
     ) -> GenericResult<()> {
-        self.scan_prefix_keys(PREFIX_APP_BUNDLE_V1, |k, ()| {
-            callback(k)
-        }).await?;
+        self.scan_prefix_keys(PREFIX_APP_BUNDLE_V1, |k, ()| callback(k))
+            .await?;
         Ok(())
     }
 
     pub async fn app_bundle_get(&self, id: &[u8; 16]) -> GenericResult<Option<Vec<u8>>> {
         let key = join_slices(&[PREFIX_APP_BUNDLE_V1, id]);
-        self.raw.get(key).await
+        self.raw
+            .get(key)
+            .await
             .map_err(|e| GenericError::Other(format!("app_bundle_get: {:?}", e)))
     }
 
     pub async fn app_bundle_put(&self, id: &[u8; 16], value: Vec<u8>) -> GenericResult<()> {
         let key = join_slices(&[PREFIX_APP_BUNDLE_V1, id]);
-        self.raw.put(key, value).await
+        self.raw
+            .put(key, value)
+            .await
             .map_err(|e| GenericError::Other(format!("app_bundle_put: {:?}", e)))
     }
 
@@ -226,11 +296,13 @@ impl KvClient {
     }
 
     /// Deletes an app bundle.
-    /// 
+    ///
     /// Argument is not restricted to [u8; 16] because we want to allow deleting "dirty" data.
     pub async fn app_bundle_delete_dirty(&self, id: &[u8]) -> GenericResult<()> {
         let key = join_slices(&[PREFIX_APP_BUNDLE_V1, id]);
-        self.raw.delete(key).await
+        self.raw
+            .delete(key)
+            .await
             .map_err(|e| GenericError::Other(format!("app_bundle_delete: {:?}", e)))
     }
 
@@ -242,12 +314,25 @@ impl KvClient {
     ) -> GenericResult<()> {
         let batch_size: u32 = 20;
         let trim_prefix = join_slices(&[PREFIX_LOG_V1, topic.as_bytes(), b"\x00"]);
-        let start_prefix = join_slices(&[PREFIX_LOG_V1, topic.as_bytes(), b"\x00", make_time_str(range.start).as_bytes()]);
-        let end_prefix = join_slices(&[PREFIX_LOG_V1, topic.as_bytes(), b"\x00", make_time_str(range.end).as_bytes()]);
+        let start_prefix = join_slices(&[
+            PREFIX_LOG_V1,
+            topic.as_bytes(),
+            b"\x00",
+            make_time_str(range.start).as_bytes(),
+        ]);
+        let end_prefix = join_slices(&[
+            PREFIX_LOG_V1,
+            topic.as_bytes(),
+            b"\x00",
+            make_time_str(range.end).as_bytes(),
+        ]);
         let mut current_prefix = start_prefix.clone();
 
         loop {
-            let batch = self.raw.scan(current_prefix..end_prefix.clone(), batch_size).await
+            let batch = self
+                .raw
+                .scan(current_prefix..end_prefix.clone(), batch_size)
+                .await
                 .map_err(|e| GenericError::Other(format!("log_range: {:?}", e)))?;
             for item in batch.iter() {
                 let key: &[u8] = (&item.0).into();
@@ -273,8 +358,15 @@ impl KvClient {
     }
 
     pub async fn log_put(&self, topic: &str, time: SystemTime, text: &str) -> GenericResult<()> {
-        let key = join_slices(&[PREFIX_LOG_V1, topic.as_bytes(), b"\x00", make_time_str(time).as_bytes()]);
-        self.raw.put(key, text).await
+        let key = join_slices(&[
+            PREFIX_LOG_V1,
+            topic.as_bytes(),
+            b"\x00",
+            make_time_str(time).as_bytes(),
+        ]);
+        self.raw
+            .put(key, text)
+            .await
             .map_err(|e| GenericError::Other(format!("log_put: {:?}", e)))
     }
 
@@ -283,9 +375,21 @@ impl KvClient {
         topic: &str,
         range: std::ops::Range<SystemTime>,
     ) -> GenericResult<()> {
-        let start_prefix = join_slices(&[PREFIX_LOG_V1, topic.as_bytes(), b"\x00", make_time_str(range.start).as_bytes()]);
-        let end_prefix = join_slices(&[PREFIX_LOG_V1, topic.as_bytes(), b"\x00", make_time_str(range.end).as_bytes()]);
-        self.raw.delete_range(start_prefix..end_prefix).await
+        let start_prefix = join_slices(&[
+            PREFIX_LOG_V1,
+            topic.as_bytes(),
+            b"\x00",
+            make_time_str(range.start).as_bytes(),
+        ]);
+        let end_prefix = join_slices(&[
+            PREFIX_LOG_V1,
+            topic.as_bytes(),
+            b"\x00",
+            make_time_str(range.end).as_bytes(),
+        ]);
+        self.raw
+            .delete_range(start_prefix..end_prefix)
+            .await
             .map_err(|e| GenericError::Other(format!("log_delete_range: {:?}", e)))
     }
 }

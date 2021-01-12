@@ -1,22 +1,22 @@
 use crate::config::*;
-use rusty_workers::app::*;
 use anyhow::Result;
 use futures::StreamExt;
+use lru_time_cache::LruCache;
 use rand::distributions::{Distribution, Open01, WeightedIndex};
 use rand::Rng;
+use rusty_workers::app::*;
+use rusty_workers::kv::KvClient;
 use rusty_workers::rpc::RuntimeServiceClient;
 use rusty_workers::tarpc;
 use rusty_workers::types::*;
-use std::collections::VecDeque;
 use std::collections::BTreeMap;
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
-use lru_time_cache::LruCache;
-use rusty_workers::kv::KvClient;
-use tokio::sync::mpsc::{Sender, Receiver};
 
 #[derive(Debug, Error)]
 pub enum SchedError {
@@ -245,10 +245,18 @@ impl Scheduler {
         let me3 = me.clone();
         let me4 = me.clone();
         let me5 = me.clone();
-        tokio::spawn(async move { me2.lookup_route_background(lookup_route_rx).await; });
-        tokio::spawn(async move { me3.lookup_app_background(lookup_app_rx).await; });
-        tokio::spawn(async move { me4.apps_gc_task().await; });
-        tokio::spawn(async move { me5.route_cache_gc_task().await; });
+        tokio::spawn(async move {
+            me2.lookup_route_background(lookup_route_rx).await;
+        });
+        tokio::spawn(async move {
+            me3.lookup_app_background(lookup_app_rx).await;
+        });
+        tokio::spawn(async move {
+            me4.apps_gc_task().await;
+        });
+        tokio::spawn(async move {
+            me5.route_cache_gc_task().await;
+        });
         me
     }
 
@@ -256,7 +264,6 @@ impl Scheduler {
         &self,
         mut req: hyper::Request<hyper::Body>,
     ) -> Result<hyper::Response<hyper::Body>> {
-
         // Rewrite host to remove port.
         let host = req
             .headers()
@@ -290,10 +297,13 @@ impl Scheduler {
             }
 
             // Notify the worker thread
-            drop(self.lookup_route_tx.try_send((host.clone(), uri.path().to_string())));
+            drop(
+                self.lookup_route_tx
+                    .try_send((host.clone(), uri.path().to_string())),
+            );
 
             tokio::time::sleep(Duration::from_millis(500)).await;
-        };
+        }
 
         let appid = appid.ok_or(SchedError::NoRouteMapping)?;
 
@@ -518,25 +528,46 @@ impl Scheduler {
         }
         drop(route_cache);
 
-        match self.kv_client.route_mapping_list_for_domain(&domain, |_| true).await {
+        match self
+            .kv_client
+            .route_mapping_list_for_domain(&domain, |_| true)
+            .await
+        {
             Ok(map) => {
                 let map: BTreeMap<_, _> = map.into_iter().map(|(k, v)| (k, AppId(v))).collect();
-                info!("do_lookup_route_background: updating routing for domain {}: {:?}", domain, map);
+                info!(
+                    "do_lookup_route_background: updating routing for domain {}: {:?}",
+                    domain, map
+                );
                 self.route_cache.lock().await.insert(domain, map);
             }
             Err(e) => {
-                warn!("do_lookup_route_background: error looking up route for domain {}: {:?}", domain, e);
+                warn!(
+                    "do_lookup_route_background: error looking up route for domain {}: {:?}",
+                    domain, e
+                );
             }
         }
     }
 
     async fn route_cache_gc_task(&self) {
         loop {
-            let domains: Vec<String> = self.route_cache.lock().await.peek_iter().map(|x| x.0.clone()).collect();
+            let domains: Vec<String> = self
+                .route_cache
+                .lock()
+                .await
+                .peek_iter()
+                .map(|x| x.0.clone())
+                .collect();
             for domain in domains {
-                match self.kv_client.route_mapping_list_for_domain(&domain, |_| true).await {
+                match self
+                    .kv_client
+                    .route_mapping_list_for_domain(&domain, |_| true)
+                    .await
+                {
                     Ok(map) => {
-                        let map: BTreeMap<_, _> = map.into_iter().map(|(k, v)| (k, AppId(v))).collect();
+                        let map: BTreeMap<_, _> =
+                            map.into_iter().map(|(k, v)| (k, AppId(v))).collect();
                         let mut route_cache = self.route_cache.lock().await;
                         if let Some(entry) = route_cache.peek(&domain) {
                             if entry != &map {
@@ -556,9 +587,13 @@ impl Scheduler {
 
     async fn apps_gc_task(&self) {
         loop {
-            let apps: Vec<(AppId, ([u8; 16], WorkerConfiguration))> = self.apps.lock().await.iter().map(|(k, v)| {
-                (k.clone(), (v.bundle_id, v.config.clone()))
-            }).collect();
+            let apps: Vec<(AppId, ([u8; 16], WorkerConfiguration))> = self
+                .apps
+                .lock()
+                .await
+                .iter()
+                .map(|(k, v)| (k.clone(), (v.bundle_id, v.config.clone())))
+                .collect();
 
             for (id, (bundle_id, worker_config)) in apps {
                 match self.kv_client.app_metadata_get(&id.0).await {
@@ -567,7 +602,9 @@ impl Scheduler {
                             if let Ok(expected_bundle_id) = base64::decode(&config.bundle_id) {
                                 if expected_bundle_id != bundle_id
                                     || config.env != worker_config.env
-                                    || decode_kv_namespaces(&config.kv_namespaces) != worker_config.kv_namespaces {
+                                    || decode_kv_namespaces(&config.kv_namespaces)
+                                        != worker_config.kv_namespaces
+                                {
                                     info!("app changed. removing app {} from cache", id.0);
                                     self.apps.lock().await.remove(&id);
                                 }
@@ -607,21 +644,22 @@ impl Scheduler {
         }
 
         let config: AppConfig = match self.kv_client.app_metadata_get(&id.0).await {
-            Ok(Some(metadata)) => {
-                match serde_json::from_slice(&metadata) {
-                    Ok(x) => x,
-                    Err(e) => {
-                        error!("cannot decode app metadata for app {}: {:?}", id.0, e);
-                        return;
-                    }
+            Ok(Some(metadata)) => match serde_json::from_slice(&metadata) {
+                Ok(x) => x,
+                Err(e) => {
+                    error!("cannot decode app metadata for app {}: {:?}", id.0, e);
+                    return;
                 }
-            }
+            },
             Ok(None) => {
                 warn!("do_lookup_app_background: app {} not found", id.0);
                 return;
             }
             Err(e) => {
-                warn!("do_lookup_app_background: error fetching app metadata for {}: {:?}", id.0, e);
+                warn!(
+                    "do_lookup_app_background: error fetching app metadata for {}: {:?}",
+                    id.0, e
+                );
                 return;
             }
         };
@@ -650,7 +688,7 @@ impl Scheduler {
         let mut target_config = self.worker_config.clone();
         target_config.env = config.env.clone();
         target_config.kv_namespaces = decode_kv_namespaces(&config.kv_namespaces);
-        
+
         let state = AppState {
             id: id.clone(),
             config: target_config,
@@ -681,23 +719,29 @@ impl SchedError {
 }
 
 fn decode_kv_namespaces(namespaces: &Vec<KvNamespaceConfig>) -> BTreeMap<String, [u8; 16]> {
-    namespaces.iter().filter_map(|ns| {
-        base64::decode(&ns.id)
-            .ok()
-            .filter(|x| x.len() == 16)
-            .map(|x| {
-                let mut slice = [0u8; 16];
-                slice.copy_from_slice(&x);
-                (ns.name.clone(), slice)
-            })
-            .or_else(|| {
-                warn!("decode_kv_namespaces: bad value for namespace: {}", ns.name);
-                None
-            })
-    }).collect()
+    namespaces
+        .iter()
+        .filter_map(|ns| {
+            base64::decode(&ns.id)
+                .ok()
+                .filter(|x| x.len() == 16)
+                .map(|x| {
+                    let mut slice = [0u8; 16];
+                    slice.copy_from_slice(&x);
+                    (ns.name.clone(), slice)
+                })
+                .or_else(|| {
+                    warn!("decode_kv_namespaces: bad value for namespace: {}", ns.name);
+                    None
+                })
+        })
+        .collect()
 }
 
-fn lookup_submappings<'a>(path: &str, submappings: &'a BTreeMap<String, AppId>) -> Option<&'a AppId> {
+fn lookup_submappings<'a>(
+    path: &str,
+    submappings: &'a BTreeMap<String, AppId>,
+) -> Option<&'a AppId> {
     // Match in reverse order.
     for (k, v) in submappings.iter().rev() {
         if path.starts_with(k) {

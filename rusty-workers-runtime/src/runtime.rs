@@ -1,16 +1,16 @@
 use crate::config::Config;
 use crate::executor::{Instance, InstanceHandle, InstanceTimeControl, TimerControl};
 use crate::isolate::{IsolateConfig, IsolateThreadPool};
+use crate::semaphore::{Permit, Semaphore};
 use lru_time_cache::LruCache;
 use rusty_v8 as v8;
+use rusty_workers::kv::KvClient;
 use rusty_workers::types::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
-use std::time::{SystemTime, Duration};
+use std::time::{Duration, SystemTime};
 use tokio::sync::oneshot;
 use tokio::sync::RwLock as AsyncRwLock;
-use crate::semaphore::{Semaphore, Permit};
-use rusty_workers::kv::KvClient;
 
 pub struct Runtime {
     id: RuntimeId,
@@ -21,7 +21,7 @@ pub struct Runtime {
     execution_token: Semaphore,
     kv: Option<KvClient>,
     log_tx: tokio::sync::mpsc::Sender<LogEntry>,
-    isolate_config: IsolateConfig, 
+    isolate_config: IsolateConfig,
 }
 
 struct WorkerState {
@@ -68,11 +68,7 @@ impl Runtime {
             max_memory_bytes: max_isolate_memory_bytes,
             host_entry_threshold_memory_bytes: 1048576,
         };
-        let isolate_pool = IsolateThreadPool::new(
-            isolate_pool_size,
-            isolate_config.clone(),
-        )
-        .await;
+        let isolate_pool = IsolateThreadPool::new(isolate_pool_size, isolate_config.clone()).await;
 
         let rt = Arc::new(Runtime {
             id: RuntimeId::generate(),
@@ -100,7 +96,8 @@ impl Runtime {
     }
 
     pub fn acquire_execution_token<'a>(&'a self) -> GenericResult<Permit<'a>> {
-        self.execution_token.acquire_timeout(Duration::from_millis(self.config.cpu_wait_timeout_ms))
+        self.execution_token
+            .acquire_timeout(Duration::from_millis(self.config.cpu_wait_timeout_ms))
             .ok_or_else(|| GenericError::Other("timeout waiting for execution token".into()))
     }
 
