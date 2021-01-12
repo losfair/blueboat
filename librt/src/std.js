@@ -379,3 +379,10 @@ function _callServiceWrapper(cmd, buffers, cb) {
     let serialized = JSON.stringify(cmd);
     return _callService(serialized, buffers, cb);
 }
+
+export function _callService(cmd, buffers, cb) {
+    let wrappedCb = function(data) {
+        return cb(JSON.parse(new TextDecoder().decode(data)));
+    };
+    return _rt_callService(cmd, buffers, cb ? wrappedCb : null);
+}

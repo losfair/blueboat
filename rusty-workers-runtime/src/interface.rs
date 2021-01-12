@@ -2,6 +2,7 @@ use rusty_workers::types::*;
 use serde::{Deserialize, Serialize};
 use rusty_v8 as v8;
 use std::cell::Cell;
+use std::io::Read;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ServiceCall {
@@ -58,5 +59,24 @@ impl JsBuffer for v8::SharedRef<v8::BackingStore> {
         let mut buf = Vec::with_capacity(source.len());
         buf.extend(source.iter().map(|x| x.get()));
         buf
+    }
+}
+
+pub struct ReadableByteCellSlice<'a>(&'a [Cell<u8>]);
+
+impl<'a> ReadableByteCellSlice<'a> {
+    pub fn new(inner: &'a [Cell<u8>]) -> Self {
+        Self(inner)
+    }
+}
+
+impl<'a> Read for ReadableByteCellSlice<'a> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let read_len = buf.len().min(self.0.len());
+        for i in 0..read_len {
+            buf[i] = self.0[i].get();
+        }
+        self.0 = &self.0[read_len..];
+        Ok(read_len)
     }
 }

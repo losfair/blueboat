@@ -14,7 +14,7 @@ use std::io::Read;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
-use std::cell::UnsafeCell;
+use std::cell::{Cell, UnsafeCell};
 
 pub struct Instance {
     state: Option<InstanceState>,
@@ -393,10 +393,16 @@ impl Instance {
                 state.start_timer();
 
                 let callback = v8::Local::<'_, v8::Function>::new(scope, callback);
-                let json_text = v8::String::new(scope, data.as_str()).check()?;
-                let data = v8::json::parse(scope, json_text.into()).check()?;
+
+                // Don't deserialize onto V8 heap here to ensure OOM safety
+                let data = data.as_bytes();
+                acquire_arraybuffer_precheck(scope, data.len())?;
+                let json_data = v8::ArrayBuffer::new(scope, data.len());
+                let json_data_backing = json_data.get_backing_store();
+                json_data_backing.iter().enumerate().for_each(|(i, x)| x.set(data[i]));
+
                 protected_js(scope, |scope| {
-                    callback.call(scope, recv.into(), &[data]);
+                    callback.call(scope, recv.into(), &[json_data.into()]);
                 })?;
             }
 
@@ -444,7 +450,7 @@ impl InstanceState {
     fn init_global_env<'s>(&self, scope: &mut v8::HandleScope<'s>) -> GenericResult<()> {
         let global = scope.get_current_context().global(scope);
         let global_props = btreemap! {
-            "_callService" => make_function(scope, call_service_callback)?.into(),
+            "_rt_callService" => make_function(scope, call_service_callback)?.into(),
         };
 
         // Make sure our internal objects aren't overwritten by adding user props first.
@@ -580,11 +586,33 @@ fn call_service_callback(
 ) {
     wrap_callback(scope, |scope| {
         let scope = &mut v8::HandleScope::new(scope);
-        let call = v8::Local::<'_, v8::String>::try_from(args.get(0))?;
-        let call: ServiceCall = serde_json::from_str(call.to_rust_string_lossy(scope).as_str())
+        let call_str = v8::Local::<'_, v8::String>::try_from(args.get(0))?;
+        let call_buf_len = call_str.utf8_length(scope);
+
+        // Large buffers are passed independently so we can enforce a small call_buf_len here.
+        if call_buf_len > 65536 {
+            return Err(JsError::new(JsErrorKind::Error, Some("call string too large".into())));
+        }
+
+        // Decode string to UTF-8 arraybuffer first.
+        // Do not use native heap (`Vec<u8>`) to enforce memory limit.
+        acquire_arraybuffer_precheck(scope, call_buf_len)?;
+        let call_buf = v8::ArrayBuffer::new(scope, call_buf_len);
+        write_utf8_to_arraybuffer(scope, call_str, call_buf, None);
+
+        let call_backing = call_buf.get_backing_store();
+        let call_reader = ReadableByteCellSlice::new(&call_backing);
+
+        // Now decode to the ServiceCall type.
+        let call: ServiceCall = serde_json::from_reader(call_reader)
             .map_err(|_| GenericError::Conversion)?;
         let buffers = v8::Local::<'_, v8::Array>::try_from(args.get(1))?;
         let buffers_count = buffers.length();
+
+        // FIXME: Hardcoded limit here. Should we change this?
+        if buffers_count > 256 {
+            return Err(JsError::new(JsErrorKind::Error, Some("too many buffers".into())));
+        }
 
         // Collect buffers.
         let mut local_buffers: Vec<v8::SharedRef<v8::BackingStore>> = vec![];
@@ -658,6 +686,20 @@ fn call_service_callback(
         }
         Ok(())
     })
+}
+
+fn write_utf8_to_arraybuffer(
+    scope: &mut v8::HandleScope<'_>,
+    src: v8::Local<'_, v8::String>,
+    buf: v8::Local<'_, v8::ArrayBuffer>,
+    num_utf16_read_out: Option<&mut usize>
+) -> usize {
+    let backing = buf.get_backing_store();
+    let backing: &[Cell<u8>] = &backing;
+    let backing = unsafe {
+        std::mem::transmute::<*const [Cell<u8>], &mut [u8]>(backing as *const [Cell<u8>])
+    };
+    src.write_utf8(scope, backing, num_utf16_read_out, Default::default())
 }
 
 /// Converts a `Result` from a callback function into a JavaScript exception.
