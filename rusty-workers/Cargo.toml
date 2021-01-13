@@ -21,7 +21,7 @@ rand = "0.8"
 hex = "0.4"
 stubborn-io = "0.3"
 git-version = "0.3"
-tikv-client = { git = "https://github.com/tikv/client-rust.git", optional = true }
+tikv-client = { git = "https://github.com/tikv/client-rust.git", rev = "d1f8a9ef9e78efbd45cded36071699f84dcb3dd5", optional = true }
 base64 = "0.13"
 chrono = "0.4"
 
