@@ -1,7 +1,9 @@
 use crate::types::*;
 use std::collections::BTreeMap;
+use std::ops::{Deref, DerefMut};
 use std::time::SystemTime;
-use tikv_client::{Key, KvPair};
+use tikv_client::{CheckLevel, Key, KvPair, Transaction, TransactionOptions};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 macro_rules! impl_scan_prefix {
     ($name:ident, $cb_value_ty:ty, $scan_func:ident, $deref_key:ident, $deref_value:ident) => {
@@ -63,14 +65,103 @@ pub static PREFIX_LOG_V1: &'static [u8] = b"V1\x00LOG\x00";
 
 pub struct KvClient {
     raw: tikv_client::RawClient,
+    transactional: tikv_client::TransactionClient,
+    txn_collector_tx: Sender<Transaction>,
+}
+
+/// A protected transaction is automatically rolled back when dropped.
+///
+/// This is important as asynchronous tasks can be cancelled.
+pub struct ProtectedTransaction {
+    txn: Option<Transaction>,
+    txn_collector_tx: Sender<Transaction>,
+}
+
+impl Drop for ProtectedTransaction {
+    fn drop(&mut self) {
+        if let Some(txn) = self.txn.take() {
+            drop(self.txn_collector_tx.try_send(txn));
+        }
+    }
+}
+
+impl Deref for ProtectedTransaction {
+    type Target = Transaction;
+    fn deref(&self) -> &Self::Target {
+        self.txn.as_ref().unwrap()
+    }
+}
+
+impl DerefMut for ProtectedTransaction {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.txn.as_mut().unwrap()
+    }
+}
+
+impl ProtectedTransaction {
+    pub async fn commit(mut self) -> GenericResult<()> {
+        let mut txn = self.txn.take().unwrap();
+        txn.commit()
+            .await
+            .map(|_| ())
+            .map_err(tikv_error_to_generic)
+    }
+
+    pub async fn rollback(mut self) -> GenericResult<()> {
+        let mut txn = self.txn.take().unwrap();
+        txn.rollback()
+            .await
+            .map(|_| ())
+            .map_err(tikv_error_to_generic)
+    }
 }
 
 impl KvClient {
-    pub async fn new<S: Into<String>>(pd_endpoints: Vec<S>) -> GenericResult<Self> {
-        let raw = tikv_client::RawClient::new(pd_endpoints)
+    pub async fn new<S: Into<String> + Clone>(pd_endpoints: Vec<S>) -> GenericResult<Self> {
+        let raw = tikv_client::RawClient::new(pd_endpoints.clone())
             .await
-            .map_err(|e| GenericError::Other(format!("tikv initialization failed: {:?}", e)))?;
-        Ok(Self { raw })
+            .map_err(|e| {
+                GenericError::Other(format!("tikv (raw) initialization failed: {:?}", e))
+            })?;
+        let transactional = tikv_client::TransactionClient::new(pd_endpoints)
+            .await
+            .map_err(|e| {
+                GenericError::Other(format!(
+                    "tikv (transactional) initialization failed: {:?}",
+                    e
+                ))
+            })?;
+        let (txn_collector_tx, txn_collector_rx) = channel(1000);
+        tokio::spawn(async move {
+            txn_collector_worker(txn_collector_rx).await;
+        });
+        Ok(Self {
+            raw,
+            transactional,
+            txn_collector_tx,
+        })
+    }
+
+    /// Creates a "protected" transaction that rolls back automatically if neither committed nor rolled back.
+    ///
+    /// Asynchronous tasks can be cancelled. So this is important.
+    async fn new_protected_transaction(
+        &self,
+        opts: TransactionOptions,
+    ) -> GenericResult<ProtectedTransaction> {
+        // If we run out of space in `txn_collector_tx` the transaction may be dropped without being committed or
+        // rolled back. Let's print a warning in this case.
+        let opts = opts.drop_check(CheckLevel::Warn);
+
+        let txn = self
+            .transactional
+            .begin_with_options(opts)
+            .await
+            .map_err(tikv_error_to_generic)?;
+        Ok(ProtectedTransaction {
+            txn: Some(txn),
+            txn_collector_tx: self.txn_collector_tx.clone(),
+        })
     }
 
     async fn delete_prefix(&self, prefix: &[u8]) -> GenericResult<()> {
@@ -112,8 +203,16 @@ impl KvClient {
         namespace_id: &[u8; 16],
         key: &[u8],
     ) -> GenericResult<Option<Vec<u8>>> {
-        self.raw
-            .get(make_worker_data_key(namespace_id, key))
+        // From tikv_client documentation: "While it is possible to use both APIs at the same time,
+        // doing so is unsafe and unsupported."
+        //
+        // So here we use transactional API for all worker data operations.
+        let txn = self
+            .transactional
+            .begin_with_options(TransactionOptions::new_optimistic().read_only())
+            .await
+            .map_err(tikv_error_to_generic)?;
+        txn.get(make_worker_data_key(namespace_id, key))
             .await
             .map_err(|e| GenericError::Other(format!("worker_data_get: {:?}", e)))
     }
@@ -124,10 +223,19 @@ impl KvClient {
         key: &[u8],
         value: Vec<u8>,
     ) -> GenericResult<()> {
-        self.raw
+        let mut txn = self
+            .new_protected_transaction(TransactionOptions::new_optimistic())
+            .await?;
+        let result = txn
             .put(make_worker_data_key(namespace_id, key), value)
             .await
-            .map_err(|e| GenericError::Other(format!("worker_data_put: {:?}", e)))
+            .map_err(tikv_error_to_generic);
+        if let Err(e) = result {
+            drop(txn.rollback().await);
+            Err(e)
+        } else {
+            txn.commit().await
+        }
     }
 
     pub async fn worker_data_delete(
@@ -135,10 +243,19 @@ impl KvClient {
         namespace_id: &[u8; 16],
         key: &[u8],
     ) -> GenericResult<()> {
-        self.raw
+        let mut txn = self
+            .new_protected_transaction(TransactionOptions::new_optimistic())
+            .await?;
+        let result = txn
             .delete(make_worker_data_key(namespace_id, key))
             .await
-            .map_err(|e| GenericError::Other(format!("worker_data_delete: {:?}", e)))
+            .map_err(tikv_error_to_generic);
+        if let Err(e) = result {
+            drop(txn.rollback().await);
+            Err(e)
+        } else {
+            txn.commit().await
+        }
     }
 
     pub async fn route_mapping_delete_domain(&self, domain: &str) -> GenericResult<()> {
@@ -425,4 +542,18 @@ fn key_deref(k: &Key) -> &[u8] {
 
 fn mk_unit(_: &Key) -> () {
     ()
+}
+
+async fn txn_collector_worker(mut rx: Receiver<Transaction>) {
+    loop {
+        let mut txn = match rx.recv().await {
+            Some(x) => x,
+            None => return,
+        };
+        drop(txn.rollback().await);
+    }
+}
+
+fn tikv_error_to_generic(e: tikv_client::Error) -> GenericError {
+    GenericError::Other(format!("tikv error: {:?}", e))
 }
