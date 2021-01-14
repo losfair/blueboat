@@ -11,7 +11,7 @@ A cloud-native distributed serverless workers platform.
 - [x] Highly scalable execution engine
 - [x] Kubernetes integration
 - [x] Strongly-consistent key-value store
-- [ ] Transactional key-value store API
+- [x] Transactional key-value store API
 - [ ] Web Crypto API
 
 ## Getting started
