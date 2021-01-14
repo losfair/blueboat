@@ -13,6 +13,7 @@ A cloud-native distributed serverless workers platform.
 - [x] Strongly-consistent key-value store
 - [x] Transactional key-value store API
 - [ ] Web Crypto API
+- [ ] SQL query layer for KV store.
 
 ## Getting started
 
