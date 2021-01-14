@@ -1,4 +1,4 @@
-all: runtime cli fetchd proxy
+all: runtime cli fetchd proxy cp
 
 runtime:
 	cd librt && npm run build
@@ -13,6 +13,9 @@ fetchd:
 proxy:
 	cd rusty-workers-proxy && cargo build --release
 
+cp:
+	cd rusty-workers-cp && cargo build --release
+
 librt-deps:
 	cd librt && npm install
 
@@ -20,4 +23,4 @@ librt-deps:
 docker:
 	./build_docker.sh
 
-.PHONY: runtime cli fetchd proxy librt-deps docker
+.PHONY: runtime cli fetchd proxy cp librt-deps docker

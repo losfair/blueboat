@@ -6,6 +6,7 @@ members = [
     "rusty-workers",
     "rusty-workers-cli",
     "rusty-workers-proxy",
+    "rusty-workers-cp",
 ]
 
 [profile.release]

@@ -1,0 +1,26 @@
+[package]
+name = "rusty-workers-cp"
+version = "0.0.0"
+authors = ["losfair <zhy20000919@hotmail.com>"]
+edition = "2018"
+license = "GPL-3.0"
+description = "Control plane for rusty-workers"
+repository = "https://github.com/losfair/rusty-workers"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+thiserror = "1"
+rusty-workers = { path = "../rusty-workers" }
+structopt = "0.3"
+pretty_env_logger = "0.4"
+log = "0.4"
+futures = "0.3"
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+toml = "0.4"
+rand = "0.8"
+base64 = "0.13"
+hyper = { version = "0.14", features = ["full"] }
