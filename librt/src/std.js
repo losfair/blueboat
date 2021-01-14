@@ -362,6 +362,61 @@ class KvNamespace {
         let keyRaw = new TextEncoder().encode(key);
         await this.deleteRaw(keyRaw.buffer);
     }
+
+    /**
+     * 
+     * @param {Object} args 
+     * @param {ArrayBuffer} args.start
+     * @param {ArrayBuffer} args.startExclusive
+     * @param {ArrayBuffer} args.end
+     * @param {number} args.limit
+     */
+    scanRaw({start, startExclusive = null, end = null, limit = 1}) {
+        // Append a zero byte to startExclusive, to indicate the immediate next key.
+        if(startExclusive !== null) {
+            start = new ArrayBuffer(startExclusive.byteLength + 1);
+            new Uint8Array(start).set(new Uint8Array(startExclusive));
+        }
+        let args = end === null ? [start] : [start, end];
+        return new Promise((resolve, reject) => {
+            _callServiceWrapper({
+                Async: {
+                    KvScan: {
+                        namespace: this.name,
+                        limit: limit,
+                    }
+                }
+            }, args, (result) => {
+                if(result.Err) {
+                    reject(new Error(result.Err));
+                } else if(result.Ok.Err) {
+                    reject(new Error(result.Ok.Err));
+                } else {
+                    let keys = result.Ok.Ok.map(x => Uint8Array.from(x).buffer);
+                    resolve(keys);
+                }
+            })
+        });
+    }
+
+    /**
+     * 
+     * @param {Object} args 
+     * @param {string} args.start
+     * @param {string} args.startExclusive
+     * @param {string} args.end
+     * @param {number} args.limit
+     */
+    async scan({start = "", startExclusive = null, end = null, limit = 1}) {
+        let encoder = new TextEncoder();
+        let results = await this.scanRaw({
+            start: encoder.encode(start).buffer,
+            startExclusive: startExclusive !== null ? encoder.encode(startExclusive).buffer : null,
+            end: end !== null ? encoder.encode(end).buffer : null,
+            limit: limit,
+        });
+        return results.map(x => new TextDecoder().decode(x));
+    }
 }
 
 const kvHandler = {
