@@ -2,10 +2,10 @@ use crate::interface::{AsyncCall, AsyncCallV, JsBuffer};
 use crate::runtime::Runtime;
 use anyhow::Result;
 use rusty_v8 as v8;
+use rusty_workers::kv::WorkerDataTransaction;
 use rusty_workers::rpc::FetchServiceClient;
 use rusty_workers::tarpc;
 use rusty_workers::types::*;
-use rusty_workers::kv::WorkerDataTransaction;
 use serde::{Deserialize, Serialize};
 use slab::Slab;
 use std::sync::Arc;
@@ -199,10 +199,11 @@ impl IoProcessorSharedState {
                     .buffers
                     .get(0)
                     .ok_or_else(|| GenericError::Other("missing body".into()))?
-                    .read_to_vec(MAX_FETCH_REQUEST_BODY_SIZE) {
-                        Some(x) => x,
-                        None => return Ok(mk_user_error("fetch request body too large")?),
-                    };
+                    .read_to_vec(MAX_FETCH_REQUEST_BODY_SIZE)
+                {
+                    Some(x) => x,
+                    None => return Ok(mk_user_error("fetch request body too large")?),
+                };
                 req.body = HttpBody::Binary(body);
 
                 let mut fetch_client_locked = self.fetch_client.lock().await;
@@ -224,10 +225,11 @@ impl IoProcessorSharedState {
                     .buffers
                     .get(0)
                     .ok_or_else(|| GenericError::Other("missing key".into()))?
-                    .read_to_vec(MAX_KV_KEY_SIZE) {
-                        Some(x) => x,
-                        None => return Ok(mk_user_error("key too large")?),
-                    };
+                    .read_to_vec(MAX_KV_KEY_SIZE)
+                {
+                    Some(x) => x,
+                    None => return Ok(mk_user_error("key too large")?),
+                };
                 let namespace_id = match self.conf.kv_namespaces.get(&namespace) {
                     Some(id) => id,
                     None => return Ok(mk_user_error("namespace does not exist")?),
@@ -245,7 +247,7 @@ impl IoProcessorSharedState {
                         Some(x) => x,
                         None => return Ok(mk_user_error("kv disabled")?),
                     };
-    
+
                     kv.worker_data_get(namespace_id, &key).await?
                 };
                 Ok(mk_user_ok(result)?)
@@ -255,18 +257,20 @@ impl IoProcessorSharedState {
                     .buffers
                     .get(0)
                     .ok_or_else(|| GenericError::Other("missing key".into()))?
-                    .read_to_vec(MAX_KV_KEY_SIZE) {
-                        Some(x) => x,
-                        None => return Ok(mk_user_error("key too large")?),
-                    };
+                    .read_to_vec(MAX_KV_KEY_SIZE)
+                {
+                    Some(x) => x,
+                    None => return Ok(mk_user_error("key too large")?),
+                };
                 let value = match task
                     .buffers
                     .get(1)
                     .ok_or_else(|| GenericError::Other("missing value".into()))?
-                    .read_to_vec(MAX_KV_VALUE_SIZE) {
-                        Some(x) => x,
-                        None => return Ok(mk_user_error("value too large")?),
-                    };
+                    .read_to_vec(MAX_KV_VALUE_SIZE)
+                {
+                    Some(x) => x,
+                    None => return Ok(mk_user_error("value too large")?),
+                };
                 let namespace_id = match self.conf.kv_namespaces.get(&namespace) {
                     Some(id) => id,
                     None => return Ok(mk_user_error("namespace does not exist")?),
@@ -288,10 +292,11 @@ impl IoProcessorSharedState {
                     .buffers
                     .get(0)
                     .ok_or_else(|| GenericError::Other("missing key".into()))?
-                    .read_to_vec(MAX_KV_KEY_SIZE) {
-                        Some(x) => x,
-                        None => return Ok(mk_user_error("key too large")?),
-                    };
+                    .read_to_vec(MAX_KV_KEY_SIZE)
+                {
+                    Some(x) => x,
+                    None => return Ok(mk_user_error("key too large")?),
+                };
                 let namespace_id = match self.conf.kv_namespaces.get(&namespace) {
                     Some(id) => id,
                     None => return Ok(mk_user_error("namespace does not exist")?),
@@ -342,7 +347,7 @@ impl IoProcessorSharedState {
                         Err(e) => {
                             warn!("commit error: {:?}", e);
                             Ok(mk_user_error("commit failed")?)
-                        },
+                        }
                     }
                 } else {
                     Ok(mk_user_error("no ongoing transaction to commit")?)
