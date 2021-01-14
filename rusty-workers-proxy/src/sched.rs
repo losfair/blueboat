@@ -328,8 +328,9 @@ impl Scheduler {
                             > self.local_config.max_request_body_size_bytes as usize
                         {
                             body_error = Err(SchedError::RequestBodyTooLarge.into());
+                        } else {
+                            full_body.extend_from_slice(&x);
                         }
-                        full_body.extend_from_slice(&x);
                     }
                     Err(e) => {
                         body_error = Err(e.into());
