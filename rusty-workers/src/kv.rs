@@ -69,10 +69,44 @@ pub struct KvClient {
     txn_collector_tx: Sender<Transaction>,
 }
 
+pub struct WorkerDataTransaction {
+    protected: ProtectedTransaction,
+}
+
+impl WorkerDataTransaction {
+    pub async fn get(&self, namespace_id: &[u8; 16], key: &[u8]) -> GenericResult<Option<Vec<u8>>> {
+        self.protected.get(make_worker_data_key(namespace_id, key)).await
+            .map_err(tikv_error_to_generic)
+    }
+
+    pub async fn get_for_update(&mut self, namespace_id: &[u8; 16], key: &[u8]) -> GenericResult<Option<Vec<u8>>> {
+        self.protected.get_for_update(make_worker_data_key(namespace_id, key)).await
+            .map_err(tikv_error_to_generic)
+    }
+
+    pub async fn delete(&mut self, namespace_id: &[u8; 16], key: &[u8]) -> GenericResult<()> {
+        self.protected.delete(make_worker_data_key(namespace_id, key)).await
+            .map_err(tikv_error_to_generic)
+    }
+
+    pub async fn put(&mut self, namespace_id: &[u8; 16], key: &[u8], value: Vec<u8>) -> GenericResult<()> {
+        self.protected.put(make_worker_data_key(namespace_id, key), value).await
+            .map_err(tikv_error_to_generic)
+    }
+
+    pub async fn commit(self) -> GenericResult<()> {
+        self.protected.commit().await
+    }
+
+    pub async fn rollback(self) -> GenericResult<()> {
+        self.protected.rollback().await
+    }
+}
+
 /// A protected transaction is automatically rolled back when dropped.
 ///
 /// This is important as asynchronous tasks can be cancelled.
-pub struct ProtectedTransaction {
+struct ProtectedTransaction {
     txn: Option<Transaction>,
     txn_collector_tx: Sender<Transaction>,
 }
@@ -99,7 +133,7 @@ impl DerefMut for ProtectedTransaction {
 }
 
 impl ProtectedTransaction {
-    pub async fn commit(mut self) -> GenericResult<()> {
+    async fn commit(mut self) -> GenericResult<()> {
         let mut txn = self.txn.take().unwrap();
         txn.commit()
             .await
@@ -107,7 +141,7 @@ impl ProtectedTransaction {
             .map_err(tikv_error_to_generic)
     }
 
-    pub async fn rollback(mut self) -> GenericResult<()> {
+    async fn rollback(mut self) -> GenericResult<()> {
         let mut txn = self.txn.take().unwrap();
         txn.rollback()
             .await
@@ -256,6 +290,19 @@ impl KvClient {
         } else {
             txn.commit().await
         }
+    }
+
+    pub async fn worker_data_begin_transaction(
+        &self,
+    ) -> GenericResult<WorkerDataTransaction> {
+        // Only support pessimistic mode for now.
+        let txn = self
+            .new_protected_transaction(TransactionOptions::new_pessimistic())
+            .await?;
+
+        Ok(WorkerDataTransaction {
+            protected: txn,
+        })
     }
 
     pub async fn route_mapping_delete_domain(&self, domain: &str) -> GenericResult<()> {

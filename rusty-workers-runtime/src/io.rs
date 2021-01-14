@@ -5,12 +5,17 @@ use rusty_v8 as v8;
 use rusty_workers::rpc::FetchServiceClient;
 use rusty_workers::tarpc;
 use rusty_workers::types::*;
+use rusty_workers::kv::WorkerDataTransaction;
 use serde::{Deserialize, Serialize};
 use slab::Slab;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::sync::Mutex as AsyncMutex;
+
+const MAX_KV_KEY_SIZE: usize = 2048;
+const MAX_KV_VALUE_SIZE: usize = 4 * 1024 * 1024;
+const MAX_FETCH_REQUEST_BODY_SIZE: usize = 2 * 1024 * 1024;
 
 pub struct IoWaiter {
     remaining_budget: u32,
@@ -30,6 +35,11 @@ struct IoProcessorSharedState {
     conf: Arc<WorkerConfiguration>,
     worker_runtime: Arc<Runtime>,
     fetch_client: AsyncMutex<Option<FetchServiceClient>>,
+
+    /// The current KV transaction.
+    ///
+    /// Don't allow multiple ongoing transactions for now, to prevent DoS.
+    ongoing_txn: AsyncMutex<Option<WorkerDataTransaction>>,
 }
 
 /// An `IoScope` is a handle that a task sender holds to signal that I/O operations should
@@ -83,6 +93,7 @@ impl IoWaiter {
                 conf,
                 worker_runtime,
                 fetch_client: AsyncMutex::new(None),
+                ongoing_txn: AsyncMutex::new(None),
             }),
         };
         (waiter, processor)
@@ -184,11 +195,14 @@ impl IoProcessorSharedState {
                 Ok("null".into())
             }
             AsyncCallV::Fetch(mut req) => {
-                let body = task
+                let body = match task
                     .buffers
                     .get(0)
                     .ok_or_else(|| GenericError::Other("missing body".into()))?
-                    .read_to_vec();
+                    .read_to_vec(MAX_FETCH_REQUEST_BODY_SIZE) {
+                        Some(x) => x,
+                        None => return Ok(mk_user_error("fetch request body too large")?),
+                    };
                 req.body = HttpBody::Binary(body);
 
                 let mut fetch_client_locked = self.fetch_client.lock().await;
@@ -205,64 +219,130 @@ impl IoProcessorSharedState {
                     fetch_client.fetch(tarpc::context::current(), req).await??;
                 Ok(serde_json::to_string(&fetch_result)?)
             }
-            AsyncCallV::KvGet { namespace } => {
-                let key = task
+            AsyncCallV::KvGet { namespace, for_update } => {
+                let key = match task
                     .buffers
                     .get(0)
                     .ok_or_else(|| GenericError::Other("missing key".into()))?
-                    .read_to_vec();
+                    .read_to_vec(MAX_KV_KEY_SIZE) {
+                        Some(x) => x,
+                        None => return Ok(mk_user_error("key too large")?),
+                    };
                 let namespace_id = match self.conf.kv_namespaces.get(&namespace) {
                     Some(id) => id,
                     None => return Ok(mk_user_error("namespace does not exist")?),
                 };
-                let kv = match self.worker_runtime.kv() {
-                    Some(x) => x,
-                    None => return Ok(mk_user_error("kv disabled")?),
-                };
 
-                let result = kv.worker_data_get(namespace_id, &key).await?;
+                let result = if let Some(ref mut txn) = *self.ongoing_txn.lock().await {
+                    if for_update {
+                        txn.get_for_update(namespace_id, &key).await?
+                    } else {
+                        txn.get(namespace_id, &key).await?
+                    }
+                } else {
+                    let kv = match self.worker_runtime.kv() {
+                        Some(x) => x,
+                        None => return Ok(mk_user_error("kv disabled")?),
+                    };
+    
+                    kv.worker_data_get(namespace_id, &key).await?
+                };
                 Ok(mk_user_ok(result)?)
             }
             AsyncCallV::KvPut { namespace } => {
-                let key = task
+                let key = match task
                     .buffers
                     .get(0)
                     .ok_or_else(|| GenericError::Other("missing key".into()))?
-                    .read_to_vec();
-                let value = task
+                    .read_to_vec(MAX_KV_KEY_SIZE) {
+                        Some(x) => x,
+                        None => return Ok(mk_user_error("key too large")?),
+                    };
+                let value = match task
                     .buffers
                     .get(1)
                     .ok_or_else(|| GenericError::Other("missing value".into()))?
-                    .read_to_vec();
+                    .read_to_vec(MAX_KV_VALUE_SIZE) {
+                        Some(x) => x,
+                        None => return Ok(mk_user_error("value too large")?),
+                    };
                 let namespace_id = match self.conf.kv_namespaces.get(&namespace) {
                     Some(id) => id,
                     None => return Ok(mk_user_error("namespace does not exist")?),
                 };
-                let kv = match self.worker_runtime.kv() {
-                    Some(x) => x,
-                    None => return Ok(mk_user_error("kv disabled")?),
-                };
+                if let Some(ref mut txn) = *self.ongoing_txn.lock().await {
+                    txn.put(namespace_id, &key, value).await?;
+                } else {
+                    let kv = match self.worker_runtime.kv() {
+                        Some(x) => x,
+                        None => return Ok(mk_user_error("kv disabled")?),
+                    };
 
-                kv.worker_data_put(namespace_id, &key, value).await?;
+                    kv.worker_data_put(namespace_id, &key, value).await?;
+                }
                 Ok(mk_user_ok(())?)
             }
             AsyncCallV::KvDelete { namespace } => {
-                let key = task
+                let key = match task
                     .buffers
                     .get(0)
                     .ok_or_else(|| GenericError::Other("missing key".into()))?
-                    .read_to_vec();
+                    .read_to_vec(MAX_KV_KEY_SIZE) {
+                        Some(x) => x,
+                        None => return Ok(mk_user_error("key too large")?),
+                    };
                 let namespace_id = match self.conf.kv_namespaces.get(&namespace) {
                     Some(id) => id,
                     None => return Ok(mk_user_error("namespace does not exist")?),
                 };
+                if let Some(ref mut txn) = *self.ongoing_txn.lock().await {
+                    txn.delete(namespace_id, &key).await?
+                } else {
+                    let kv = match self.worker_runtime.kv() {
+                        Some(x) => x,
+                        None => return Ok(mk_user_error("kv disabled")?),
+                    };
+
+                    kv.worker_data_delete(namespace_id, &key).await?;
+                }
+                Ok(mk_user_ok(())?)
+            }
+            AsyncCallV::KvBeginTransaction => {
+                let mut ongoing_txn = self.ongoing_txn.lock().await;
+
+                // Don't consume txn_collector bandwidth if we can do it here.
+                if let Some(x) = ongoing_txn.take() {
+                    drop(x.rollback().await);
+                }
+
                 let kv = match self.worker_runtime.kv() {
                     Some(x) => x,
                     None => return Ok(mk_user_error("kv disabled")?),
                 };
 
-                kv.worker_data_delete(namespace_id, &key).await?;
+                let txn = kv.worker_data_begin_transaction().await?;
+                *ongoing_txn = Some(txn);
                 Ok(mk_user_ok(())?)
+            }
+            AsyncCallV::KvRollbackTransaction => {
+                let mut ongoing_txn = self.ongoing_txn.lock().await;
+                if let Some(x) = ongoing_txn.take() {
+                    drop(x.rollback().await);
+                    Ok(mk_user_ok(())?)
+                } else {
+                    Ok(mk_user_error("no ongoing transaction to rollback")?)
+                }
+            }
+            AsyncCallV::KvCommitTransation => {
+                let mut ongoing_txn = self.ongoing_txn.lock().await;
+                if let Some(x) = ongoing_txn.take() {
+                    match x.commit().await {
+                        Ok(_) => Ok(mk_user_ok(())?),
+                        Err(_) => Ok(mk_user_error("commit failed")?),
+                    }
+                } else {
+                    Ok(mk_user_error("no ongoing transaction to commit")?)
+                }
             }
         }
     }

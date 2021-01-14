@@ -28,9 +28,12 @@ pub struct AsyncCall {
 pub enum AsyncCallV {
     SetTimeout(u64),
     Fetch(RequestObject),
-    KvGet { namespace: String },
+    KvGet { namespace: String, #[serde(default)] for_update: bool },
     KvPut { namespace: String },
     KvDelete { namespace: String },
+    KvBeginTransaction,
+    KvRollbackTransaction,
+    KvCommitTransation,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -44,15 +47,18 @@ pub struct FetchEvent {
 }
 
 pub trait JsBuffer {
-    fn read_to_vec(&self) -> Vec<u8>;
+    fn read_to_vec(&self, max_length: usize) -> Option<Vec<u8>>;
 }
 
 impl JsBuffer for v8::SharedRef<v8::BackingStore> {
-    fn read_to_vec(&self) -> Vec<u8> {
+    fn read_to_vec(&self, max_length: usize) -> Option<Vec<u8>> {
         let source: &[Cell<u8>] = self;
+        if source.len() > max_length {
+            return None;
+        }
         let mut buf = Vec::with_capacity(source.len());
         buf.extend(source.iter().map(|x| x.get()));
-        buf
+        Some(buf)
     }
 }
 

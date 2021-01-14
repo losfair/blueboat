@@ -16,6 +16,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+const MAX_RESPONSE_BODY_SIZE: usize = 8 * 1024 * 1024;
+
 pub struct Instance {
     state: Option<InstanceState>,
 }
@@ -668,7 +670,13 @@ fn call_service_callback(
                                     Some("SendFetchResponse: missing buffer".into()),
                                 )
                             })?
-                            .read_to_vec();
+                            .read_to_vec(MAX_RESPONSE_BODY_SIZE)
+                            .ok_or_else(|| {
+                                JsError::new(
+                                    JsErrorKind::Error,
+                                    Some("SendFetchResponse: body too large".into()),
+                                )
+                            })?;
                         res.body = HttpBody::Binary(body);
                         InstanceState::try_send_fetch_response(scope, Ok(res));
                     }
