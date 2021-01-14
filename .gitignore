@@ -1,2 +1,4 @@
 /target/
-/playground/
+/playground/tikv*
+/playground/pd*
+/playground/webroot
