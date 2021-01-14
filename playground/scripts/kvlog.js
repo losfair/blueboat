@@ -27,7 +27,7 @@ async function handleRequest(req) {
             let limit = n - i > batchSize ? batchSize : n - i;
             let keys = await kv.test.scan({
                 start: last ? "" : t,
-                startExclusive: last ? last : "",
+                startExclusive: last ? last : null,
                 end: now,
                 limit: limit,
             });
