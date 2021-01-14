@@ -219,7 +219,7 @@ impl IoProcessorSharedState {
                     fetch_client.fetch(tarpc::context::current(), req).await??;
                 Ok(serde_json::to_string(&fetch_result)?)
             }
-            AsyncCallV::KvGet { namespace, for_update } => {
+            AsyncCallV::KvGet { namespace, lock } => {
                 let key = match task
                     .buffers
                     .get(0)
@@ -234,11 +234,12 @@ impl IoProcessorSharedState {
                 };
 
                 let result = if let Some(ref mut txn) = *self.ongoing_txn.lock().await {
-                    if for_update {
-                        txn.get_for_update(namespace_id, &key).await?
-                    } else {
-                        txn.get(namespace_id, &key).await?
+                    if lock {
+                        if txn.lock_key(namespace_id, &key).await? == false {
+                            return Ok(mk_user_error("too many locks in this transaction")?);
+                        }
                     }
+                    txn.get(namespace_id, &key).await?
                 } else {
                     let kv = match self.worker_runtime.kv() {
                         Some(x) => x,
@@ -333,12 +334,15 @@ impl IoProcessorSharedState {
                     Ok(mk_user_error("no ongoing transaction to rollback")?)
                 }
             }
-            AsyncCallV::KvCommitTransation => {
+            AsyncCallV::KvCommitTransaction => {
                 let mut ongoing_txn = self.ongoing_txn.lock().await;
                 if let Some(x) = ongoing_txn.take() {
                     match x.commit().await {
-                        Ok(_) => Ok(mk_user_ok(())?),
-                        Err(_) => Ok(mk_user_error("commit failed")?),
+                        Ok(committed) => Ok(mk_user_ok(committed)?),
+                        Err(e) => {
+                            warn!("commit error: {:?}", e);
+                            Ok(mk_user_error("commit failed")?)
+                        },
                     }
                 } else {
                     Ok(mk_user_error("no ongoing transaction to commit")?)

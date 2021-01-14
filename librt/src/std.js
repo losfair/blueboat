@@ -251,14 +251,16 @@ class KvNamespace {
 
     /**
      * @param {ArrayBuffer} key
+     * @param {boolean} lock
      * @returns {Promise<ArrayBuffer>}
      */
-    getRaw(key) {
+    getRaw(key, lock = false) {
         return new Promise((resolve, reject) => {
             _callServiceWrapper({
                 Async: {
                     KvGet: {
                         namespace: this.name,
+                        lock: lock,
                     }
                 }
             }, [key], (result) => {
@@ -279,11 +281,12 @@ class KvNamespace {
 
     /**
      * @param {string} key
+     * @param {boolean} lock
      * @returns {Promise<string>}
      */
-    async get(key) {
+    async get(key, lock = false) {
         let keyRaw = new TextEncoder().encode(key);
-        let buf = await this.getRaw(keyRaw.buffer);
+        let buf = await this.getRaw(keyRaw.buffer, lock);
         if(buf !== null) {
             return new TextDecoder().decode(buf);
         } else {
@@ -363,11 +366,66 @@ class KvNamespace {
 
 const kvHandler = {
     get: function(target, prop, receiver) {
-        return new KvNamespace(prop);
+        if(prop in target) {
+            return target[prop];
+        } else {
+            return new KvNamespace(prop);
+        }
     }
 }
 
-export const kv = new Proxy({}, kvHandler);
+export const kv = new Proxy({
+    beginTransaction() {
+        return new Promise((resolve, reject) => {
+            _callServiceWrapper({
+                Async: "KvBeginTransaction",
+            }, [], (result) => {
+                if(result.Err) {
+                    reject(new Error(result.Err));
+                } else if(result.Ok.Err) {
+                    reject(new Error(result.Ok.Err));
+                } else {
+                    resolve();
+                }
+            })
+        });
+    },
+
+    /**
+     * @returns {Promise<bool>}
+     */
+    commit() {
+        return new Promise((resolve, reject) => {
+            _callServiceWrapper({
+                Async: "KvCommitTransaction",
+            }, [], (result) => {
+                if(result.Err) {
+                    reject(new Error(result.Err));
+                } else if(result.Ok.Err) {
+                    reject(new Error(result.Ok.Err));
+                } else {
+                    resolve(result.Ok.Ok);
+                }
+            })
+        });
+    },
+
+    rollback() {
+        return new Promise((resolve, reject) => {
+            _callServiceWrapper({
+                Async: "KvRollbackTransaction",
+            }, [], (result) => {
+                if(result.Err) {
+                    reject(new Error(result.Err));
+                } else if(result.Ok.Err) {
+                    reject(new Error(result.Ok.Err));
+                } else {
+                    resolve();
+                }
+            })
+        });
+    }
+}, kvHandler);
 
 export const console = new Console();
 export const Request = workerFetch.Request;

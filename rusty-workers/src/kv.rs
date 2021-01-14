@@ -1,9 +1,11 @@
 use crate::types::*;
 use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
-use std::time::SystemTime;
+use std::time::{SystemTime, Instant};
 use tikv_client::{CheckLevel, Key, KvPair, Transaction, TransactionOptions};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::Semaphore;
+use std::sync::Arc;
 
 macro_rules! impl_scan_prefix {
     ($name:ident, $cb_value_ty:ty, $scan_func:ident, $deref_key:ident, $deref_value:ident) => {
@@ -63,6 +65,8 @@ pub static PREFIX_ROUTE_MAPPING_V1: &'static [u8] = b"V1\x00ROUTEMAP\x00";
 
 pub static PREFIX_LOG_V1: &'static [u8] = b"V1\x00LOG\x00";
 
+const MAX_LOCKS_PER_WORKER_DATA_TRANSACTION: usize = 256;
+
 pub struct KvClient {
     raw: tikv_client::RawClient,
     transactional: tikv_client::TransactionClient,
@@ -71,6 +75,7 @@ pub struct KvClient {
 
 pub struct WorkerDataTransaction {
     protected: ProtectedTransaction,
+    num_locks: usize,
 }
 
 impl WorkerDataTransaction {
@@ -79,9 +84,18 @@ impl WorkerDataTransaction {
             .map_err(tikv_error_to_generic)
     }
 
-    pub async fn get_for_update(&mut self, namespace_id: &[u8; 16], key: &[u8]) -> GenericResult<Option<Vec<u8>>> {
-        self.protected.get_for_update(make_worker_data_key(namespace_id, key)).await
+    pub async fn lock_key(&mut self, namespace_id: &[u8; 16], key: &[u8]) -> GenericResult<bool> {
+        // Limit total number of locks per transaction.
+        if self.num_locks >= MAX_LOCKS_PER_WORKER_DATA_TRANSACTION {
+            return Ok(false);
+        }
+
+        self.protected.lock_keys(std::iter::once(make_worker_data_key(namespace_id, key))).await
             .map_err(tikv_error_to_generic)
+            .map(|_| {
+                self.num_locks += 1;
+                true
+            })
     }
 
     pub async fn delete(&mut self, namespace_id: &[u8; 16], key: &[u8]) -> GenericResult<()> {
@@ -94,7 +108,7 @@ impl WorkerDataTransaction {
             .map_err(tikv_error_to_generic)
     }
 
-    pub async fn commit(self) -> GenericResult<()> {
+    pub async fn commit(self) -> GenericResult<bool> {
         self.protected.commit().await
     }
 
@@ -133,12 +147,19 @@ impl DerefMut for ProtectedTransaction {
 }
 
 impl ProtectedTransaction {
-    async fn commit(mut self) -> GenericResult<()> {
+    async fn commit(mut self) -> GenericResult<bool> {
         let mut txn = self.txn.take().unwrap();
         txn.commit()
             .await
-            .map(|_| ())
-            .map_err(tikv_error_to_generic)
+            .map(|_| true)
+            .or_else(|e| {
+                match e {
+                    tikv_client::Error::KeyError(e) if e.conflict.is_some() => {
+                        Ok(false)
+                    }
+                    e => Err(tikv_error_to_generic(e))
+                }
+            })
     }
 
     async fn rollback(mut self) -> GenericResult<()> {
@@ -268,7 +289,7 @@ impl KvClient {
             drop(txn.rollback().await);
             Err(e)
         } else {
-            txn.commit().await
+            txn.commit().await.map(|_| ()) // TODO: conflicts?
         }
     }
 
@@ -288,20 +309,21 @@ impl KvClient {
             drop(txn.rollback().await);
             Err(e)
         } else {
-            txn.commit().await
+            txn.commit().await.map(|_| ()) // TODO: conflicts?
         }
     }
 
     pub async fn worker_data_begin_transaction(
         &self,
     ) -> GenericResult<WorkerDataTransaction> {
-        // Only support pessimistic mode for now.
+        // Only support optimistic mode for now.
         let txn = self
-            .new_protected_transaction(TransactionOptions::new_pessimistic())
+            .new_protected_transaction(TransactionOptions::new_optimistic())
             .await?;
 
         Ok(WorkerDataTransaction {
             protected: txn,
+            num_locks: 0,
         })
     }
 
@@ -592,12 +614,24 @@ fn mk_unit(_: &Key) -> () {
 }
 
 async fn txn_collector_worker(mut rx: Receiver<Transaction>) {
+    // Concurrency control: Don't blow up.
+    let sem = Arc::new(Semaphore::new(8));
+
     loop {
         let mut txn = match rx.recv().await {
             Some(x) => x,
             None => return,
         };
-        drop(txn.rollback().await);
+        let permit = sem.clone().acquire_owned();
+        tokio::spawn(async move {
+            // Guard
+            let _permit = permit;
+
+            let start_time = Instant::now();
+            let res = txn.rollback().await;
+            let end_time = Instant::now();
+            debug!("rolled back dropped transaction in {:?}: {:?}", end_time.duration_since(start_time), res);
+        });
     }
 }
 

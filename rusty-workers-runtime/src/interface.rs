@@ -28,12 +28,12 @@ pub struct AsyncCall {
 pub enum AsyncCallV {
     SetTimeout(u64),
     Fetch(RequestObject),
-    KvGet { namespace: String, #[serde(default)] for_update: bool },
+    KvGet { namespace: String, lock: bool },
     KvPut { namespace: String },
     KvDelete { namespace: String },
     KvBeginTransaction,
     KvRollbackTransaction,
-    KvCommitTransation,
+    KvCommitTransaction,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
