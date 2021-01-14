@@ -132,6 +132,7 @@ impl WorkerDataTransaction {
         end: Option<&[u8]>,
         limit: u32,
     ) -> GenericResult<Vec<Vec<u8>>> {
+        let prefix = worker_data_key_prefix(namespace_id);
         let start = make_worker_data_key(namespace_id, start);
         let end = end.map(|x| make_worker_data_key(namespace_id, x));
         let range: BoundRange = if let Some(end) = end {
@@ -142,7 +143,7 @@ impl WorkerDataTransaction {
         self.protected.scan_keys(range, limit)
             .await
             .map_err(tikv_error_to_generic)
-            .map(|x| x.map(|x| x.into()).collect())
+            .map(|x| x.map(|x| Vec::from(x)[prefix.len()..].to_vec()).collect())
     }
 
     pub async fn commit(self) -> GenericResult<bool> {
@@ -335,6 +336,7 @@ impl KvClient {
             .begin_with_options(TransactionOptions::new_optimistic().read_only())
             .await
             .map_err(tikv_error_to_generic)?;
+        let prefix = worker_data_key_prefix(namespace_id);
         let start = make_worker_data_key(namespace_id, start);
         let end = end.map(|x| make_worker_data_key(namespace_id, x));
         let range: BoundRange = if let Some(end) = end {
@@ -345,7 +347,7 @@ impl KvClient {
         txn.scan_keys(range, limit)
             .await
             .map_err(tikv_error_to_generic)
-            .map(|x| x.map(|x| x.into()).collect())
+            .map(|x| x.map(|x| Vec::from(x)[prefix.len()..].to_vec()).collect())
     }
 
     pub async fn worker_data_delete(
@@ -636,6 +638,10 @@ impl KvClient {
 fn make_time_str(time: SystemTime) -> String {
     let time = chrono::DateTime::<chrono::Utc>::from(time);
     format!("{}", time.format("%Y-%m-%dT%H:%M:%S%.6f"))
+}
+
+fn worker_data_key_prefix(namespace_id: &[u8; 16]) -> Vec<u8> {
+    join_slices(&[PREFIX_WORKER_DATA_V2, namespace_id, b"\x00"])
 }
 
 fn make_worker_data_key(namespace_id: &[u8; 16], key: &[u8]) -> Vec<u8> {
