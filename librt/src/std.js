@@ -370,6 +370,7 @@ class KvNamespace {
      * @param {ArrayBuffer} args.startExclusive
      * @param {ArrayBuffer} args.end
      * @param {number} args.limit
+     * @returns {Promise<ArrayBuffer[]>}
      */
     scanRaw({start, startExclusive = null, end = null, limit = 1}) {
         // Append a zero byte to startExclusive, to indicate the immediate next key.
@@ -406,6 +407,7 @@ class KvNamespace {
      * @param {string} args.startExclusive
      * @param {string} args.end
      * @param {number} args.limit
+     * @returns {Promise<string[]>}
      */
     async scan({start = "", startExclusive = null, end = null, limit = 1}) {
         let encoder = new TextEncoder();
