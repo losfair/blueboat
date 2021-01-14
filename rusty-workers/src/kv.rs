@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
-use tikv_client::{CheckLevel, Key, KvPair, Transaction, TransactionOptions};
+use tikv_client::{CheckLevel, Key, KvPair, Transaction, TransactionOptions, BoundRange};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Semaphore;
 
@@ -119,6 +119,30 @@ impl WorkerDataTransaction {
             .put(make_worker_data_key(namespace_id, key), value)
             .await
             .map_err(tikv_error_to_generic)
+    }
+
+    /// Scans keys from `start` to `end`.
+    ///
+    /// We only provide `scan_keys` but not `scan` because values can be large and I don't want to deal
+    /// with the complexity there.
+    pub async fn scan_keys(
+        &mut self,
+        namespace_id: &[u8; 16],
+        start: &[u8],
+        end: Option<&[u8]>,
+        limit: u32,
+    ) -> GenericResult<Vec<Vec<u8>>> {
+        let start = make_worker_data_key(namespace_id, start);
+        let end = end.map(|x| make_worker_data_key(namespace_id, x));
+        let range: BoundRange = if let Some(end) = end {
+            (start..end).into()
+        } else {
+            (start..).into()
+        };
+        self.protected.scan_keys(range, limit)
+            .await
+            .map_err(tikv_error_to_generic)
+            .map(|x| x.map(|x| x.into()).collect())
     }
 
     pub async fn commit(self) -> GenericResult<bool> {
@@ -297,6 +321,31 @@ impl KvClient {
         } else {
             txn.commit().await.map(|_| ()) // TODO: conflicts?
         }
+    }
+
+    pub async fn worker_data_scan_keys(
+        &self,
+        namespace_id: &[u8; 16],
+        start: &[u8],
+        end: Option<&[u8]>,
+        limit: u32,
+    ) -> GenericResult<Vec<Vec<u8>>> {
+        let txn = self
+            .transactional
+            .begin_with_options(TransactionOptions::new_optimistic().read_only())
+            .await
+            .map_err(tikv_error_to_generic)?;
+        let start = make_worker_data_key(namespace_id, start);
+        let end = end.map(|x| make_worker_data_key(namespace_id, x));
+        let range: BoundRange = if let Some(end) = end {
+            (start..end).into()
+        } else {
+            (start..).into()
+        };
+        txn.scan_keys(range, limit)
+            .await
+            .map_err(tikv_error_to_generic)
+            .map(|x| x.map(|x| x.into()).collect())
     }
 
     pub async fn worker_data_delete(

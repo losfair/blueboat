@@ -31,6 +31,7 @@ pub enum AsyncCallV {
     KvGet { namespace: String, lock: bool },
     KvPut { namespace: String },
     KvDelete { namespace: String },
+    KvScan { namespace: String, limit: u32 },
     KvBeginTransaction,
     KvRollbackTransaction,
     KvCommitTransaction,

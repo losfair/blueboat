@@ -16,6 +16,7 @@ use tokio::sync::Mutex as AsyncMutex;
 const MAX_KV_KEY_SIZE: usize = 2048;
 const MAX_KV_VALUE_SIZE: usize = 4 * 1024 * 1024;
 const MAX_FETCH_REQUEST_BODY_SIZE: usize = 2 * 1024 * 1024;
+const MAX_KV_SCAN_LIMIT: u32 = 100; // 100 * 2K = 200K max
 
 pub struct IoWaiter {
     remaining_budget: u32,
@@ -312,6 +313,44 @@ impl IoProcessorSharedState {
                     kv.worker_data_delete(namespace_id, &key).await?;
                 }
                 Ok(mk_user_ok(())?)
+            }
+            AsyncCallV::KvScan { namespace, limit } => {
+                let start_key = match task
+                    .buffers
+                    .get(0)
+                    .ok_or_else(|| GenericError::Other("missing start key".into()))?
+                    .read_to_vec(MAX_KV_KEY_SIZE)
+                {
+                    Some(x) => x,
+                    None => return Ok(mk_user_error("start_key too large")?),
+                };
+                let end_key = match task
+                    .buffers
+                    .get(1)
+                    .map(|x| x.read_to_vec(MAX_KV_KEY_SIZE))
+                {
+                    Some(Some(x)) => Some(x),
+                    Some(None) => return Ok(mk_user_error("end_key too large")?),
+                    None => None,
+                };
+                let namespace_id = match self.conf.kv_namespaces.get(&namespace) {
+                    Some(id) => id,
+                    None => return Ok(mk_user_error("namespace does not exist")?),
+                };
+                if limit > MAX_KV_SCAN_LIMIT {
+                    return Ok(mk_user_error("limit is greater than MAX_KV_SCAN_LIMIT")?);
+                }
+
+                let keys = if let Some(ref mut txn) = *self.ongoing_txn.lock().await {
+                    txn.scan_keys(namespace_id, &start_key, end_key.as_deref(), limit).await?
+                } else {
+                    let kv = match self.worker_runtime.kv() {
+                        Some(x) => x,
+                        None => return Ok(mk_user_error("kv disabled")?),
+                    };
+                    kv.worker_data_scan_keys(namespace_id, &start_key, end_key.as_deref(), limit).await?
+                };
+                Ok(mk_user_ok(keys)?)
             }
             AsyncCallV::KvBeginTransaction => {
                 let mut ongoing_txn = self.ongoing_txn.lock().await;
