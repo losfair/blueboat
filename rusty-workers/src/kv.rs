@@ -269,11 +269,6 @@ impl KvClient {
     impl_scan_prefix!(scan_prefix, &[u8], scan, kvp_deref_key, kvp_deref_value);
     impl_scan_prefix!(scan_prefix_keys, (), scan_keys, key_deref, mk_unit);
 
-    pub async fn worker_data_delete_namespace(&self, namespace_id: &[u8; 16]) -> GenericResult<()> {
-        let prefix = join_slices(&[PREFIX_WORKER_DATA_V2, namespace_id, b"\x00"]);
-        self.delete_prefix(&prefix).await
-    }
-
     pub async fn worker_data_get(
         &self,
         namespace_id: &[u8; 16],

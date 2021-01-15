@@ -139,7 +139,11 @@ enum AppCmd {
         base64_key: bool,
     },
     #[structopt(name = "delete-worker-data-namespace")]
-    DeleteWorkerDataNamespace { namespace: String },
+    DeleteWorkerDataNamespace {
+        namespace: String,
+        #[structopt(long)]
+        batch_size: u32,
+    },
     #[structopt(name = "logs")]
     Logs {
         appid: String,
@@ -454,11 +458,14 @@ async fn main() -> Result<()> {
                     client.worker_data_delete(&namespace, &key).await?;
                     println!("OK");
                 }
-                AppCmd::DeleteWorkerDataNamespace { namespace } => {
+                AppCmd::DeleteWorkerDataNamespace { namespace, batch_size } => {
                     let namespace = rusty_workers::app::decode_id128(&namespace)
                         .ok_or_else(|| CliError::BadId128)?;
-                    client.worker_data_delete_namespace(&namespace).await?;
-                    println!("OK");
+                    let keys = client.worker_data_scan_keys(&namespace, b"", None, batch_size).await?;
+                    for k in keys.iter() {
+                        client.worker_data_delete(&namespace, k).await?;
+                    }
+                    println!("{}", keys.len());
                 }
                 AppCmd::Logs { appid, since } => {
                     let now = SystemTime::now();
