@@ -269,16 +269,6 @@ impl KvClient {
     impl_scan_prefix!(scan_prefix, &[u8], scan, kvp_deref_key, kvp_deref_value);
     impl_scan_prefix!(scan_prefix_keys, (), scan_keys, key_deref, mk_unit);
 
-    pub async fn worker_data_for_each_key_in_namespace(
-        &self,
-        namespace_id: &[u8; 16],
-        mut callback: impl FnMut(&[u8]) -> bool,
-    ) -> GenericResult<()> {
-        let prefix = join_slices(&[PREFIX_WORKER_DATA_V2, namespace_id, b"\x00"]);
-        self.scan_prefix_keys(&prefix, |k, ()| callback(k)).await?;
-        Ok(())
-    }
-
     pub async fn worker_data_delete_namespace(&self, namespace_id: &[u8; 16]) -> GenericResult<()> {
         let prefix = join_slices(&[PREFIX_WORKER_DATA_V2, namespace_id, b"\x00"]);
         self.delete_prefix(&prefix).await
@@ -338,13 +328,9 @@ impl KvClient {
             .map_err(tikv_error_to_generic)?;
         let prefix = worker_data_key_prefix(namespace_id);
         let start = make_worker_data_key(namespace_id, start);
-        let end = end.map(|x| make_worker_data_key(namespace_id, x));
-        let range: BoundRange = if let Some(end) = end {
-            (start..end).into()
-        } else {
-            (start..).into()
-        };
-        txn.scan_keys(range, limit)
+        let end = end.map(|x| make_worker_data_key(namespace_id, x))
+            .unwrap_or_else(|| join_slices(&[PREFIX_WORKER_DATA_V2, namespace_id, b"\x01"]));
+        txn.scan_keys(start..end, limit)
             .await
             .map_err(tikv_error_to_generic)
             .map(|x| x.map(|x| Vec::from(x)[prefix.len()..].to_vec()).collect())
