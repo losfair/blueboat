@@ -383,14 +383,19 @@ async fn main() -> Result<()> {
                         base64::decode(&from)?
                     };
 
-                    let keys = client.worker_data_scan_keys(&namespace, &from, None, limit).await?;
-                    let keys: Vec<Option<String>> = keys.into_iter().map(|k| {
-                        if !base64_key {
-                            String::from_utf8(k).ok()
-                        } else {
-                            Some(base64::encode(&k))
-                        }
-                    }).collect();
+                    let keys = client
+                        .worker_data_scan_keys(&namespace, &from, None, limit)
+                        .await?;
+                    let keys: Vec<Option<String>> = keys
+                        .into_iter()
+                        .map(|k| {
+                            if !base64_key {
+                                String::from_utf8(k).ok()
+                            } else {
+                                Some(base64::encode(&k))
+                            }
+                        })
+                        .collect();
                     let serialized = serde_json::to_string(&keys)?;
                     println!("{}", serialized);
                 }
@@ -458,10 +463,15 @@ async fn main() -> Result<()> {
                     client.worker_data_delete(&namespace, &key).await?;
                     println!("OK");
                 }
-                AppCmd::DeleteWorkerDataNamespace { namespace, batch_size } => {
+                AppCmd::DeleteWorkerDataNamespace {
+                    namespace,
+                    batch_size,
+                } => {
                     let namespace = rusty_workers::app::decode_id128(&namespace)
                         .ok_or_else(|| CliError::BadId128)?;
-                    let keys = client.worker_data_scan_keys(&namespace, b"", None, batch_size).await?;
+                    let keys = client
+                        .worker_data_scan_keys(&namespace, b"", None, batch_size)
+                        .await?;
                     for k in keys.iter() {
                         client.worker_data_delete(&namespace, k).await?;
                     }

@@ -324,11 +324,7 @@ impl IoProcessorSharedState {
                     Some(x) => x,
                     None => return Ok(mk_user_error("start_key too large")?),
                 };
-                let end_key = match task
-                    .buffers
-                    .get(1)
-                    .map(|x| x.read_to_vec(MAX_KV_KEY_SIZE))
-                {
+                let end_key = match task.buffers.get(1).map(|x| x.read_to_vec(MAX_KV_KEY_SIZE)) {
                     Some(Some(x)) => Some(x),
                     Some(None) => return Ok(mk_user_error("end_key too large")?),
                     None => None,
@@ -342,13 +338,15 @@ impl IoProcessorSharedState {
                 }
 
                 let keys = if let Some(ref mut txn) = *self.ongoing_txn.lock().await {
-                    txn.scan_keys(namespace_id, &start_key, end_key.as_deref(), limit).await?
+                    txn.scan_keys(namespace_id, &start_key, end_key.as_deref(), limit)
+                        .await?
                 } else {
                     let kv = match self.worker_runtime.kv() {
                         Some(x) => x,
                         None => return Ok(mk_user_error("kv disabled")?),
                     };
-                    kv.worker_data_scan_keys(namespace_id, &start_key, end_key.as_deref(), limit).await?
+                    kv.worker_data_scan_keys(namespace_id, &start_key, end_key.as_deref(), limit)
+                        .await?
                 };
                 Ok(mk_user_ok(keys)?)
             }

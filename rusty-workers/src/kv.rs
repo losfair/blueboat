@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
-use tikv_client::{CheckLevel, Key, KvPair, Transaction, TransactionOptions, BoundRange};
+use tikv_client::{BoundRange, CheckLevel, Key, KvPair, Transaction, TransactionOptions};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Semaphore;
 
@@ -140,7 +140,8 @@ impl WorkerDataTransaction {
         } else {
             (start..).into()
         };
-        self.protected.scan_keys(range, limit)
+        self.protected
+            .scan_keys(range, limit)
             .await
             .map_err(tikv_error_to_generic)
             .map(|x| x.map(|x| Vec::from(x)[prefix.len()..].to_vec()).collect())
@@ -323,7 +324,8 @@ impl KvClient {
             .map_err(tikv_error_to_generic)?;
         let prefix = worker_data_key_prefix(namespace_id);
         let start = make_worker_data_key(namespace_id, start);
-        let end = end.map(|x| make_worker_data_key(namespace_id, x))
+        let end = end
+            .map(|x| make_worker_data_key(namespace_id, x))
             .unwrap_or_else(|| join_slices(&[PREFIX_WORKER_DATA_V2, namespace_id, b"\x01"]));
         txn.scan_keys(start..end, limit)
             .await
