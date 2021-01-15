@@ -102,6 +102,10 @@ enum AppCmd {
     ListWorkerData {
         namespace: String,
         #[structopt(long)]
+        from: String,
+        #[structopt(long)]
+        limit: u32,
+        #[structopt(long)]
         base64_key: bool,
     },
     #[structopt(name = "get-worker-data")]
@@ -363,31 +367,28 @@ async fn main() -> Result<()> {
                 }
                 AppCmd::ListWorkerData {
                     namespace,
+                    from,
+                    limit,
                     base64_key,
                 } => {
                     let namespace = rusty_workers::app::decode_id128(&namespace)
                         .ok_or_else(|| CliError::BadId128)?;
-                    print!("[");
-                    let mut first = true;
-                    client
-                        .worker_data_for_each_key_in_namespace(&namespace, |k| {
-                            if first {
-                                first = false;
-                            } else {
-                                print!(",");
-                            }
-                            if !base64_key {
-                                print!(
-                                    "{}",
-                                    serde_json::to_string(&std::str::from_utf8(&k).ok()).unwrap()
-                                );
-                            } else {
-                                print!("{}", serde_json::to_string(&base64::encode(k)).unwrap());
-                            }
-                            true
-                        })
-                        .await?;
-                    println!("]");
+                    let from = if !base64_key {
+                        Vec::from(from)
+                    } else {
+                        base64::decode(&from)?
+                    };
+
+                    let keys = client.worker_data_scan_keys(&namespace, &from, None, limit).await?;
+                    let keys: Vec<Option<String>> = keys.into_iter().map(|k| {
+                        if !base64_key {
+                            String::from_utf8(k).ok()
+                        } else {
+                            Some(base64::encode(&k))
+                        }
+                    }).collect();
+                    let serialized = serde_json::to_string(&keys)?;
+                    println!("{}", serialized);
                 }
                 AppCmd::GetWorkerData {
                     namespace,
