@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use slab::Slab;
 use std::cell::Cell;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::oneshot;
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -220,7 +220,12 @@ impl IoProcessor {
 }
 
 impl IoProcessorSharedState {
+    /// FIXME: High latency (~100 microseconds, 1.5KiB allocation).
+    ///
+    /// ~20 microseconds are spent by RemoteBufferSet::allocate and the rest is inter-thread overhead.
     async fn allocate_arraybuffer(&self, len: usize) -> GenericResult<RemoteBuffer> {
+        let start_time = Instant::now();
+
         let (tx, rx) = oneshot::channel();
         drop(self.result.send(BackToExecutorItem::BufferCreation {
             size: len,
@@ -228,10 +233,28 @@ impl IoProcessorSharedState {
         }));
 
         match rx.await {
-            Ok(Some(buf)) => Ok(buf),
+            Ok(Some(buf)) => {
+                let end_time = Instant::now();
+                debug!(
+                    "remote arraybuffer of size {} allocated in {:?}",
+                    len,
+                    end_time.duration_since(start_time)
+                );
+                Ok(buf)
+            }
             Ok(None) => Err(GenericError::Execution(ExecutionError::MemoryLimitExceeded)),
             Err(_) => Err(GenericError::Execution(ExecutionError::IoTimeout)), // Sender dropped
         }
+    }
+
+    async fn allocate_arraybuffer_with_data(&self, data: &[u8]) -> GenericResult<RemoteBuffer> {
+        self.allocate_arraybuffer(data.len()).await.map(|x| {
+            let view: &[Cell<u8>] = x.backing();
+            for (i, b) in view.iter().enumerate() {
+                b.set(data[i]);
+            }
+            x
+        })
     }
 
     async fn handle_task(self: Arc<Self>, task: AsyncCall) -> Result<(String, Vec<RemoteBuffer>)> {
@@ -267,17 +290,11 @@ impl IoProcessorSharedState {
                     fetch_client.fetch(tarpc::context::current(), req).await??;
                 let buffers = if let Ok(ref mut v) = fetch_result {
                     match v.body {
-                        HttpBody::Binary(ref mut body) if body.len() > 0 => {
-                            // Large body
-                            let buf = self.allocate_arraybuffer(body.len()).await?;
-                            let backing: &[Cell<u8>] = buf.backing();
-                            for (i, b) in backing.iter().enumerate() {
-                                b.set(body[i]);
-                            }
+                        HttpBody::Binary(ref mut body) => {
+                            let buf = self.allocate_arraybuffer_with_data(&body).await?;
                             *body = vec![];
                             vec![buf]
                         }
-                        _ => vec![],
                     }
                 } else {
                     vec![]
@@ -318,7 +335,14 @@ impl IoProcessorSharedState {
 
                     kv.worker_data_get(namespace_id, &key).await?
                 };
-                Ok(mk_user_ok(result)?)
+                if let Some(r) = result {
+                    Ok(mk_user_ok_with_buffers(
+                        true,
+                        vec![self.allocate_arraybuffer_with_data(&r).await?],
+                    )?)
+                } else {
+                    Ok(mk_user_ok(false)?)
+                }
             }
             AsyncCallV::KvPut { namespace } => {
                 let key = match task
@@ -430,7 +454,12 @@ impl IoProcessorSharedState {
                     kv.worker_data_scan_keys(namespace_id, &start_key, end_key.as_deref(), limit)
                         .await?
                 };
-                Ok(mk_user_ok(keys)?)
+                let keys: GenericResult<_> = futures::future::try_join_all(
+                    keys.iter().map(|x| self.allocate_arraybuffer_with_data(x)),
+                )
+                .await;
+
+                Ok(mk_user_ok_with_buffers(&(), keys?)?)
             }
             AsyncCallV::KvBeginTransaction => {
                 let mut ongoing_txn = self.ongoing_txn.lock().await;
@@ -486,8 +515,15 @@ impl IoResponseHandle {
 }
 
 fn mk_user_ok<T: serde::Serialize>(value: T) -> Result<(String, Vec<RemoteBuffer>)> {
+    mk_user_ok_with_buffers(value, vec![])
+}
+
+fn mk_user_ok_with_buffers<T: serde::Serialize>(
+    value: T,
+    buffers: Vec<RemoteBuffer>,
+) -> Result<(String, Vec<RemoteBuffer>)> {
     let value: Result<T, ()> = Ok(value);
-    Ok((serde_json::to_string(&value)?, vec![]))
+    Ok((serde_json::to_string(&value)?, buffers))
 }
 
 fn mk_user_error<T: serde::Serialize>(value: T) -> Result<(String, Vec<RemoteBuffer>)> {
