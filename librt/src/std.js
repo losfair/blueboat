@@ -370,9 +370,10 @@ class KvNamespace {
      * @param {ArrayBuffer} args.startExclusive
      * @param {ArrayBuffer} args.end
      * @param {number} args.limit
+     * @param {boolean} args.lock
      * @returns {Promise<ArrayBuffer[]>}
      */
-    scanRaw({start, startExclusive = null, end = null, limit = 1}) {
+    scanRaw({start, startExclusive = null, end = null, limit = 1, lock = false}) {
         // Append a zero byte to startExclusive, to indicate the immediate next key.
         if(startExclusive !== null) {
             start = new ArrayBuffer(startExclusive.byteLength + 1);
@@ -385,6 +386,7 @@ class KvNamespace {
                     KvScan: {
                         namespace: this.name,
                         limit: limit,
+                        lock: lock,
                     }
                 }
             }, args, (result) => {
@@ -407,15 +409,17 @@ class KvNamespace {
      * @param {string} args.startExclusive
      * @param {string} args.end
      * @param {number} args.limit
+     * @param {boolean} args.lock
      * @returns {Promise<string[]>}
      */
-    async scan({start = "", startExclusive = null, end = null, limit = 1}) {
+    async scan({start = "", startExclusive = null, end = null, limit = 1, lock = false}) {
         let encoder = new TextEncoder();
         let results = await this.scanRaw({
             start: encoder.encode(start).buffer,
             startExclusive: startExclusive !== null ? encoder.encode(startExclusive).buffer : null,
             end: end !== null ? encoder.encode(end).buffer : null,
             limit: limit,
+            lock: lock,
         });
         return results.map(x => new TextDecoder().decode(x));
     }

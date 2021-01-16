@@ -238,7 +238,11 @@ impl IoProcessorSharedState {
 
                 let result = if let Some(ref mut txn) = *self.ongoing_txn.lock().await {
                     if lock {
-                        if txn.lock_key(namespace_id, &key).await? == false {
+                        if txn
+                            .lock_keys(namespace_id, std::iter::once(key.as_slice()))
+                            .await?
+                            == false
+                        {
                             return Ok(mk_user_error("too many locks in this transaction")?);
                         }
                     }
@@ -314,7 +318,11 @@ impl IoProcessorSharedState {
                 }
                 Ok(mk_user_ok(())?)
             }
-            AsyncCallV::KvScan { namespace, limit } => {
+            AsyncCallV::KvScan {
+                namespace,
+                limit,
+                lock,
+            } => {
                 let start_key = match task
                     .buffers
                     .get(0)
@@ -338,8 +346,19 @@ impl IoProcessorSharedState {
                 }
 
                 let keys = if let Some(ref mut txn) = *self.ongoing_txn.lock().await {
-                    txn.scan_keys(namespace_id, &start_key, end_key.as_deref(), limit)
-                        .await?
+                    let keys = txn
+                        .scan_keys(namespace_id, &start_key, end_key.as_deref(), limit)
+                        .await?;
+                    if lock {
+                        if txn
+                            .lock_keys(namespace_id, keys.iter().map(|x| x.as_slice()))
+                            .await?
+                            == false
+                        {
+                            return Ok(mk_user_error("too many locks in this transaction")?);
+                        }
+                    }
+                    keys
                 } else {
                     let kv = match self.worker_runtime.kv() {
                         Some(x) => x,

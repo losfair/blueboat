@@ -86,20 +86,25 @@ impl WorkerDataTransaction {
             .map_err(tikv_error_to_generic)
     }
 
-    pub async fn lock_key(&mut self, namespace_id: &[u8; 16], key: &[u8]) -> GenericResult<bool> {
-        // Limit total number of locks per transaction.
-        if self.num_locks >= MAX_LOCKS_PER_WORKER_DATA_TRANSACTION {
+    pub async fn lock_keys(
+        &mut self,
+        namespace_id: &[u8; 16],
+        keys: impl Iterator<Item = &[u8]>,
+    ) -> GenericResult<bool> {
+        let keys: Vec<_> = keys
+            .map(|key| make_worker_data_key(namespace_id, key))
+            .collect();
+        let new_num_locks = self.num_locks.saturating_add(keys.len());
+        if new_num_locks > MAX_LOCKS_PER_WORKER_DATA_TRANSACTION {
             return Ok(false);
         }
+        self.num_locks = new_num_locks;
 
         self.protected
-            .lock_keys(std::iter::once(make_worker_data_key(namespace_id, key)))
+            .lock_keys(keys)
             .await
             .map_err(tikv_error_to_generic)
-            .map(|_| {
-                self.num_locks += 1;
-                true
-            })
+            .map(|_| true)
     }
 
     pub async fn delete(&mut self, namespace_id: &[u8; 16], key: &[u8]) -> GenericResult<()> {

@@ -28,10 +28,21 @@ pub struct AsyncCall {
 pub enum AsyncCallV {
     SetTimeout(u64),
     Fetch(RequestObject),
-    KvGet { namespace: String, lock: bool },
-    KvPut { namespace: String },
-    KvDelete { namespace: String },
-    KvScan { namespace: String, limit: u32 },
+    KvGet {
+        namespace: String,
+        lock: bool,
+    },
+    KvPut {
+        namespace: String,
+    },
+    KvDelete {
+        namespace: String,
+    },
+    KvScan {
+        namespace: String,
+        limit: u32,
+        lock: bool,
+    },
     KvBeginTransaction,
     KvRollbackTransaction,
     KvCommitTransaction,
