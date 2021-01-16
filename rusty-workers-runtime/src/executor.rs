@@ -3,7 +3,7 @@ use crate::error::*;
 use crate::interface::*;
 use crate::io::*;
 use crate::isolate::{IsolateGeneration, IsolateGenerationBox, MemoryPoolBox, Poison};
-use crate::mm::acquire_arraybuffer_precheck;
+use crate::mm::*;
 use crate::runtime::{InstanceStatistics, Runtime};
 use maplit::btreemap;
 use rand::Rng;
@@ -685,12 +685,7 @@ fn call_service_callback(
                         let state = InstanceState::get(scope);
                         if let Some(file) = state.files.get(&name) {
                             let file = file.clone();
-                            acquire_arraybuffer_precheck(scope, file.len())?;
-                            let buf = v8::ArrayBuffer::new(scope, file.len());
-                            let backing = buf.get_backing_store();
-                            for (i, byte) in backing.iter().enumerate() {
-                                byte.set(file[i]);
-                            }
+                            let buf = slice_to_arraybuffer(scope, &file)?;
                             retval.set(buf.into());
                         } else {
                             retval.set(v8::null(scope).into());
