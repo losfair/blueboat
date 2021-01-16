@@ -501,8 +501,8 @@ export function _callServiceWrapper(cmd, buffers, cb) {
 }
 
 export function _callService(cmd, buffers, cb) {
-    let wrappedCb = function(data) {
-        return cb(JSON.parse(new TextDecoder().decode(data)));
+    let wrappedCb = function(data, ...args) {
+        return cb(JSON.parse(new TextDecoder().decode(data)), ...args);
     };
     return _rt_callService(cmd, buffers, cb ? wrappedCb : null);
 }

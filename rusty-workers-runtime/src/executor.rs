@@ -377,12 +377,15 @@ impl Instance {
                 // A nice point to update statistics!
                 update_stats(&worker_runtime, &worker_handle, scope);
 
-                // Renew lifetime
-                let state = InstanceState::get(scope);
-
+                // We are not using CPU now so drop CPU permit
                 drop(permit);
 
-                let (callback, data) = match state.io_waiter.as_mut().unwrap().wait() {
+                // Take the IO waiter (lifetime conflict with `scope`)
+                let mut io_waiter = InstanceState::get(scope).io_waiter.take().unwrap();
+                let wait_result = io_waiter.wait(scope);
+                InstanceState::get(scope).io_waiter = Some(io_waiter);
+
+                let (callback, data, buffers) = match wait_result {
                     Some(x) => x,
                     None => {
                         // Doesn't necessarily need to terminate the instance but would need a lot of graceful
@@ -398,7 +401,7 @@ impl Instance {
                 };
 
                 permit = worker_runtime.acquire_execution_token()?;
-                state.start_timer();
+                InstanceState::get(scope).start_timer();
 
                 let callback = v8::Local::<'_, v8::Function>::new(scope, callback);
 
@@ -412,8 +415,17 @@ impl Instance {
                     .enumerate()
                     .for_each(|(i, x)| x.set(data[i]));
 
+                let local_buffers: Vec<v8::Local::<'_, v8::Value>> = buffers.into_iter().map(|x| x.unwrap_on_v8_thread())
+                    .map(|x| v8::Local::new(scope, x.expect("we are on v8 thread but unwrap_on_v8_thread failed to upgrade reference")).into())
+                    .collect();
+                let target_buffers = v8::Array::new_with_elements(scope, &local_buffers);
+
                 protected_js(scope, |scope| {
-                    callback.call(scope, recv.into(), &[json_data.into()]);
+                    callback.call(
+                        scope,
+                        recv.into(),
+                        &[json_data.into(), target_buffers.into()],
+                    );
                 })?;
             }
 
@@ -715,7 +727,6 @@ fn call_service_callback(
         Ok(())
     })
 }
-
 
 fn queue_microtask_callback(
     scope: &mut v8::HandleScope,

@@ -1,4 +1,5 @@
 use crate::interface::{AsyncCall, AsyncCallV};
+use crate::remote_buffer::*;
 use crate::runtime::Runtime;
 use anyhow::Result;
 use rusty_v8 as v8;
@@ -8,6 +9,7 @@ use rusty_workers::tarpc;
 use rusty_workers::types::*;
 use serde::{Deserialize, Serialize};
 use slab::Slab;
+use std::cell::Cell;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
@@ -22,14 +24,22 @@ pub struct IoWaiter {
     remaining_budget: u32,
     inflight: Slab<v8::Global<v8::Function>>,
     task: tokio::sync::mpsc::UnboundedSender<(usize, AsyncCall)>,
-    result: std::sync::mpsc::Receiver<(usize, String)>,
+    result: crossbeam::channel::Receiver<BackToExecutorItem>,
     conf: Arc<WorkerConfiguration>,
+    remote_buffer_set: RemoteBufferSet,
 }
 
 pub struct IoProcessor {
     task: tokio::sync::mpsc::UnboundedReceiver<(usize, AsyncCall)>,
-    result: std::sync::mpsc::Sender<(usize, String)>,
     shared: Arc<IoProcessorSharedState>,
+}
+
+enum BackToExecutorItem {
+    TaskResult((usize, String, Vec<RemoteBuffer>)),
+    BufferCreation {
+        size: usize,
+        return_channel: oneshot::Sender<Option<RemoteBuffer>>,
+    },
 }
 
 struct IoProcessorSharedState {
@@ -41,6 +51,8 @@ struct IoProcessorSharedState {
     ///
     /// Don't allow multiple ongoing transactions for now, to prevent DoS.
     ongoing_txn: AsyncMutex<Option<WorkerDataTransaction>>,
+
+    result: crossbeam::channel::Sender<BackToExecutorItem>,
 }
 
 /// An `IoScope` is a handle that a task sender holds to signal that I/O operations should
@@ -61,7 +73,7 @@ enum IoTask {
 }
 
 struct IoResponseHandle {
-    result: std::sync::mpsc::Sender<(usize, String)>,
+    result: crossbeam::channel::Sender<BackToExecutorItem>,
     index: usize,
 }
 
@@ -78,7 +90,7 @@ impl IoWaiter {
         worker_runtime: Arc<Runtime>,
     ) -> (Self, IoProcessor) {
         let init_budget = conf.executor.max_io_per_request;
-        let (result_tx, result_rx) = std::sync::mpsc::channel();
+        let (result_tx, result_rx) = crossbeam::channel::unbounded();
         let (task_tx, task_rx) = tokio::sync::mpsc::unbounded_channel();
         let waiter = IoWaiter {
             remaining_budget: init_budget,
@@ -86,15 +98,16 @@ impl IoWaiter {
             task: task_tx,
             result: result_rx,
             conf: conf.clone(),
+            remote_buffer_set: RemoteBufferSet::new(),
         };
         let processor = IoProcessor {
             task: task_rx,
-            result: result_tx,
             shared: Arc::new(IoProcessorSharedState {
                 conf,
                 worker_runtime,
                 fetch_client: AsyncMutex::new(None),
                 ongoing_txn: AsyncMutex::new(None),
+                result: result_tx,
             }),
         };
         (waiter, processor)
@@ -127,10 +140,29 @@ impl IoWaiter {
         }
     }
 
-    pub fn wait(&mut self) -> Option<(v8::Global<v8::Function>, String)> {
-        let (index, result) = self.result.recv().ok()?;
+    pub fn wait(
+        &mut self,
+        scope: &mut v8::HandleScope<'_>,
+    ) -> Option<(v8::Global<v8::Function>, String, Vec<RemoteBuffer>)> {
+        let (index, result, buffers) = loop {
+            match self.result.recv().ok()? {
+                BackToExecutorItem::TaskResult(x) => break x,
+                BackToExecutorItem::BufferCreation {
+                    size,
+                    return_channel,
+                } => {
+                    let buffer = self.remote_buffer_set.allocate(scope, size);
+                    drop(return_channel.send(buffer));
+                    continue;
+                }
+            }
+        };
         let req = self.inflight.remove(index);
-        Some((req, result))
+
+        // A nice point to garbage collect buffer set.
+        self.remote_buffer_set.gc();
+
+        Some((req, result, buffers))
     }
 }
 
@@ -140,7 +172,7 @@ impl IoProcessor {
         Some((
             task,
             IoResponseHandle {
-                result: self.result.clone(),
+                result: self.shared.result.clone(),
                 index,
             },
         ))
@@ -174,10 +206,10 @@ impl IoProcessor {
                     }
                     ret = shared.handle_task(task) => {
                         match ret {
-                            Ok(x) => res.respond(format!("{{\"Ok\":{}}}", x)),
+                            Ok((x, buffers)) => res.respond(format!("{{\"Ok\":{}}}", x), buffers),
                             Err(e) => {
                                 debug!("io error: {:?}", e);
-                                res.respond(format!("{{\"Err\":{}}}", "\"io error\""));
+                                res.respond(format!("{{\"Err\":{}}}", "\"io error\""), vec![]);
                             }
                         }
                     }
@@ -188,12 +220,26 @@ impl IoProcessor {
 }
 
 impl IoProcessorSharedState {
-    async fn handle_task(self: Arc<Self>, task: AsyncCall) -> Result<String> {
+    async fn allocate_arraybuffer(&self, len: usize) -> GenericResult<RemoteBuffer> {
+        let (tx, rx) = oneshot::channel();
+        drop(self.result.send(BackToExecutorItem::BufferCreation {
+            size: len,
+            return_channel: tx,
+        }));
+
+        match rx.await {
+            Ok(Some(buf)) => Ok(buf),
+            Ok(None) => Err(GenericError::Execution(ExecutionError::MemoryLimitExceeded)),
+            Err(_) => Err(GenericError::Execution(ExecutionError::IoTimeout)), // Sender dropped
+        }
+    }
+
+    async fn handle_task(self: Arc<Self>, task: AsyncCall) -> Result<(String, Vec<RemoteBuffer>)> {
         match task.v {
             AsyncCallV::SetTimeout(n) => {
                 let dur = Duration::from_millis(n);
                 tokio::time::sleep(dur).await;
-                Ok("null".into())
+                Ok(("null".into(), vec![]))
             }
             AsyncCallV::Fetch(mut req) => {
                 let body = match task
@@ -217,9 +263,26 @@ impl IoProcessorSharedState {
                 };
                 drop(fetch_client_locked);
 
-                let fetch_result: Result<ResponseObject, String> =
+                let mut fetch_result: Result<ResponseObject, String> =
                     fetch_client.fetch(tarpc::context::current(), req).await??;
-                Ok(serde_json::to_string(&fetch_result)?)
+                let buffers = if let Ok(ref mut v) = fetch_result {
+                    match v.body {
+                        HttpBody::Binary(ref mut body) if body.len() > 0 => {
+                            // Large body
+                            let buf = self.allocate_arraybuffer(body.len()).await?;
+                            let backing: &[Cell<u8>] = buf.backing();
+                            for (i, b) in backing.iter().enumerate() {
+                                b.set(body[i]);
+                            }
+                            *body = vec![];
+                            vec![buf]
+                        }
+                        _ => vec![],
+                    }
+                } else {
+                    vec![]
+                };
+                Ok((serde_json::to_string(&fetch_result)?, buffers))
             }
             AsyncCallV::KvGet { namespace, lock } => {
                 let key = match task
@@ -414,17 +477,20 @@ impl IoProcessorSharedState {
 }
 
 impl IoResponseHandle {
-    fn respond(self, data: String) {
-        drop(self.result.send((self.index, data)));
+    fn respond(self, data: String, buffers: Vec<RemoteBuffer>) {
+        drop(
+            self.result
+                .send(BackToExecutorItem::TaskResult((self.index, data, buffers))),
+        );
     }
 }
 
-fn mk_user_ok<T: serde::Serialize>(value: T) -> Result<String> {
+fn mk_user_ok<T: serde::Serialize>(value: T) -> Result<(String, Vec<RemoteBuffer>)> {
     let value: Result<T, ()> = Ok(value);
-    Ok(serde_json::to_string(&value)?)
+    Ok((serde_json::to_string(&value)?, vec![]))
 }
 
-fn mk_user_error<T: serde::Serialize>(value: T) -> Result<String> {
+fn mk_user_error<T: serde::Serialize>(value: T) -> Result<(String, Vec<RemoteBuffer>)> {
     let value: Result<(), T> = Err(value);
-    Ok(serde_json::to_string(&value)?)
+    Ok((serde_json::to_string(&value)?, vec![]))
 }

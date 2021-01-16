@@ -28,7 +28,7 @@
     "url-search-params-polyfill": "^8.1.0",
     "util": "^0.12.3",
     "webpack": "^5.11.0",
-    "worker-fetch": "losfair/worker-fetch"
+    "worker-fetch": "../../worker-fetch"
   },
   "devDependencies": {
     "webpack-cli": "^4.3.1"

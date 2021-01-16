@@ -14,6 +14,7 @@ mod interface;
 mod io;
 mod isolate;
 mod mm;
+mod remote_buffer;
 mod runtime;
 mod semaphore;
 mod server;
