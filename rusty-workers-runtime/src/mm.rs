@@ -1,4 +1,7 @@
+use crate::isolate::MemoryPoolBox;
 use rusty_v8 as v8;
+use rusty_workers::types::*;
+use std::cell::Cell;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -106,4 +109,33 @@ unsafe extern "C" fn reallocate(
 
 unsafe extern "C" fn drop(pool: *const MemoryPool) {
     Arc::from_raw(pool as *mut MemoryPool);
+}
+
+pub fn acquire_arraybuffer_precheck(isolate: &mut v8::Isolate, n: usize) -> GenericResult<()> {
+    if isolate
+        .get_slot::<MemoryPoolBox>()
+        .unwrap()
+        .0
+        .acquire_precheck(n)
+    {
+        Ok(())
+    } else {
+        Err(GenericError::Execution(ExecutionError::MemoryLimitExceeded))
+    }
+}
+
+pub fn slice_to_arraybuffer<'s>(
+    scope: &mut v8::HandleScope<'s>,
+    data: &[u8],
+) -> GenericResult<v8::Local<'s, v8::ArrayBuffer>> {
+    acquire_arraybuffer_precheck(scope, data.len())?;
+    let buf = v8::ArrayBuffer::new(scope, data.len());
+    let backing = buf.get_backing_store();
+    let backing: &[Cell<u8>] = &backing;
+
+    for (i, b) in data.iter().enumerate() {
+        backing[i].set(*b);
+    }
+
+    Ok(buf)
 }

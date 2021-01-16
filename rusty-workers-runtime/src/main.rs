@@ -5,6 +5,7 @@
 extern crate log;
 
 mod config;
+mod crypto;
 mod engine;
 mod error;
 mod executor;

@@ -1981,6 +1981,7 @@ dependencies = [
  "maplit",
  "pretty_env_logger",
  "rand 0.8.0",
+ "ring",
  "rusty-workers",
  "rusty_v8",
  "serde",

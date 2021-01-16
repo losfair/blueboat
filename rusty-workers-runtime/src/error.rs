@@ -21,6 +21,10 @@ impl JsError {
         Self { kind, message }
     }
 
+    pub fn error<M: Into<String>>(m: M) -> Self {
+        Self::new(JsErrorKind::Error, Some(m.into()))
+    }
+
     pub fn build<'s>(&self, scope: &mut v8::HandleScope<'s>) -> v8::Local<'s, v8::Value> {
         use JsErrorKind as K;
         let message = match self.message {

@@ -17,6 +17,7 @@ pub enum SyncCall {
     SendFetchResponse(ResponseObject),
     GetRandomValues(usize),
     GetFile(String),
+    Crypto(crate::crypto::CryptoCall),
 }
 
 pub struct AsyncCall {

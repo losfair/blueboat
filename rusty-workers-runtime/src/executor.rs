@@ -3,6 +3,7 @@ use crate::error::*;
 use crate::interface::*;
 use crate::io::*;
 use crate::isolate::{IsolateGeneration, IsolateGenerationBox, MemoryPoolBox, Poison};
+use crate::mm::acquire_arraybuffer_precheck;
 use crate::runtime::{InstanceStatistics, Runtime};
 use maplit::btreemap;
 use rand::Rng;
@@ -583,19 +584,6 @@ fn _do_protected_call<F: FnOnce() -> R, R>(f: F) -> Option<R> {
     }
 }
 
-fn acquire_arraybuffer_precheck(isolate: &mut v8::Isolate, n: usize) -> GenericResult<()> {
-    if isolate
-        .get_slot::<MemoryPoolBox>()
-        .unwrap()
-        .0
-        .acquire_precheck(n)
-    {
-        Ok(())
-    } else {
-        Err(GenericError::Execution(ExecutionError::MemoryLimitExceeded))
-    }
-}
-
 fn call_service_callback(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -706,6 +694,11 @@ fn call_service_callback(
                             retval.set(buf.into());
                         } else {
                             retval.set(v8::null(scope).into());
+                        }
+                    }
+                    SyncCall::Crypto(inner) => {
+                        if let Some(x) = inner.run(scope, local_buffers)? {
+                            retval.set(x);
                         }
                     }
                 }
