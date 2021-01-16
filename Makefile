@@ -1,4 +1,4 @@
-all: runtime cli fetchd proxy cp
+all: runtime cli fetchd proxy cp playground-api
 
 runtime:
 	cd librt && npm run build
@@ -16,6 +16,9 @@ proxy:
 cp:
 	cd rusty-workers-cp && cargo build --release
 
+playground-api:
+	cd rusty-workers-playground-api && cargo build --release
+
 librt-deps:
 	cd librt && npm install
 
@@ -23,4 +26,4 @@ librt-deps:
 docker:
 	./build_docker.sh
 
-.PHONY: runtime cli fetchd proxy cp librt-deps docker
+.PHONY: runtime cli fetchd proxy cp playground-api librt-deps docker

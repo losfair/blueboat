@@ -1911,6 +1911,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "rusty-workers-playground-api"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "futures 0.3.8",
+ "hyper 0.14.2",
+ "log",
+ "pretty_env_logger",
+ "rand 0.8.0",
+ "rusty-workers",
+ "serde",
+ "serde_json",
+ "structopt",
+ "thiserror",
+ "tokio 1.0.1",
+ "toml",
+]
+
+[[package]]
 name = "rusty-workers-proxy"
 version = "0.0.0"
 dependencies = [
