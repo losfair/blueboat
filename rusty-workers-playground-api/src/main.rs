@@ -10,15 +10,15 @@ use hyper::{
     service::{make_service_fn, service_fn},
     Body, Request, Response, StatusCode,
 };
+use rand::Rng;
+use rusty_workers::app::AppConfig;
 use rusty_workers::kv::KvClient;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 use structopt::StructOpt;
 use thiserror::Error;
 use types::*;
-use std::time::{SystemTime, Duration};
-use rusty_workers::app::AppConfig;
-use rand::Rng;
 
 const MAX_REQUEST_BODY_SIZE: usize = 8 * 1024 * 1024;
 
@@ -35,7 +35,10 @@ enum CpError {
 }
 
 #[derive(Debug, StructOpt, Clone)]
-#[structopt(name = "rusty-workers-playground-api", about = "Rusty Workers (playground api)")]
+#[structopt(
+    name = "rusty-workers-playground-api",
+    about = "Rusty Workers (playground api)"
+)]
 struct Opt {
     /// HTTP listen address.
     #[structopt(short = "l", long)]
@@ -58,10 +61,14 @@ struct Server {
 
 impl Server {
     async fn handle(self: Arc<Self>, request: Request<Body>) -> Result<Response<Body>> {
-        let token = rusty_workers::app::decode_id128(&request.headers().get("x-token")
-            .ok_or_else(|| CpError::BadAuthToken)?
-            .to_str()?
-        ).ok_or_else(|| CpError::BadId128)?;
+        let token = rusty_workers::app::decode_id128(
+            &request
+                .headers()
+                .get("x-token")
+                .ok_or_else(|| CpError::BadAuthToken)?
+                .to_str()?,
+        )
+        .ok_or_else(|| CpError::BadId128)?;
         if ring::constant_time::verify_slices_are_equal(&token, &self.auth_token).is_err() {
             return Err(CpError::BadAuthToken.into());
         }
