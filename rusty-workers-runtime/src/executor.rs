@@ -86,20 +86,28 @@ impl Task {
 
 impl InstanceHandle {
     /// Properly check generation and perform remote termination.
-    fn do_remote_termination(&self) {
+    fn do_remote_termination(&self, reason: Option<TerminationReason>) {
         // Take the lock.
         let current_generation = self.current_generation.0.lock().unwrap();
 
         // Check while holding the lock.
         if *current_generation == self.creation_generation {
+            if let Some(reason) = reason {
+                // We are holding two locks now - be careful not to deadlock.
+                let mut reason_place = self.termination_reason.0.lock().unwrap();
+
+                // Only apply the first termination reason
+                if *reason_place == TerminationReason::Unknown {
+                    *reason_place = reason;
+                }
+            }
             self.isolate_handle.terminate_execution();
         }
     }
 
     pub async fn terminate_for_time_limit(&self) {
         tokio::task::block_in_place(|| {
-            *self.termination_reason.0.lock().unwrap() = TerminationReason::TimeLimit;
-            self.do_remote_termination();
+            self.do_remote_termination(Some(TerminationReason::TimeLimit));
         });
     }
 
@@ -128,7 +136,8 @@ impl InstanceHandle {
 impl Drop for InstanceHandle {
     fn drop(&mut self) {
         let term = || {
-            self.do_remote_termination();
+            // If InstanceHandle is implicitly dropped then we assume it's removed by the cache policy.
+            self.do_remote_termination(Some(TerminationReason::CachePolicy));
         };
 
         // If we are in a Tokio context, notify the runtime that we may block.

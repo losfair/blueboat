@@ -18,6 +18,9 @@ pub enum TerminationReason {
 
     /// Time limit exceeded.
     TimeLimit,
+
+    /// Instance terminated by cache policy.
+    CachePolicy,
 }
 
 /// Utility trait for converting a `Global` into a `Local`.
@@ -87,6 +90,7 @@ where
                             ExecutionError::RuntimeThrowsException
                         }
                         TerminationReason::TimeLimit => ExecutionError::TimeLimitExceeded,
+                        TerminationReason::CachePolicy => ExecutionError::RuntimeThrowsException,
                     }
                 } else {
                     // Otherwise this is a normal exception thrown from JavaScript.
