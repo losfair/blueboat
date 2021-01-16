@@ -29,6 +29,9 @@ enum CpError {
 
     #[error("bad 128-bit identifier")]
     BadId128,
+
+    #[error("bad auth token")]
+    BadAuthToken,
 }
 
 #[derive(Debug, StructOpt, Clone)]
@@ -41,15 +44,28 @@ struct Opt {
     /// TiKV PD addresses.
     #[structopt(long, env = "TIKV_PD")]
     tikv_pd: String,
+
+    /// Authentication token, 128-bit base64.
+    #[structopt(long, env = "RW_AUTH_TOKEN")]
+    auth_token: String,
 }
 
 struct Server {
     _config: Opt,
+    auth_token: [u8; 16],
     kv: KvClient,
 }
 
 impl Server {
     async fn handle(self: Arc<Self>, request: Request<Body>) -> Result<Response<Body>> {
+        let token = rusty_workers::app::decode_id128(&request.headers().get("x-token")
+            .ok_or_else(|| CpError::BadAuthToken)?
+            .to_str()?
+        ).ok_or_else(|| CpError::BadId128)?;
+        if ring::constant_time::verify_slices_are_equal(&token, &self.auth_token).is_err() {
+            return Err(CpError::BadAuthToken.into());
+        }
+
         let req_path = request.uri().path().to_string();
         let req_body = read_request_body(request).await?;
         match req_path.as_str() {
@@ -156,6 +172,8 @@ async fn main() -> Result<()> {
     let server = Arc::new(Server {
         kv: KvClient::new(opt.tikv_pd.split(",").collect()).await?,
         _config: opt.clone(),
+        auth_token: rusty_workers::app::decode_id128(&opt.auth_token)
+            .ok_or_else(|| CpError::BadId128)?,
     });
 
     let make_svc = make_service_fn(move |_| {

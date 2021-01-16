@@ -24,3 +24,4 @@ toml = "0.4"
 rand = "0.8"
 base64 = "0.13"
 hyper = { version = "0.14", features = ["full"] }
+ring = "0.16"
