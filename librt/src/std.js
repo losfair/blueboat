@@ -237,7 +237,8 @@ export const crypto = {
                 GetRandomValues: n,
             }
         }, []);
-    }
+    },
+    subtle: require("./subtle_crypto.js"),
 };
 
 class KvNamespace {
@@ -494,7 +495,7 @@ export const Response = workerFetch.Response;
 export const Headers = workerFetch.Headers;
 export const fetch = workerFetch.fetch;
 
-function _callServiceWrapper(cmd, buffers, cb) {
+export function _callServiceWrapper(cmd, buffers, cb) {
     let serialized = JSON.stringify(cmd);
     return _callService(serialized, buffers, cb);
 }
