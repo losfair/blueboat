@@ -462,6 +462,7 @@ impl InstanceState {
         let global = scope.get_current_context().global(scope);
         let global_props = btreemap! {
             "_rt_callService" => make_function(scope, call_service_callback)?.into(),
+            "queueMicrotask" => make_function(scope, queue_microtask_callback)?.into(),
         };
 
         // Make sure our internal objects aren't overwritten by adding user props first.
@@ -591,7 +592,6 @@ fn call_service_callback(
     mut retval: v8::ReturnValue,
 ) {
     wrap_callback(scope, |scope| {
-        let scope = &mut v8::HandleScope::new(scope);
         let call_str = v8::Local::<'_, v8::String>::try_from(args.get(0))?;
         let call_buf_len = call_str.utf8_length(scope);
 
@@ -712,6 +712,19 @@ fn call_service_callback(
                 )?;
             }
         }
+        Ok(())
+    })
+}
+
+
+fn queue_microtask_callback(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    _retval: v8::ReturnValue,
+) {
+    wrap_callback(scope, |scope| {
+        let cb = v8::Local::<'_, v8::Function>::try_from(args.get(0))?;
+        scope.enqueue_microtask(cb);
         Ok(())
     })
 }
