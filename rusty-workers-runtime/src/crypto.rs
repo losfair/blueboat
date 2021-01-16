@@ -1,3 +1,4 @@
+use crate::buffer::*;
 use crate::error::*;
 use crate::mm::*;
 use rusty_v8 as v8;
@@ -21,7 +22,7 @@ impl CryptoCall {
     pub fn run<'s>(
         self,
         scope: &mut v8::HandleScope<'s>,
-        buffers: Vec<v8::SharedRef<v8::BackingStore>>,
+        buffers: Vec<JsArrayBufferViewRef>,
     ) -> JsResult<Option<v8::Local<'s, v8::Value>>> {
         let mut buffers = buffers.into_iter();
 

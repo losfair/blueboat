@@ -1,4 +1,4 @@
-use rusty_v8 as v8;
+use crate::buffer::*;
 use rusty_workers::types::*;
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
@@ -22,7 +22,7 @@ pub enum SyncCall {
 
 pub struct AsyncCall {
     pub v: AsyncCallV,
-    pub buffers: Vec<v8::SharedRef<v8::BackingStore>>,
+    pub buffers: Vec<JsArrayBufferViewRef>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -57,22 +57,6 @@ pub enum ServiceEvent {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FetchEvent {
     pub request: RequestObject,
-}
-
-pub trait JsBuffer {
-    fn read_to_vec(&self, max_length: usize) -> Option<Vec<u8>>;
-}
-
-impl JsBuffer for v8::SharedRef<v8::BackingStore> {
-    fn read_to_vec(&self, max_length: usize) -> Option<Vec<u8>> {
-        let source: &[Cell<u8>] = self;
-        if source.len() > max_length {
-            return None;
-        }
-        let mut buf = Vec::with_capacity(source.len());
-        buf.extend(source.iter().map(|x| x.get()));
-        Some(buf)
-    }
 }
 
 pub struct ReadableByteCellSlice<'a>(&'a [Cell<u8>]);

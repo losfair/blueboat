@@ -4,6 +4,7 @@
 #[macro_use]
 extern crate log;
 
+mod buffer;
 mod config;
 mod crypto;
 mod engine;

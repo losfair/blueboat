@@ -1,3 +1,4 @@
+use crate::buffer::*;
 use crate::engine::*;
 use crate::error::*;
 use crate::interface::*;
@@ -626,13 +627,12 @@ fn call_service_callback(
         }
 
         // Collect buffers.
-        let mut local_buffers: Vec<v8::SharedRef<v8::BackingStore>> = vec![];
+        let mut local_buffers: Vec<JsArrayBufferViewRef> = vec![];
         for i in 0..buffers_count {
             let value = buffers
                 .get_index(scope, i)
                 .ok_or(JsError::new(JsErrorKind::Error, None))?;
-            let value = v8::Local::<'_, v8::ArrayBuffer>::try_from(value)?;
-            local_buffers.push(value.get_backing_store());
+            local_buffers.push(JsArrayBufferViewRef::new(scope, value)?);
         }
 
         match call {

@@ -1,4 +1,4 @@
-use crate::interface::{AsyncCall, AsyncCallV, JsBuffer};
+use crate::interface::{AsyncCall, AsyncCallV};
 use crate::runtime::Runtime;
 use anyhow::Result;
 use rusty_v8 as v8;
