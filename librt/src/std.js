@@ -231,12 +231,10 @@ export function getFileFromBundle(name) {
 }
 
 export const crypto = {
-    getRandomValues(n) {
+    getRandomValues(bufferOrView) {
         return _callServiceWrapper({
-            Sync: {
-                GetRandomValues: n,
-            }
-        }, []);
+            Sync: "GetRandomValues",
+        }, [bufferOrView]);
     },
     subtle: require("./subtle_crypto.js"),
 };

@@ -707,18 +707,20 @@ fn call_service_callback(
                         res.body = HttpBody::Binary(body);
                         InstanceState::try_send_fetch_response(scope, Ok(res));
                     }
-                    SyncCall::GetRandomValues(len) => {
-                        if len > 65536 {
+                    SyncCall::GetRandomValues => {
+                        let output: &[Cell<u8>] = local_buffers.get(0).ok_or_else(|| {
+                            JsError::new(
+                                JsErrorKind::Error,
+                                Some("GetRandomValues: missing buffer".into()),
+                            )
+                        })?;
+                        if output.len() > 65536 {
                             return Err(JsError::new(JsErrorKind::Error, Some("SyncCall::GetRandomValues invoked with length greater than 65536".into())));
                         }
-                        acquire_arraybuffer_precheck(scope, len)?;
-                        let buf = v8::ArrayBuffer::new(scope, len);
-                        let backing = buf.get_backing_store();
                         let mut rng = rand::thread_rng();
-                        for byte in backing.iter() {
+                        for byte in output.iter() {
                             byte.set(rng.gen());
                         }
-                        retval.set(buf.into());
                     }
                     SyncCall::GetFile(name) => {
                         let state = InstanceState::get(scope);

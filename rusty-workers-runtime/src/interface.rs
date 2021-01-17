@@ -15,7 +15,7 @@ pub enum SyncCall {
     Log(String),
     Done,
     SendFetchResponse(ResponseObject),
-    GetRandomValues(usize),
+    GetRandomValues,
     GetFile(String),
     Crypto(crate::crypto::CryptoCall),
 }
