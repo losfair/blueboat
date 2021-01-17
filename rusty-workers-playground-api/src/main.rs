@@ -104,7 +104,7 @@ impl Server {
             }
             "/v1/add_app" => {
                 let opt: AddAppOpt = serde_json::from_slice(&req_body)?;
-                let mut config: AppConfig = serde_json::from_str(&opt.config)?;
+                let mut config: AppConfig = opt.config;
                 let bundle = base64::decode(&opt.bundle_b64)?;
 
                 cleanup_previous_app(&self.kv, &config.id).await?;

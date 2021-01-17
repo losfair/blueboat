@@ -1,3 +1,4 @@
+use rusty_workers::app::AppConfig;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -25,7 +26,7 @@ pub struct DeleteRouteOpt {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AddAppOpt {
-    pub config: String,
+    pub config: AppConfig,
     pub bundle_b64: String,
 }
 
