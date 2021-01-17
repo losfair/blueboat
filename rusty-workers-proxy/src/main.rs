@@ -145,7 +145,7 @@ async fn main() -> Result<()> {
             match scheduler.handle_request(req).await {
                 Ok(x) => Ok::<_, hyper::Error>(x),
                 Err(e) => {
-                    warn!("handle_request failed: {:?}", e);
+                    debug!("handle_request failed: {:?}", e);
                     let res = match e.downcast::<SchedError>() {
                         Ok(e) => e.build_response(),
                         Err(_) => {

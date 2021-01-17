@@ -248,9 +248,27 @@ impl Instance {
         Ok((instance, handle, time_control))
     }
 
-    pub fn cleanup(isolate: &mut v8::Isolate) {
+    pub fn cleanup(isolate: &mut v8::Isolate) -> GenericResult<()> {
+        // TODO: Better way of wrapping `AsMut`?
+        struct Wrapper<'a>(&'a mut v8::Isolate);
+        impl<'a> AsMut<v8::Isolate> for Wrapper<'a> {
+            fn as_mut(&mut self) -> &mut v8::Isolate {
+                self.0
+            }
+        }
+
+        // Drop `io_waiter` and any `Global` references it holds.
+        InstanceState::get(isolate).io_waiter = None;
+
+        // `protected_js` expects `InstanceState` to be present
+        protected_js(&mut Wrapper(isolate), |isolate| {
+            isolate.0.low_memory_notification();
+        })?;
+
+        // Prepare for isolate reuse. Cleanup state.
         isolate.set_slot(Option::<TerminationReasonBox>::None);
         isolate.set_slot(Option::<InstanceState>::None);
+        Ok(())
     }
 
     fn compile<'s>(
@@ -552,15 +570,15 @@ extern "C" fn on_promise_rejection(_msg: v8::PromiseRejectMessage<'_>) {
     debug!("unhandled promise rejection");
 }
 
-fn protected_js<F: FnOnce(&mut v8::HandleScope<'_>)>(
-    scope: &mut v8::HandleScope<'_>,
+fn protected_js<F: FnOnce(&mut T), T: AsMut<v8::Isolate>>(
+    scope: &mut T,
     f: F,
 ) -> GenericResult<()> {
     if _do_protected_call(|| f(scope)).is_none() {
-        scope.set_slot::<Poison>(Poison);
+        scope.as_mut().set_slot::<Poison>(Poison);
         Err(GenericError::Execution(ExecutionError::MemoryLimitExceeded))
     } else {
-        InstanceState::check_host_entry_memory(scope)?;
+        InstanceState::check_host_entry_memory(scope.as_mut())?;
         Ok(())
     }
 }

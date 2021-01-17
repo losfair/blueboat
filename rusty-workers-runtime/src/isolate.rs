@@ -218,16 +218,17 @@ fn isolate_worker(config: &IsolateConfig, job_rx: &mut mpsc::Receiver<IsolateJob
         // Drop the lock.
         drop(generation);
 
-        // Cleanup instance-specific state.
-        crate::executor::Instance::cleanup(&mut isolate);
-
-        // Run GC.
-        let gc_start = std::time::Instant::now();
-        isolate.low_memory_notification();
-        let gc_end = std::time::Instant::now();
+        // Cleanup instance-specific state + run GC.
+        let cleanup_start = std::time::Instant::now();
+        if let Err(e) = crate::executor::Instance::cleanup(&mut isolate) {
+            // Cleanup failed - maybe a GC failure.
+            error!("cleanup failed, dropped worker: {:?}", e);
+            return;
+        }
+        let cleanup_end = std::time::Instant::now();
         info!(
-            "Isolate recycled. GC time: {:?}",
-            gc_end.duration_since(gc_start)
+            "Isolate recycled. Cleanup time: {:?}",
+            cleanup_end.duration_since(cleanup_start)
         );
     }
 }
