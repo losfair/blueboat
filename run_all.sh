@@ -46,7 +46,7 @@ cd ..
     --max-concurrent-requests 50 &
 ./target/release/rusty-workers-proxy \
     --fetch-service 127.0.0.1:3000 \
-    --http-listen 127.0.0.1:3080 \
+    --http-listen 0.0.0.0:3080 \
     --tikv-cluster 127.0.0.1:2379 \
     --runtimes 127.0.0.1:3001 \
     --dropout-rate 0.0002 \
