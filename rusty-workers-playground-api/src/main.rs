@@ -134,6 +134,18 @@ impl Server {
 
                 Ok(mk_json_response(&())?)
             }
+            "/v1/delete_namespace" => {
+                let opt: DeleteNamespaceOpt = serde_json::from_slice(&req_body)?;
+                let namespace = rusty_workers::app::decode_id128(&opt.nsid)
+                    .ok_or_else(|| CpError::BadId128)?;
+                let keys = self.kv
+                    .worker_data_scan_keys(&namespace, b"", None, opt.batch_size)
+                    .await?;
+                for k in keys.iter() {
+                    self.kv.worker_data_delete(&namespace, k).await?;
+                }
+                Ok(mk_json_response(&keys.len())?)
+            }
             "/v1/logs" => {
                 let opt: LogsOpt = serde_json::from_slice(&req_body)?;
                 let now = SystemTime::now();

@@ -41,3 +41,9 @@ pub struct LogsOpt {
     pub since_secs: u64,
     pub limit: u32,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DeleteNamespaceOpt {
+    pub nsid: String,
+    pub batch_size: u32,
+}
