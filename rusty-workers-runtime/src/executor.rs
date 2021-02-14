@@ -188,7 +188,8 @@ impl Instance {
         // Lookup the script.
         let script = files
             .get("./index.js")
-            .ok_or_else(|| GenericError::Other("cannot find ./index.js in bundle".into()))?
+            .or_else(|| files.get("index.js"))
+            .ok_or_else(|| GenericError::Other("cannot find index.js in bundle".into()))?
             .clone();
 
         let termination_reason =
@@ -257,13 +258,16 @@ impl Instance {
             }
         }
 
-        // Drop `io_waiter` and any `Global` references it holds.
-        InstanceState::get(isolate).io_waiter = None;
+        if let Some(state) = InstanceState::try_get(isolate) {
+            // Drop `io_waiter` and any `Global` references it holds.
+            state.io_waiter = None;
 
-        // `protected_js` expects `InstanceState` to be present
-        protected_js(&mut Wrapper(isolate), |isolate| {
-            isolate.0.low_memory_notification();
-        })?;
+            // `protected_js` expects `InstanceState` to be present
+            // FIXME: If compilation failed there may be some references left on the heap.
+            protected_js(&mut Wrapper(isolate), |isolate| {
+                isolate.0.low_memory_notification();
+            })?;
+        }
 
         // Prepare for isolate reuse. Cleanup state.
         isolate.set_slot(Option::<TerminationReasonBox>::None);
@@ -471,11 +475,13 @@ impl Instance {
 
 impl InstanceState {
     fn get(isolate: &mut v8::Isolate) -> &mut Self {
+        Self::try_get(isolate).expect("InstanceState::get: no current state")
+    }
+
+    fn try_get(isolate: &mut v8::Isolate) -> Option<&mut Self> {
         isolate
             .get_slot_mut::<Option<Self>>()
-            .unwrap()
-            .as_mut()
-            .unwrap()
+            .and_then(|x| x.as_mut())
     }
 
     fn io_waiter(&mut self) -> JsResult<&mut IoWaiter> {
