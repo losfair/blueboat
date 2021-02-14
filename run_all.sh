@@ -40,8 +40,8 @@ cd ..
 ./target/release/rusty-workers-fetchd --rpc-listen 127.0.0.1:3000 &
 ./target/release/rusty-workers-runtime --rpc-listen 127.0.0.1:3001 \
     --tikv-cluster 127.0.0.1:2379 \
-    --max-num-of-instances 100 \
-    --isolate-pool-size 200 \
+    --max-num-of-instances 50 \
+    --isolate-pool-size 60 \
     --execution-concurrency 20 \
     --max-concurrent-requests 50 &
 ./target/release/rusty-workers-proxy \

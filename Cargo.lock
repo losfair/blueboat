@@ -160,12 +160,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ad1f8e949d755f9d79112b5bb46938e0ef9d3804a0b16dfab13aafcaa5f0fa72"
 
 [[package]]
-name = "cargo_gn"
-version = "0.0.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ba7d7f7b201dfcbc314b14f2176c92f8ba521dab538b40e426ffed25ed7cd80"
-
-[[package]]
 name = "cc"
 version = "1.0.66"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1996,11 +1990,11 @@ dependencies = [
 
 [[package]]
 name = "rusty_v8"
-version = "0.15.0"
-source = "git+https://github.com/losfair/rusty_v8?rev=d39e8bf708b30809c78dfb039744fc9618db5f33#d39e8bf708b30809c78dfb039744fc9618db5f33"
+version = "0.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4027861163ea87a64c788aa1bc0f0f635edc3a4f7de5b490523d4b666437146c"
 dependencies = [
  "bitflags",
- "cargo_gn",
  "fslock",
  "lazy_static",
  "libc",
