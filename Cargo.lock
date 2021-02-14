@@ -1877,6 +1877,7 @@ dependencies = [
  "rusty-workers",
  "serde_json",
  "structopt",
+ "tar",
  "thiserror",
  "tokio 1.0.1",
  "toml",
