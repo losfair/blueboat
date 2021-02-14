@@ -434,6 +434,11 @@ impl Scheduler {
                 }
             }
 
+            res.headers_mut().insert(
+                "server",
+                hyper::header::HeaderValue::from_bytes(b"rworkers").unwrap(),
+            );
+
             return Ok(res);
         }
 
@@ -717,6 +722,10 @@ impl SchedError {
             status.canonical_reason().unwrap_or("unknown error"),
         ));
         *res.status_mut() = status;
+        res.headers_mut().insert(
+            "server",
+            hyper::header::HeaderValue::from_bytes(b"rworkers").unwrap(),
+        );
         res
     }
 }
