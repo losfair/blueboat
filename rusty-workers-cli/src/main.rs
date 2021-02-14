@@ -90,10 +90,19 @@ enum AppCmd {
         #[structopt(long)]
         bundle: String,
     },
+    #[structopt(name = "add-single-file-app")]
+    AddSingleFileApp {
+        config: String,
+
+        #[structopt(long)]
+        js: String,
+    },
     #[structopt(name = "delete-app")]
     DeleteApp { appid: String },
     #[structopt(name = "get-app")]
     GetApp { appid: String },
+    #[structopt(name = "get-bundle")]
+    GetBundle { bundle: String },
     #[structopt(name = "all-bundles")]
     AllBundles,
     #[structopt(name = "delete-bundle")]
@@ -314,21 +323,32 @@ async fn main() -> Result<()> {
                     let mut config: AppConfig = toml::from_str(&config)?;
                     let bundle = read_file_raw(&bundle).await?;
 
-                    cleanup_previous_app(&client, &config.id).await?;
+                    do_add_app(&client, &mut config, bundle).await?;
+                    println!("OK");
+                }
+                AppCmd::AddSingleFileApp { config, js } => {
+                    let config = read_file(&config).await?;
+                    let mut config: AppConfig = toml::from_str(&config)?;
 
-                    let mut bundle_id = [0u8; 16];
-                    rand::thread_rng().fill(&mut bundle_id);
-                    client.app_bundle_put(&bundle_id, bundle).await?;
-                    config.bundle_id = rusty_workers::app::encode_id128(&bundle_id);
+                    let mut js = std::fs::File::open(&js)?;
+                    let mut archive: Vec<u8> = Vec::new();
+                    {
+                        let mut builder = tar::Builder::new(&mut archive);
+                        builder.append_file("./index.js", &mut js)?;
+                        builder.finish()?;
+                    }
 
-                    client
-                        .app_metadata_put(&config.id.0, serde_json::to_vec(&config)?)
-                        .await?;
+                    do_add_app(&client, &mut config, archive).await?;
                     println!("OK");
                 }
                 AppCmd::DeleteApp { appid } => {
                     let appid = rusty_workers::app::AppId(appid);
-                    cleanup_previous_app(&client, &appid).await?;
+                    match cleanup_previous_app(&client, &appid).await {
+                        Ok(()) => {}
+                        Err(e) => {
+                            error!("cleanup_previous_app: {:?}", e);
+                        }
+                    }
                     client.app_metadata_delete(&appid.0).await?;
 
                     client
@@ -347,6 +367,15 @@ async fn main() -> Result<()> {
                         .map(|x| serde_json::from_slice(&x))
                         .transpose()?;
                     println!("{}", serde_json::to_string(&result)?);
+                }
+                AppCmd::GetBundle { bundle } => {
+                    let bundle = client
+                        .app_bundle_get(
+                            &rusty_workers::app::decode_id128(&bundle)
+                                .ok_or_else(|| CliError::BadId128)?,
+                        )
+                        .await?;
+                    println!("{}", serde_json::to_string(&bundle.map(|x| base64::encode(&x)))?);
                 }
                 AppCmd::AllBundles => {
                     print!("[");
@@ -526,6 +555,25 @@ async fn read_file_raw(path: &str) -> Result<Vec<u8>> {
     let mut buf = Vec::new();
     f.read_to_end(&mut buf).await?;
     Ok(buf)
+}
+
+async fn do_add_app(client: &KvClient, config: &mut AppConfig, bundle: Vec<u8>) -> Result<()> {
+    match cleanup_previous_app(&client, &config.id).await {
+        Ok(()) => {}
+        Err(e) => {
+            error!("cleanup_previous_app: {:?}", e);
+        }
+    }
+
+    let mut bundle_id = [0u8; 16];
+    rand::thread_rng().fill(&mut bundle_id);
+    client.app_bundle_put(&bundle_id, bundle).await?;
+    config.bundle_id = rusty_workers::app::encode_id128(&bundle_id);
+
+    client
+        .app_metadata_put(&config.id.0, serde_json::to_vec(&config)?)
+        .await?;
+    Ok(())
 }
 
 fn make_context() -> tarpc::context::Context {
