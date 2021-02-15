@@ -284,7 +284,7 @@ impl Scheduler {
 
         let mut appid = None;
 
-        for _ in 0..3 {
+        for _ in 0..5 {
             let mut route_cache = self.route_cache.lock().await;
             appid = route_cache
                 .get(&host)
@@ -302,7 +302,7 @@ impl Scheduler {
                     .try_send((host.clone(), uri.path().to_string())),
             );
 
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
 
         let appid = appid.ok_or(SchedError::NoRouteMapping)?;
@@ -351,7 +351,7 @@ impl Scheduler {
 
         let mut app = None;
 
-        for _ in 0..3 {
+        for _ in 0..5 {
             app = self.apps.lock().await.get(&appid).cloned();
             if app.is_some() {
                 break;
@@ -360,7 +360,7 @@ impl Scheduler {
             // Notify the worker thread
             drop(self.lookup_app_tx.try_send(appid.clone()));
 
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
 
         let app = app.ok_or(SchedError::NoRouteMapping)?;
