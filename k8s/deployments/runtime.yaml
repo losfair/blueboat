@@ -31,7 +31,7 @@ spec:
             memory: 5000Mi
         env:
         - name: RUST_LOG
-          value: rusty_workers_runtime=debug,rusty_workers=debug
+          value: rusty_workers_runtime=info,rusty_workers=info
         - name: RW_HIGH_MEMORY_THRESHOLD_BYTES
           value: "1073741824"
         - name: RW_ISOLATE_POOL_SIZE
