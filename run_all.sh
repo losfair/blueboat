@@ -1,6 +1,6 @@
 #!/bin/sh
 
-export RUST_LOG=rusty_workers=debug,rusty_workers_fetchd=debug,rusty_workers_runtime=debug,rusty_workers_proxy=info
+export RUST_LOG=rusty_workers=info,rusty_workers_fetchd=info,rusty_workers_runtime=info,rusty_workers_proxy=info
 
 # https://stackoverflow.com/questions/360201/how-do-i-kill-background-processes-jobs-when-my-shell-script-exits
 trap "exit" INT TERM
