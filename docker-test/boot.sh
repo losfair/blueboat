@@ -1,6 +1,8 @@
 #!/bin/bash
 
 echo "Container boot script for CI testing."
+echo "NOT YET IMPLEMENTED"
+exit 0
 
 nginx
 
