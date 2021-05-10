@@ -20,16 +20,6 @@ sleep 5
     --status-addr="127.0.0.1:20181" \
     --data-dir=playground/tikv1 \
     --log-file=playground/tikv1.log &
-../tikv/target/release/tikv-server --pd-endpoints="127.0.0.1:2379" \
-    --addr="127.0.0.1:20161" \
-    --status-addr="127.0.0.1:20182" \
-    --data-dir=playground/tikv2 \
-    --log-file=playground/tikv2.log &
-../tikv/target/release/tikv-server --pd-endpoints="127.0.0.1:2379" \
-    --addr="127.0.0.1:20162" \
-    --status-addr="127.0.0.1:20183" \
-    --data-dir=playground/tikv3 \
-    --log-file=playground/tikv3.log &
 
 sleep 1
 
