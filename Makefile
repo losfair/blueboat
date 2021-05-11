@@ -2,8 +2,8 @@ all: runtime cli fetchd proxy cp playground-api
 
 runtime:
 	cd librt && npm run build
-	cd rusty-workers-runtime && V8_FROM_SOURCE=1 CLANG_BASE_PATH=/usr cargo build --release
-#	cd rusty-workers-runtime && cargo build --release
+#	cd rusty-workers-runtime && V8_FROM_SOURCE=1 CLANG_BASE_PATH=/usr cargo build --release
+	cd rusty-workers-runtime && cargo build --release
 
 cli:
 	cd rusty-workers-cli && cargo build --release
