@@ -18,6 +18,7 @@ spec:
       labels:
         app: fetchd
     spec:
+      __MAYBE_PULL_SECRETS__
       containers:
       - name: fetchd
         image: __IMAGE_PREFIX__rusty-workers-fetchd__IMAGE_SUFFIX__

@@ -35,6 +35,11 @@ if [ -z "$NAMESPACE" ]; then
     exit 1
 fi
 
+if [ -z "$TIKV_CLUSTER" ]; then
+    echo "[-] TIKV_CLUSTER not defined"
+    exit 1
+fi
+
 # Allow empty suffix
 #if [ -z "$IMAGE_SUFFIX" ]; then
 #    echo "[-] IMAGE_SUFFIX not defined"
@@ -49,6 +54,13 @@ find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__EXTERNAL_IPS__#$EXTERNAL_I
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__IMAGE_PREFIX__#$IMAGE_PREFIX#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__IMAGE_SUFFIX__#$IMAGE_SUFFIX#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__NAMESPACE__#$NAMESPACE#g" '{}' ';'
+find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__TIKV_CLUSTER__#$TIKV_CLUSTER#g" '{}' ';'
+
+if [ -z "$IMAGE_PULL_SECRET" ]; then
+    find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__MAYBE_PULL_SECRETS__##g" '{}' ';'
+else
+    find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__MAYBE_PULL_SECRETS__#imagePullSecrets:\n      - name: \"$IMAGE_PULL_SECRET\"#g" '{}' ';'
+fi
 
 cd "./k8s.$SUFFIX" || exit 1
 echo "#!/bin/sh" > apply.sh || exit 1

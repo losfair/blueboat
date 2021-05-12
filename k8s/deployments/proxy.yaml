@@ -18,6 +18,7 @@ spec:
       labels:
         app: proxy
     spec:
+      __MAYBE_PULL_SECRETS__
       containers:
       - name: proxy
         image: __IMAGE_PREFIX__rusty-workers-proxy__IMAGE_SUFFIX__
@@ -47,6 +48,6 @@ spec:
         - name: RW_APP_CACHE_SIZE
           value: "50"
         - name: RW_TIKV_CLUSTER
-          value: "10.120.0.4:2379"
+          value: "__TIKV_CLUSTER__"
         ports:
         - containerPort: 8080
