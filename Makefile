@@ -1,4 +1,4 @@
-all: runtime cli fetchd proxy cp playground-api
+all: runtime cli fetchd proxy # cp playground-api
 
 runtime:
 	cd librt && npm run build
