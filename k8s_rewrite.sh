@@ -40,6 +40,21 @@ if [ -z "$TIKV_CLUSTER" ]; then
     exit 1
 fi
 
+if [ -z "$NUM_FETCHD" ]; then
+    echo "[-] NUM_FETCHD not defined"
+    exit 1
+fi
+
+if [ -z "$NUM_PROXIES" ]; then
+    echo "[-] NUM_PROXIES not defined"
+    exit 1
+fi
+
+if [ -z "$NUM_RUNTIMES" ]; then
+    echo "[-] NUM_RUNTIMES not defined"
+    exit 1
+fi
+
 # Allow empty suffix
 #if [ -z "$IMAGE_SUFFIX" ]; then
 #    echo "[-] IMAGE_SUFFIX not defined"
@@ -55,6 +70,9 @@ find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__IMAGE_PREFIX__#$IMAGE_PREF
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__IMAGE_SUFFIX__#$IMAGE_SUFFIX#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__NAMESPACE__#$NAMESPACE#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__TIKV_CLUSTER__#$TIKV_CLUSTER#g" '{}' ';'
+find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__NUM_PROXIES__#$NUM_PROXIES#g" '{}' ';'
+find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__NUM_RUNTIMES__#$NUM_RUNTIMES#g" '{}' ';'
+find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__NUM_FETCHD__#$NUM_FETCHD#g" '{}' ';'
 
 if [ -z "$IMAGE_PULL_SECRET" ]; then
     find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__MAYBE_PULL_SECRETS__##g" '{}' ';'
