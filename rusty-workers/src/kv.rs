@@ -79,7 +79,7 @@ pub struct WorkerDataTransaction {
 }
 
 impl WorkerDataTransaction {
-    pub async fn get(&self, namespace_id: &[u8; 16], key: &[u8]) -> GenericResult<Option<Vec<u8>>> {
+    pub async fn get(&mut self, namespace_id: &[u8; 16], key: &[u8]) -> GenericResult<Option<Vec<u8>>> {
         self.protected
             .get(make_worker_data_key(namespace_id, key))
             .await
@@ -284,7 +284,7 @@ impl KvClient {
         // doing so is unsafe and unsupported."
         //
         // So here we use transactional API for all worker data operations.
-        let txn = self
+        let mut txn = self
             .transactional
             .begin_with_options(TransactionOptions::new_optimistic().read_only())
             .await
@@ -322,7 +322,7 @@ impl KvClient {
         end: Option<&[u8]>,
         limit: u32,
     ) -> GenericResult<Vec<Vec<u8>>> {
-        let txn = self
+        let mut txn = self
             .transactional
             .begin_with_options(TransactionOptions::new_optimistic().read_only())
             .await
