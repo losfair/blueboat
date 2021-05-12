@@ -25,7 +25,7 @@ spec:
         imagePullPolicy: Always
         resources:
           requests:
-            cpu: 1
+            cpu: __CPU_REQUEST_PER_RUNTIME__
             memory: 1024Mi
           limits:
             # Enforce memory limit on runtime processes, in case v8 sandboxing failed to enforce it on isolate level.

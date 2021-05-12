@@ -55,6 +55,11 @@ if [ -z "$NUM_RUNTIMES" ]; then
     exit 1
 fi
 
+if [ -z "$CPU_REQUEST_PER_RUNTIME" ]; then
+    echo "[-] CPU_REQUEST_PER_RUNTIME not defined"
+    exit 1
+fi
+
 # Allow empty suffix
 #if [ -z "$IMAGE_SUFFIX" ]; then
 #    echo "[-] IMAGE_SUFFIX not defined"
@@ -73,6 +78,7 @@ find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__TIKV_CLUSTER__#$TIKV_CLUST
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__NUM_PROXIES__#$NUM_PROXIES#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__NUM_RUNTIMES__#$NUM_RUNTIMES#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__NUM_FETCHD__#$NUM_FETCHD#g" '{}' ';'
+find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__CPU_REQUEST_PER_RUNTIME__#$CPU_REQUEST_PER_RUNTIME#g" '{}' ';'
 
 if [ -z "$IMAGE_PULL_SECRET" ]; then
     find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__MAYBE_PULL_SECRETS__##g" '{}' ';'
