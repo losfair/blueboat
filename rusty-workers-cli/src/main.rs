@@ -44,6 +44,10 @@ enum Cmd {
         #[structopt(long, env = "TIKV_PD")]
         tikv_pd: String,
 
+        /// MySQL-compatible database URL.
+        #[structopt(long, env = "DB_URL")]
+        db_url: String,
+
         #[structopt(subcommand)]
         op: AppCmd,
     },
@@ -249,8 +253,8 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Cmd::App { tikv_pd, op } => {
-            let client = DataClient::new(vec![tikv_pd]).await?;
+        Cmd::App { tikv_pd, db_url, op } => {
+            let client = DataClient::new(vec![tikv_pd], &db_url).await?;
             match op {
                 AppCmd::AllRoutes => {
                     print!("[");

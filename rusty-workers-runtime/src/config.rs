@@ -39,6 +39,10 @@ pub struct Config {
     pub cpu_wait_timeout_ms: u64,
 
     /// TiKV cluster addresses, comma-separated.
-    #[structopt(long, env = "RW_TIKV_CLUSTER", default_value = "")]
+    #[structopt(long, env = "RW_TIKV_CLUSTER")]
     pub tikv_cluster: String,
+
+    /// MySQL-compatible database URL.
+    #[structopt(long, env = "RW_DB_URL")]
+    pub db_url: String,
 }

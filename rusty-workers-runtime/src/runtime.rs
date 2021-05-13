@@ -19,7 +19,7 @@ pub struct Runtime {
     config: Config,
     pool: IsolateThreadPool,
     execution_token: Semaphore,
-    data_client: Option<DataClient>,
+    data_client: DataClient,
     log_tx: tokio::sync::mpsc::Sender<LogEntry>,
     isolate_config: IsolateConfig,
 }
@@ -55,14 +55,8 @@ impl Runtime {
         let isolate_pool_size = config.isolate_pool_size;
         let execution_concurrency = config.execution_concurrency;
 
-        let kv = if config.tikv_cluster.len() > 0 {
-            let cluster: Vec<_> = config.tikv_cluster.split(",").collect();
-            let client = Some(DataClient::new(cluster).await?);
-            info!("connected to tikv cluster");
-            client
-        } else {
-            None
-        };
+        let tikv_cluster: Vec<_> = config.tikv_cluster.split(",").collect();
+        let data_client = DataClient::new(tikv_cluster, &config.db_url).await?;
 
         let isolate_config = IsolateConfig {
             max_memory_bytes: max_isolate_memory_bytes,
@@ -81,7 +75,7 @@ impl Runtime {
             pool: isolate_pool,
             isolate_config,
             execution_token: Semaphore::new(execution_concurrency),
-            data_client: kv,
+            data_client,
             log_tx,
         });
         let rt_weak = Arc::downgrade(&rt);
@@ -101,8 +95,8 @@ impl Runtime {
             .ok_or_else(|| GenericError::Other("timeout waiting for execution token".into()))
     }
 
-    pub fn data_client(&self) -> Option<&DataClient> {
-        self.data_client.as_ref()
+    pub fn data_client(&self) -> &DataClient {
+        &self.data_client
     }
 
     pub fn isolate_config(&self) -> &IsolateConfig {
@@ -361,9 +355,7 @@ async fn log_worker(rt: Weak<Runtime>, mut rx: tokio::sync::mpsc::Receiver<LogEn
         } else {
             break;
         };
-        if let Some(ref kv) = rt.data_client {
-            drop(kv.log_put(&entry.topic, entry.time, &entry.text).await);
-        }
+        let _ = rt.data_client.log_put(&entry.topic, entry.time, &entry.text).await;
     }
 }
 

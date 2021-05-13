@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
+use mysql_async::Pool;
 use tikv_client::{BoundRange, CheckLevel, Key, KvPair, Transaction, TransactionOptions};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Semaphore;
@@ -70,6 +71,7 @@ pub struct DataClient {
     raw: tikv_client::RawClient,
     transactional: tikv_client::TransactionClient,
     txn_collector_tx: Sender<Transaction>,
+    db: Pool,
 }
 
 pub struct WorkerDataTransaction {
@@ -212,7 +214,7 @@ impl ProtectedTransaction {
 }
 
 impl DataClient {
-    pub async fn new<S: Into<String> + Clone>(pd_endpoints: Vec<S>) -> GenericResult<Self> {
+    pub async fn new<S: Into<String> + Clone>(pd_endpoints: Vec<S>, db_url: &str) -> GenericResult<Self> {
         let raw = tikv_client::RawClient::new(pd_endpoints.clone())
             .await
             .map_err(|e| {
@@ -226,6 +228,13 @@ impl DataClient {
                     e
                 ))
             })?;
+        let db = Pool::from_url(db_url)
+            .map_err(|e| {
+                GenericError::Other(format!(
+                    "db connection failed: {:?}",
+                    e,
+                ))
+            })?;
         let (txn_collector_tx, txn_collector_rx) = channel(1000);
         tokio::spawn(async move {
             txn_collector_worker(txn_collector_rx).await;
@@ -234,6 +243,7 @@ impl DataClient {
             raw,
             transactional,
             txn_collector_tx,
+            db,
         })
     }
 

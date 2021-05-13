@@ -36,6 +36,10 @@ struct Opt {
     /// TiKV PD addresses.
     #[structopt(long, env = "TIKV_PD")]
     tikv_pd: String,
+
+    /// MySQL-compatible database URL.
+    #[structopt(long, env = "RW_DB_URL")]
+    db_url: String,
 }
 
 struct Server {
@@ -90,7 +94,7 @@ async fn main() -> Result<()> {
     let opt = Opt::from_args();
 
     let server = Arc::new(Server {
-        kv: DataClient::new(opt.tikv_pd.split(",").collect()).await?,
+        kv: DataClient::new(opt.tikv_pd.split(",").collect(), &opt.db_url).await?,
         config: opt.clone(),
     });
 

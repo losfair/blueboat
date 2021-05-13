@@ -1881,6 +1881,7 @@ dependencies = [
  "git-version",
  "hex",
  "log",
+ "mysql_async",
  "rand 0.8.0",
  "serde",
  "stubborn-io",
