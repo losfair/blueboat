@@ -19,7 +19,7 @@ pub struct Runtime {
     config: Config,
     pool: IsolateThreadPool,
     execution_token: Semaphore,
-    kv: Option<DataClient>,
+    data_client: Option<DataClient>,
     log_tx: tokio::sync::mpsc::Sender<LogEntry>,
     isolate_config: IsolateConfig,
 }
@@ -81,7 +81,7 @@ impl Runtime {
             pool: isolate_pool,
             isolate_config,
             execution_token: Semaphore::new(execution_concurrency),
-            kv,
+            data_client: kv,
             log_tx,
         });
         let rt_weak = Arc::downgrade(&rt);
@@ -101,8 +101,8 @@ impl Runtime {
             .ok_or_else(|| GenericError::Other("timeout waiting for execution token".into()))
     }
 
-    pub fn kv(&self) -> Option<&DataClient> {
-        self.kv.as_ref()
+    pub fn data_client(&self) -> Option<&DataClient> {
+        self.data_client.as_ref()
     }
 
     pub fn isolate_config(&self) -> &IsolateConfig {
@@ -361,7 +361,7 @@ async fn log_worker(rt: Weak<Runtime>, mut rx: tokio::sync::mpsc::Receiver<LogEn
         } else {
             break;
         };
-        if let Some(ref kv) = rt.kv {
+        if let Some(ref kv) = rt.data_client {
             drop(kv.log_put(&entry.topic, entry.time, &entry.text).await);
         }
     }

@@ -340,7 +340,7 @@ impl IoProcessorSharedState {
                     }
                     txn.get(namespace_id, &key).await?
                 } else {
-                    let kv = match self.worker_runtime.kv() {
+                    let kv = match self.worker_runtime.data_client() {
                         Some(x) => x,
                         None => return Ok(mk_user_error("kv disabled")?),
                     };
@@ -382,7 +382,7 @@ impl IoProcessorSharedState {
                 if let Some(ref mut txn) = *self.ongoing_txn.lock().await {
                     txn.put(namespace_id, &key, value).await?;
                 } else {
-                    let kv = match self.worker_runtime.kv() {
+                    let kv = match self.worker_runtime.data_client() {
                         Some(x) => x,
                         None => return Ok(mk_user_error("kv disabled")?),
                     };
@@ -408,7 +408,7 @@ impl IoProcessorSharedState {
                 if let Some(ref mut txn) = *self.ongoing_txn.lock().await {
                     txn.delete(namespace_id, &key).await?
                 } else {
-                    let kv = match self.worker_runtime.kv() {
+                    let kv = match self.worker_runtime.data_client() {
                         Some(x) => x,
                         None => return Ok(mk_user_error("kv disabled")?),
                     };
@@ -459,7 +459,7 @@ impl IoProcessorSharedState {
                     }
                     keys
                 } else {
-                    let kv = match self.worker_runtime.kv() {
+                    let kv = match self.worker_runtime.data_client() {
                         Some(x) => x,
                         None => return Ok(mk_user_error("kv disabled")?),
                     };
@@ -481,7 +481,7 @@ impl IoProcessorSharedState {
                     drop(x.rollback().await);
                 }
 
-                let kv = match self.worker_runtime.kv() {
+                let kv = match self.worker_runtime.data_client() {
                     Some(x) => x,
                     None => return Ok(mk_user_error("kv disabled")?),
                 };
