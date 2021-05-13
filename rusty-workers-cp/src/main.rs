@@ -10,7 +10,7 @@ use hyper::{
     service::{make_service_fn, service_fn},
     Body, Request, Response, StatusCode,
 };
-use rusty_workers::kv::KvClient;
+use rusty_workers::db::DataClient;
 use serde_json::json;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -40,7 +40,7 @@ struct Opt {
 
 struct Server {
     config: Opt,
-    kv: KvClient,
+    kv: DataClient,
 }
 
 impl Server {
@@ -90,7 +90,7 @@ async fn main() -> Result<()> {
     let opt = Opt::from_args();
 
     let server = Arc::new(Server {
-        kv: KvClient::new(opt.tikv_pd.split(",").collect()).await?,
+        kv: DataClient::new(opt.tikv_pd.split(",").collect()).await?,
         config: opt.clone(),
     });
 

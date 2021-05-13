@@ -101,7 +101,8 @@ async fn main() -> Result<()> {
         runtime_cluster.push(elem.parse()?);
     }
 
-    let kv_client = rusty_workers::kv::KvClient::new(opt.tikv_cluster.split(",").collect()).await?;
+    let kv_client =
+        rusty_workers::db::DataClient::new(opt.tikv_cluster.split(",").collect()).await?;
 
     SCHEDULER
         .set(sched::Scheduler::new(

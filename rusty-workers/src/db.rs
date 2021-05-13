@@ -66,7 +66,7 @@ pub static PREFIX_LOG_V1: &'static [u8] = b"W\x00V1\x00LOG\x00";
 
 const MAX_LOCKS_PER_WORKER_DATA_TRANSACTION: usize = 256;
 
-pub struct KvClient {
+pub struct DataClient {
     raw: tikv_client::RawClient,
     transactional: tikv_client::TransactionClient,
     txn_collector_tx: Sender<Transaction>,
@@ -211,7 +211,7 @@ impl ProtectedTransaction {
     }
 }
 
-impl KvClient {
+impl DataClient {
     pub async fn new<S: Into<String> + Clone>(pd_endpoints: Vec<S>) -> GenericResult<Self> {
         let raw = tikv_client::RawClient::new(pd_endpoints.clone())
             .await

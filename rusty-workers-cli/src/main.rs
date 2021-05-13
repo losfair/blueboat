@@ -4,7 +4,7 @@ extern crate log;
 use anyhow::Result;
 use rand::Rng;
 use rusty_workers::app::AppConfig;
-use rusty_workers::kv::KvClient;
+use rusty_workers::db::DataClient;
 use rusty_workers::tarpc;
 use rusty_workers::types::*;
 use std::net::SocketAddr;
@@ -250,7 +250,7 @@ async fn main() -> Result<()> {
             }
         }
         Cmd::App { tikv_pd, op } => {
-            let client = KvClient::new(vec![tikv_pd]).await?;
+            let client = DataClient::new(vec![tikv_pd]).await?;
             match op {
                 AppCmd::AllRoutes => {
                     print!("[");
@@ -560,7 +560,7 @@ async fn read_file_raw(path: &str) -> Result<Vec<u8>> {
     Ok(buf)
 }
 
-async fn do_add_app(client: &KvClient, config: &mut AppConfig, bundle: Vec<u8>) -> Result<()> {
+async fn do_add_app(client: &DataClient, config: &mut AppConfig, bundle: Vec<u8>) -> Result<()> {
     match cleanup_previous_app(&client, &config.id).await {
         Ok(()) => {}
         Err(e) => {
@@ -585,7 +585,10 @@ fn make_context() -> tarpc::context::Context {
     current
 }
 
-async fn cleanup_previous_app(client: &KvClient, appid: &rusty_workers::app::AppId) -> Result<()> {
+async fn cleanup_previous_app(
+    client: &DataClient,
+    appid: &rusty_workers::app::AppId,
+) -> Result<()> {
     if let Some(prev_md) = client.app_metadata_get(&appid.0).await? {
         if let Ok(prev_config) = serde_json::from_slice::<AppConfig>(&prev_md) {
             client

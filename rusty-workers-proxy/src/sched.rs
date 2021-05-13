@@ -5,7 +5,7 @@ use lru_time_cache::LruCache;
 use rand::distributions::{Distribution, Open01, WeightedIndex};
 use rand::Rng;
 use rusty_workers::app::*;
-use rusty_workers::kv::KvClient;
+use rusty_workers::db::DataClient;
 use rusty_workers::rpc::RuntimeServiceClient;
 use rusty_workers::tarpc;
 use rusty_workers::types::*;
@@ -40,7 +40,7 @@ pub struct Scheduler {
     apps: AsyncMutex<LruCache<AppId, Arc<AppState>>>,
     route_cache: AsyncMutex<LruCache<String, BTreeMap<String, AppId>>>, // domain -> (prefix -> appid)
     terminate_queue: tokio::sync::mpsc::Sender<ReadyInstance>,
-    kv_client: KvClient,
+    kv_client: DataClient,
     lookup_route_tx: Sender<(String, String)>,
     lookup_app_tx: Sender<AppId>,
 }
@@ -200,7 +200,7 @@ impl Scheduler {
     pub fn new(
         worker_config: WorkerConfiguration,
         local_config: LocalConfig,
-        kv_client: KvClient,
+        kv_client: DataClient,
     ) -> Arc<Self> {
         let (terminate_queue_tx, mut terminate_queue_rx): (
             tokio::sync::mpsc::Sender<ReadyInstance>,

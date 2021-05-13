@@ -12,7 +12,7 @@ use hyper::{
 };
 use rand::Rng;
 use rusty_workers::app::AppConfig;
-use rusty_workers::kv::KvClient;
+use rusty_workers::db::DataClient;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -56,7 +56,7 @@ struct Opt {
 struct Server {
     _config: Opt,
     auth_token: [u8; 16],
-    kv: KvClient,
+    kv: DataClient,
 }
 
 impl Server {
@@ -190,7 +190,7 @@ async fn main() -> Result<()> {
     let opt = Opt::from_args();
 
     let server = Arc::new(Server {
-        kv: KvClient::new(opt.tikv_pd.split(",").collect()).await?,
+        kv: DataClient::new(opt.tikv_pd.split(",").collect()).await?,
         _config: opt.clone(),
         auth_token: rusty_workers::app::decode_id128(&opt.auth_token)
             .ok_or_else(|| CpError::BadId128)?,
@@ -251,7 +251,10 @@ async fn read_request_body(req: Request<Body>) -> Result<Vec<u8>> {
     Ok(full_body)
 }
 
-async fn cleanup_previous_app(client: &KvClient, appid: &rusty_workers::app::AppId) -> Result<()> {
+async fn cleanup_previous_app(
+    client: &DataClient,
+    appid: &rusty_workers::app::AppId,
+) -> Result<()> {
     if let Some(prev_md) = client.app_metadata_get(&appid.0).await? {
         if let Ok(prev_config) = serde_json::from_slice::<AppConfig>(&prev_md) {
             client

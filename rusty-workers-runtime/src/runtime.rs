@@ -4,7 +4,7 @@ use crate::isolate::{IsolateConfig, IsolateThreadPool};
 use crate::semaphore::{Permit, Semaphore};
 use lru_time_cache::LruCache;
 use rusty_v8 as v8;
-use rusty_workers::kv::KvClient;
+use rusty_workers::db::DataClient;
 use rusty_workers::types::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
@@ -19,7 +19,7 @@ pub struct Runtime {
     config: Config,
     pool: IsolateThreadPool,
     execution_token: Semaphore,
-    kv: Option<KvClient>,
+    kv: Option<DataClient>,
     log_tx: tokio::sync::mpsc::Sender<LogEntry>,
     isolate_config: IsolateConfig,
 }
@@ -57,7 +57,7 @@ impl Runtime {
 
         let kv = if config.tikv_cluster.len() > 0 {
             let cluster: Vec<_> = config.tikv_cluster.split(",").collect();
-            let client = Some(KvClient::new(cluster).await?);
+            let client = Some(DataClient::new(cluster).await?);
             info!("connected to tikv cluster");
             client
         } else {
@@ -101,7 +101,7 @@ impl Runtime {
             .ok_or_else(|| GenericError::Other("timeout waiting for execution token".into()))
     }
 
-    pub fn kv(&self) -> Option<&KvClient> {
+    pub fn kv(&self) -> Option<&DataClient> {
         self.kv.as_ref()
     }
 

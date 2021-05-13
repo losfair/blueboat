@@ -3,7 +3,7 @@ use crate::remote_buffer::*;
 use crate::runtime::Runtime;
 use anyhow::Result;
 use rusty_v8 as v8;
-use rusty_workers::kv::WorkerDataTransaction;
+use rusty_workers::db::WorkerDataTransaction;
 use rusty_workers::rpc::FetchServiceClient;
 use rusty_workers::tarpc;
 use rusty_workers::types::*;

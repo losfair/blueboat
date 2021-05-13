@@ -7,7 +7,7 @@ pub mod types;
 pub mod util;
 
 #[cfg(feature = "kv")]
-pub mod kv;
+pub mod db;
 
 pub use futures;
 pub use tarpc;
