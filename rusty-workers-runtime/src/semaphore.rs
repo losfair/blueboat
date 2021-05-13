@@ -27,6 +27,7 @@ impl Semaphore {
         Some(Permit { tx: &self.tx })
     }
 
+    #[allow(dead_code)]
     pub fn acquire_owned_timeout(&self, timeout: std::time::Duration) -> Option<OwnedPermit> {
         self.rx.recv_timeout(timeout).ok()?;
         Some(OwnedPermit {

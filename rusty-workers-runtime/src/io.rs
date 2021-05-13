@@ -12,8 +12,8 @@ use slab::Slab;
 use std::cell::Cell;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::oneshot;
 use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{oneshot, Semaphore};
 
 const MAX_KV_KEY_SIZE: usize = 2048;
 const MAX_KV_VALUE_SIZE: usize = 4 * 1024 * 1024;
@@ -23,14 +23,15 @@ const MAX_KV_SCAN_LIMIT: u32 = 100; // 100 * 2K = 200K max
 pub struct IoWaiter {
     remaining_budget: u32,
     inflight: Slab<v8::Global<v8::Function>>,
-    task: tokio::sync::mpsc::UnboundedSender<(usize, AsyncCall)>,
+    task: tokio::sync::mpsc::Sender<(usize, AsyncCall)>,
     result: crossbeam::channel::Receiver<BackToExecutorItem>,
-    conf: Arc<WorkerConfiguration>,
+    _conf: Arc<WorkerConfiguration>,
     remote_buffer_set: RemoteBufferSet,
 }
 
 pub struct IoProcessor {
-    task: tokio::sync::mpsc::UnboundedReceiver<(usize, AsyncCall)>,
+    task: tokio::sync::mpsc::Receiver<(usize, AsyncCall)>,
+    inflight_sem: Arc<Semaphore>,
     shared: Arc<IoProcessorSharedState>,
 }
 
@@ -91,17 +92,22 @@ impl IoWaiter {
     ) -> (Self, IoProcessor) {
         let init_budget = conf.executor.max_io_per_request;
         let (result_tx, result_rx) = crossbeam::channel::unbounded();
-        let (task_tx, task_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        // Async task backlog
+        let (task_tx, task_rx) =
+            tokio::sync::mpsc::channel(conf.executor.max_io_per_request as usize + 200);
+
         let waiter = IoWaiter {
             remaining_budget: init_budget,
             inflight: Slab::new(),
             task: task_tx,
             result: result_rx,
-            conf: conf.clone(),
+            _conf: conf.clone(),
             remote_buffer_set: RemoteBufferSet::new(),
         };
         let processor = IoProcessor {
             task: task_rx,
+            inflight_sem: Arc::new(Semaphore::new(conf.executor.max_io_concurrency as usize)),
             shared: Arc::new(IoProcessorSharedState {
                 conf,
                 worker_runtime,
@@ -126,12 +132,11 @@ impl IoWaiter {
             self.remaining_budget -= 1;
         }
 
-        if self.inflight.len() >= self.conf.executor.max_io_concurrency as usize {
-            return Err(GenericError::IoLimitExceeded);
-        }
-
         let index = self.inflight.insert(cb);
-        match self.task.send((index, task)) {
+
+        // We've got a large enough backlog (max_io_per_request + x). And if here we still
+        // need to block, the app may be doing something strange and let's count against its CPU time.
+        match self.task.blocking_send((index, task)) {
             Ok(()) => Ok(()),
             Err(_) => {
                 self.inflight.remove(index);
@@ -145,6 +150,7 @@ impl IoWaiter {
         scope: &mut v8::HandleScope<'_>,
     ) -> Option<(v8::Global<v8::Function>, String, Vec<RemoteBuffer>)> {
         let (index, result, buffers) = loop {
+            // [Blocking in JS hostcall] Receive result. recv() fails once IoScope is dropped.
             match self.result.recv().ok()? {
                 BackToExecutorItem::TaskResult(x) => break x,
                 BackToExecutorItem::BufferCreation {
@@ -199,7 +205,13 @@ impl IoProcessor {
             };
             let mut kill_rx = kill_rx.clone();
             let shared = self.shared.clone();
+
+            // Concurrency control: Don't spawn more than max_io_concurrency tasks concurrently.
+            let permit = self.inflight_sem.clone().acquire_owned().await.unwrap();
+
             tokio::spawn(async move {
+                // Hold the permit, until the task finishes.
+                let _permit = permit;
                 tokio::select! {
                     _ = kill_rx.changed() => {
                         debug!("in-flight I/O operation killed");
