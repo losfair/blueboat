@@ -54,16 +54,15 @@ macro_rules! impl_scan_prefix {
     };
 }
 
-/// Will be used a lot so keep it short.
-pub static PREFIX_WORKER_DATA_V2: &'static [u8] = b"V2\x00W\x00";
+pub static PREFIX_WORKER_DATA_V2: &'static [u8] = b"W\x00V2\x00W\x00";
 
-pub static PREFIX_APP_METADATA_V1: &'static [u8] = b"V1\x00APPMD\x00";
+pub static PREFIX_APP_METADATA_V1: &'static [u8] = b"W\x00V1\x00APPMD\x00";
 
-pub static PREFIX_APP_BUNDLE_V1: &'static [u8] = b"V1\x00APPBUNDLE\x00";
+pub static PREFIX_APP_BUNDLE_V1: &'static [u8] = b"W\x00V1\x00APPBUNDLE\x00";
 
-pub static PREFIX_ROUTE_MAPPING_V1: &'static [u8] = b"V1\x00ROUTEMAP\x00";
+pub static PREFIX_ROUTE_MAPPING_V1: &'static [u8] = b"W\x00V1\x00ROUTEMAP\x00";
 
-pub static PREFIX_LOG_V1: &'static [u8] = b"V1\x00LOG\x00";
+pub static PREFIX_LOG_V1: &'static [u8] = b"W\x00V1\x00LOG\x00";
 
 const MAX_LOCKS_PER_WORKER_DATA_TRANSACTION: usize = 256;
 

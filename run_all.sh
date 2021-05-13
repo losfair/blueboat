@@ -6,23 +6,6 @@ export RUST_LOG=rusty_workers=info,rusty_workers_fetchd=info,rusty_workers_runti
 trap "exit" INT TERM
 trap "kill 0" EXIT
 
-../pd/bin/pd-server --name=pd1 \
-    --data-dir=playground/pd1 \
-    --client-urls="http://127.0.0.1:2379" \
-    --peer-urls="http://127.0.0.1:2380" \
-    --initial-cluster="pd1=http://127.0.0.1:2380" \
-    --log-file=playground/pd1.log &
-
-sleep 5
-
-../tikv/target/release/tikv-server --pd-endpoints="127.0.0.1:2379" \
-    --addr="127.0.0.1:20160" \
-    --status-addr="127.0.0.1:20181" \
-    --data-dir=playground/tikv1 \
-    --log-file=playground/tikv1.log &
-
-sleep 1
-
 cd playground
 ./build_bundles.sh
 cd ..
