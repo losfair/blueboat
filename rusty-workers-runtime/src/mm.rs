@@ -40,8 +40,8 @@ impl MemoryPool {
             // TODO: Figure out a better ordering
             if self
                 .remaining_bytes
-                .compare_and_swap(current, current - n, Ordering::SeqCst)
-                == current
+                .compare_exchange(current, current - n, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
             {
                 return true;
             }
