@@ -9,6 +9,10 @@ pub struct Permit<'a> {
     tx: &'a Sender<()>,
 }
 
+pub struct OwnedPermit {
+    tx: Sender<()>,
+}
+
 impl Semaphore {
     pub fn new(n: usize) -> Self {
         let (tx, rx) = crossbeam::channel::unbounded();
@@ -22,10 +26,24 @@ impl Semaphore {
         self.rx.recv_timeout(timeout).ok()?;
         Some(Permit { tx: &self.tx })
     }
+
+    pub fn acquire_owned_timeout(&self, timeout: std::time::Duration) -> Option<OwnedPermit> {
+        self.rx.recv_timeout(timeout).ok()?;
+        Some(OwnedPermit {
+            tx: self.tx.clone(),
+        })
+    }
 }
 
 impl<'a> Drop for Permit<'a> {
     fn drop(&mut self) {
         self.tx.send(()).unwrap();
+    }
+}
+
+impl Drop for OwnedPermit {
+    fn drop(&mut self) {
+        // Maybe the receiver is already dropped
+        let _ = self.tx.send(());
     }
 }
