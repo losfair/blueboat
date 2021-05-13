@@ -136,9 +136,10 @@ impl Server {
             }
             "/v1/delete_namespace" => {
                 let opt: DeleteNamespaceOpt = serde_json::from_slice(&req_body)?;
-                let namespace = rusty_workers::app::decode_id128(&opt.nsid)
-                    .ok_or_else(|| CpError::BadId128)?;
-                let keys = self.kv
+                let namespace =
+                    rusty_workers::app::decode_id128(&opt.nsid).ok_or_else(|| CpError::BadId128)?;
+                let keys = self
+                    .kv
                     .worker_data_scan_keys(&namespace, b"", None, opt.batch_size)
                     .await?;
                 for k in keys.iter() {

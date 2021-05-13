@@ -375,7 +375,10 @@ async fn main() -> Result<()> {
                                 .ok_or_else(|| CliError::BadId128)?,
                         )
                         .await?;
-                    println!("{}", serde_json::to_string(&bundle.map(|x| base64::encode(&x)))?);
+                    println!(
+                        "{}",
+                        serde_json::to_string(&bundle.map(|x| base64::encode(&x)))?
+                    );
                 }
                 AppCmd::AllBundles => {
                     print!("[");

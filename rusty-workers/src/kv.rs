@@ -78,7 +78,11 @@ pub struct WorkerDataTransaction {
 }
 
 impl WorkerDataTransaction {
-    pub async fn get(&mut self, namespace_id: &[u8; 16], key: &[u8]) -> GenericResult<Option<Vec<u8>>> {
+    pub async fn get(
+        &mut self,
+        namespace_id: &[u8; 16],
+        key: &[u8],
+    ) -> GenericResult<Option<Vec<u8>>> {
         self.protected
             .get(make_worker_data_key(namespace_id, key))
             .await
