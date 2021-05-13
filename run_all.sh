@@ -10,18 +10,20 @@ cd playground
 ./build_bundles.sh
 cd ..
 
-./target/release/rusty-workers-fetchd --rpc-listen 127.0.0.1:3000 &
-./target/release/rusty-workers-runtime --rpc-listen 127.0.0.1:3001 \
+./target/release/rusty-workers-fetchd --rpc-listen 127.0.0.1:3200 &
+./target/release/rusty-workers-runtime --rpc-listen 127.0.0.1:3201 \
     --tikv-cluster 127.0.0.1:2379 \
+    --db-url mysql://root@localhost:4000/rusty_workers \
     --max-num-of-instances 50 \
     --isolate-pool-size 60 \
     --execution-concurrency 20 \
     --max-concurrent-requests 50 &
 ./target/release/rusty-workers-proxy \
-    --fetch-service 127.0.0.1:3000 \
-    --http-listen 0.0.0.0:3080 \
+    --fetch-service 127.0.0.1:3200 \
+    --http-listen 0.0.0.0:3280 \
     --tikv-cluster 127.0.0.1:2379 \
-    --runtimes 127.0.0.1:3001 \
+    --db-url mysql://root@localhost:4000/rusty_workers \
+    --runtimes 127.0.0.1:3201 \
     --dropout-rate 0.0002 \
     --max-time-ms 2000 \
     --max-ready-instances-per-app 80 &
