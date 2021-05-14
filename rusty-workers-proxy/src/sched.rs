@@ -63,8 +63,8 @@ struct AppState {
     /// App configuration.
     config: WorkerConfiguration,
 
-    /// Hash of the bundle.
-    bundle_id: [u8; 16],
+    /// ID of the bundle.
+    bundle_id: String,
 
     /// File bundle.
     bundle: Vec<u8>,
@@ -586,26 +586,24 @@ impl Scheduler {
 
     async fn apps_gc_task(&self) {
         loop {
-            let apps: Vec<(AppId, ([u8; 16], WorkerConfiguration))> = self
+            let apps: Vec<(AppId, (String, WorkerConfiguration))> = self
                 .apps
                 .lock()
                 .await
                 .iter()
-                .map(|(k, v)| (k.clone(), (v.bundle_id, v.config.clone())))
+                .map(|(k, v)| (k.clone(), (v.bundle_id.clone(), v.config.clone())))
                 .collect();
 
             for (id, (bundle_id, worker_config)) in apps {
                 match self.kv_client.app_metadata_get(&id.0).await {
                     Ok(Some(config)) => {
-                        if let Ok(expected_bundle_id) = base64::decode(&config.bundle_id) {
-                            if expected_bundle_id != bundle_id
-                                || config.env != worker_config.env
-                                || decode_kv_namespaces(&config.kv_namespaces)
-                                    != worker_config.kv_namespaces
-                            {
-                                info!("app changed. removing app {} from cache", id.0);
-                                self.apps.lock().await.remove(&id);
-                            }
+                        if config.bundle_id != bundle_id
+                            || config.env != worker_config.env
+                            || decode_kv_namespaces(&config.kv_namespaces)
+                                != worker_config.kv_namespaces
+                        {
+                            info!("app changed. removing app {} from cache", id.0);
+                            self.apps.lock().await.remove(&id);
                         }
                     }
                     Ok(None) => {
@@ -656,16 +654,8 @@ impl Scheduler {
             }
         };
 
-        let bundle_id = match decode_id128(&config.bundle_id) {
-            Some(x) => x,
-            None => {
-                warn!("do_lookup_app_background: bad bundle hash (app {})", id.0);
-                return;
-            }
-        };
-
-        info!("fetching bundle {}", base64::encode(&bundle_id));
-        let bundle = match self.kv_client.app_bundle_get(&bundle_id).await {
+        info!("fetching bundle {}", &config.bundle_id);
+        let bundle = match self.kv_client.app_bundle_get(&config.bundle_id).await {
             Ok(Some(x)) => x,
             Ok(None) => {
                 warn!("do_lookup_app_background: app bundle not found");
@@ -684,7 +674,7 @@ impl Scheduler {
         let state = AppState {
             id: id.clone(),
             config: target_config,
-            bundle_id,
+            bundle_id: config.bundle_id.clone(),
             bundle,
             ready_instances: AsyncMutex::new(VecDeque::new()),
         };

@@ -12,67 +12,15 @@ use std::{
     collections::BTreeMap,
     time::{Duration, UNIX_EPOCH},
 };
-use tikv_client::{BoundRange, CheckLevel, Key, Transaction, TransactionOptions};
+use tikv_client::{BoundRange, CheckLevel, Transaction, TransactionOptions};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Semaphore;
 
-macro_rules! impl_scan_prefix {
-    ($name:ident, $cb_value_ty:ty, $scan_func:ident, $deref_key:ident, $deref_value:ident) => {
-        async fn $name(
-            &self,
-            prefix: &[u8],
-            mut cb: impl FnMut(&[u8], $cb_value_ty) -> bool,
-        ) -> GenericResult<()> {
-            assert!(prefix.len() > 0, "scan_prefix: prefix must be non-empty");
-            assert!(
-                *prefix.last().unwrap() == 0,
-                "scan_prefix: prefix must end with zero"
-            );
-
-            let batch_size: u32 = 20;
-
-            let mut start_prefix = prefix.to_vec();
-            let mut end_prefix = prefix.to_vec();
-            *end_prefix.last_mut().unwrap() = 1;
-
-            loop {
-                let batch = self
-                    .raw
-                    .$scan_func(start_prefix..end_prefix.clone(), batch_size)
-                    .await
-                    .map_err(|e| GenericError::Other(format!("scan_prefix: {:?}", e)))?;
-                for item in batch.iter() {
-                    let key: &[u8] = $deref_key(item);
-                    if key.starts_with(prefix) {
-                        if !cb(&key[prefix.len()..], $deref_value(item)) {
-                            return Ok(());
-                        }
-                    } else {
-                        error!("scan_prefix: invalid data from database");
-                        return Ok(());
-                    }
-                }
-                if batch.len() == batch_size as usize {
-                    // The immediate next key
-                    start_prefix = join_slices(&[$deref_key(batch.last().unwrap()), &[0u8]]);
-                } else {
-                    return Ok(());
-                }
-            }
-        }
-    };
-}
-
 pub static PREFIX_WORKER_DATA_V2: &'static [u8] = b"W\x00V2\x00W\x00";
-
-pub static PREFIX_APP_METADATA_V1: &'static [u8] = b"W\x00V1\x00APPMD\x00";
-
-pub static PREFIX_APP_BUNDLE_V1: &'static [u8] = b"W\x00V1\x00APPBUNDLE\x00";
 
 const MAX_LOCKS_PER_WORKER_DATA_TRANSACTION: usize = 256;
 
 pub struct DataClient {
-    raw: tikv_client::RawClient,
     transactional: tikv_client::TransactionClient,
     txn_collector_tx: Sender<Transaction>,
     db: Pool,
@@ -222,11 +170,6 @@ impl DataClient {
         pd_endpoints: Vec<S>,
         db_url: &str,
     ) -> GenericResult<Self> {
-        let raw = tikv_client::RawClient::new(pd_endpoints.clone())
-            .await
-            .map_err(|e| {
-                GenericError::Other(format!("tikv (raw) initialization failed: {:?}", e))
-            })?;
         let transactional = tikv_client::TransactionClient::new(pd_endpoints)
             .await
             .map_err(|e| {
@@ -242,7 +185,6 @@ impl DataClient {
             txn_collector_worker(txn_collector_rx).await;
         });
         Ok(Self {
-            raw,
             transactional,
             txn_collector_tx,
             db,
@@ -270,8 +212,6 @@ impl DataClient {
             txn_collector_tx: self.txn_collector_tx.clone(),
         })
     }
-
-    impl_scan_prefix!(scan_prefix_keys, (), scan_keys, key_deref, mk_unit);
 
     pub async fn worker_data_get(
         &self,
@@ -478,45 +418,22 @@ impl DataClient {
         Ok(())
     }
 
-    pub async fn app_bundle_for_each(
-        &self,
-        mut callback: impl FnMut(&[u8]) -> bool,
-    ) -> GenericResult<()> {
-        self.scan_prefix_keys(PREFIX_APP_BUNDLE_V1, |k, ()| callback(k))
+    pub async fn app_bundle_get(&self, id: &str) -> GenericResult<Option<Vec<u8>>> {
+        let mut conn = self.db.get_conn().await?;
+        let bundle: Option<Vec<u8>> = conn
+            .exec_first("select bundle from bundles where id = ?", (id,))
             .await?;
+        Ok(bundle)
+    }
+
+    pub async fn app_bundle_put(&self, id: &str, value: &[u8]) -> GenericResult<()> {
+        let mut conn = self.db.get_conn().await?;
+        conn.exec_drop(
+            "insert into bundles (id, bundle, createtime) values(?, ?, ?)",
+            (id, value, current_millis()),
+        )
+        .await?;
         Ok(())
-    }
-
-    pub async fn app_bundle_get(&self, id: &[u8; 16]) -> GenericResult<Option<Vec<u8>>> {
-        let key = join_slices(&[PREFIX_APP_BUNDLE_V1, id]);
-        self.raw
-            .get(key)
-            .await
-            .map_err(|e| GenericError::Other(format!("app_bundle_get: {:?}", e)))
-    }
-
-    pub async fn app_bundle_put(&self, id: &[u8; 16], value: Vec<u8>) -> GenericResult<()> {
-        let key = join_slices(&[PREFIX_APP_BUNDLE_V1, id]);
-        self.raw
-            .put(key, value)
-            .await
-            .map_err(|e| GenericError::Other(format!("app_bundle_put: {:?}", e)))
-    }
-
-    /// Deletes an app bundle.
-    pub async fn app_bundle_delete(&self, id: &[u8; 16]) -> GenericResult<()> {
-        self.app_bundle_delete_dirty(id).await
-    }
-
-    /// Deletes an app bundle.
-    ///
-    /// Argument is not restricted to [u8; 16] because we want to allow deleting "dirty" data.
-    pub async fn app_bundle_delete_dirty(&self, id: &[u8]) -> GenericResult<()> {
-        let key = join_slices(&[PREFIX_APP_BUNDLE_V1, id]);
-        self.raw
-            .delete(key)
-            .await
-            .map_err(|e| GenericError::Other(format!("app_bundle_delete: {:?}", e)))
     }
 
     pub async fn applog_write(
@@ -558,14 +475,6 @@ fn join_slices(slices: &[&[u8]]) -> Vec<u8> {
         buf.extend_from_slice(s);
     }
     buf
-}
-
-fn key_deref(k: &Key) -> &[u8] {
-    k.into()
-}
-
-fn mk_unit(_: &Key) -> () {
-    ()
 }
 
 async fn txn_collector_worker(mut rx: Receiver<Transaction>) {

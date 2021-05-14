@@ -103,10 +103,6 @@ enum AppCmd {
     GetApp { appid: String },
     #[structopt(name = "get-bundle")]
     GetBundle { bundle: String },
-    #[structopt(name = "all-bundles")]
-    AllBundles,
-    #[structopt(name = "delete-bundle")]
-    DeleteBundle { id: String },
     #[structopt(name = "list-worker-data")]
     ListWorkerData {
         namespace: String,
@@ -273,7 +269,7 @@ async fn main() -> Result<()> {
                     let mut config: AppConfig = toml::from_str(&config)?;
                     let bundle = read_file_raw(&bundle).await?;
 
-                    do_add_app(&client, &mut config, bundle).await?;
+                    do_add_app(&client, &mut config, &bundle).await?;
                     println!("OK");
                 }
                 AppCmd::AddSingleFileApp { config, js } => {
@@ -288,7 +284,7 @@ async fn main() -> Result<()> {
                         builder.finish()?;
                     }
 
-                    do_add_app(&client, &mut config, archive).await?;
+                    do_add_app(&client, &mut config, &archive).await?;
                     println!("OK");
                 }
                 AppCmd::DeleteApp { appid } => {
@@ -304,37 +300,11 @@ async fn main() -> Result<()> {
                     println!("{}", serde_json::to_string(&result)?);
                 }
                 AppCmd::GetBundle { bundle } => {
-                    let bundle = client
-                        .app_bundle_get(
-                            &rusty_workers::app::decode_id128(&bundle)
-                                .ok_or_else(|| CliError::BadId128)?,
-                        )
-                        .await?;
+                    let bundle = client.app_bundle_get(&bundle).await?;
                     println!(
                         "{}",
                         serde_json::to_string(&bundle.map(|x| base64::encode(&x)))?
                     );
-                }
-                AppCmd::AllBundles => {
-                    print!("[");
-                    let mut first = true;
-                    client
-                        .app_bundle_for_each(|id| {
-                            if first {
-                                first = false;
-                            } else {
-                                print!(",");
-                            }
-                            print!("{}", serde_json::to_string(&base64::encode(id)).unwrap());
-                            true
-                        })
-                        .await?;
-                    println!("]");
-                }
-                AppCmd::DeleteBundle { id } => {
-                    let id = base64::decode(&id)?;
-                    client.app_bundle_delete_dirty(&id).await?;
-                    println!("OK");
                 }
                 AppCmd::ListWorkerData {
                     namespace,
@@ -464,11 +434,12 @@ async fn read_file_raw(path: &str) -> Result<Vec<u8>> {
     Ok(buf)
 }
 
-async fn do_add_app(client: &DataClient, config: &mut AppConfig, bundle: Vec<u8>) -> Result<()> {
+async fn do_add_app(client: &DataClient, config: &mut AppConfig, bundle: &[u8]) -> Result<()> {
     let mut bundle_id = [0u8; 16];
     rand::thread_rng().fill(&mut bundle_id);
-    client.app_bundle_put(&bundle_id, bundle).await?;
-    config.bundle_id = rusty_workers::app::encode_id128(&bundle_id);
+    let bundle_id = base64::encode(&bundle_id);
+    client.app_bundle_put(&bundle_id, &bundle).await?;
+    config.bundle_id = bundle_id;
 
     client.app_metadata_put(config).await?;
     Ok(())
