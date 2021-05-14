@@ -114,10 +114,10 @@ impl DataClient {
         writes: &[(Vec<u8>, Vec<u8>)],
     ) -> GenericResult<bool> {
         let mut opts = TxOpts::new();
-        opts.with_isolation_level(IsolationLevel::Serializable);
+        opts.with_isolation_level(IsolationLevel::RepeatableRead);
         let mut txn = self.db.start_transaction(opts).await?;
         let stmt = txn
-            .prep("select 1 from appkv where nsid = ? and appkey = ? and appvalue = ?")
+            .prep("select 1 from appkv where nsid = ? and appkey = ? and appvalue = ? for update")
             .await?;
         for (k, v) in assertions {
             let existence: Option<u32> = txn.exec_first(&stmt, (namespace_id, k, v)).await?;
