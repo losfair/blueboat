@@ -11,16 +11,14 @@ class KvNamespace {
 
     /**
      * @param {ArrayBuffer | ArrayBufferView} key
-     * @param {boolean} lock
      * @returns {Promise<ArrayBuffer>}
      */
-    getRaw(key, lock = false) {
+    getRaw(key) {
         return new Promise((resolve, reject) => {
             _callServiceWrapper({
                 Async: {
                     KvGet: {
                         namespace: this.name,
-                        lock: lock,
                     }
                 }
             }, [key], (result, buffers) => {
@@ -41,12 +39,11 @@ class KvNamespace {
 
     /**
      * @param {string} key
-     * @param {boolean} lock
      * @returns {Promise<string>}
      */
-    async get(key, lock = false) {
+    async get(key) {
         let keyRaw = new TextEncoder().encode(key);
-        let buf = await this.getRaw(keyRaw.buffer, lock);
+        let buf = await this.getRaw(keyRaw.buffer);
         if(buf !== null) {
             return new TextDecoder().decode(buf);
         } else {
@@ -185,10 +182,9 @@ class KvNamespace {
      * @param {ArrayBuffer | ArrayBufferView} args.startExclusive
      * @param {ArrayBuffer | ArrayBufferView} args.end
      * @param {number} args.limit
-     * @param {boolean} args.lock
      * @returns {Promise<ArrayBuffer[]>}
      */
-    scanRaw({start, startExclusive = null, end = null, limit = 1, lock = false}) {
+    scanRaw({start, startExclusive = null, end = null, limit = 1}) {
         // Append a zero byte to startExclusive, to indicate the immediate next key.
         if(startExclusive !== null) {
             start = new ArrayBuffer(startExclusive.byteLength + 1);
@@ -201,7 +197,6 @@ class KvNamespace {
                     KvScan: {
                         namespace: this.name,
                         limit: limit,
-                        lock: lock,
                     }
                 }
             }, args, (result, buffers) => {
@@ -223,17 +218,15 @@ class KvNamespace {
      * @param {string} args.startExclusive
      * @param {string} args.end
      * @param {number} args.limit
-     * @param {boolean} args.lock
      * @returns {Promise<string[]>}
      */
-    async scan({start = "", startExclusive = null, end = null, limit = 1, lock = false}) {
+    async scan({start = "", startExclusive = null, end = null, limit = 1}) {
         let encoder = new TextEncoder();
         let results = await this.scanRaw({
             start: encoder.encode(start).buffer,
             startExclusive: startExclusive !== null ? encoder.encode(startExclusive).buffer : null,
             end: end !== null ? encoder.encode(end).buffer : null,
             limit: limit,
-            lock: lock,
         });
         return results.map(x => new TextDecoder().decode(x));
     }
