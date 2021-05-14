@@ -3,21 +3,12 @@ addEventListener("fetch", async (event) => {
 });
 
 async function handleRequest(req) {
-    await kv.beginTransaction();
-    let counter = await kv.test.get("counter", true);
-    if(counter === null) {
-        counter = 0;
-    } else {
-        counter = parseInt(counter);
-    }
-
-    counter += 1;
-
-    await kv.test.put("counter", "" + counter);
-    let written = await kv.commit();
+    await kv.test.put("counter", "0", true);
+    const counter = parseInt(await kv.test.get("counter"));
+    const written = await kv.test.cmpUpdate([["counter", "" + counter]], [["counter", "" + (counter + 1)]]);
     if(written) {
-        return new Response("New counter: " + counter);
+        return new Response("Previous counter: " + counter);
     } else {
-        return new Response("Write failed");
+        return new Response("Write failed", { status: 500 });
     }
 }
