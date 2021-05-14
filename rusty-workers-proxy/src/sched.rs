@@ -15,7 +15,10 @@ use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::{
+    mpsc::{Receiver, Sender},
+    oneshot,
+};
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
 
 #[derive(Debug, Error)]
@@ -41,8 +44,8 @@ pub struct Scheduler {
     route_cache: AsyncMutex<LruCache<String, BTreeMap<String, AppId>>>, // domain -> (prefix -> appid)
     terminate_queue: tokio::sync::mpsc::Sender<ReadyInstance>,
     kv_client: DataClient,
-    lookup_route_tx: Sender<(String, String)>,
-    lookup_app_tx: Sender<AppId>,
+    lookup_route_tx: Sender<((String, String), oneshot::Sender<()>)>,
+    lookup_app_tx: Sender<(AppId, oneshot::Sender<()>)>,
 }
 
 /// State of a backing runtime.
@@ -282,27 +285,30 @@ impl Scheduler {
 
         let uri = req.uri().clone();
 
-        let mut appid = None;
+        let mut appid = self
+            .route_cache
+            .lock()
+            .await
+            .get(&host)
+            .and_then(|submappings| lookup_submappings(uri.path(), submappings))
+            .cloned();
 
-        for _ in 0..5 {
-            let mut route_cache = self.route_cache.lock().await;
-            appid = route_cache
-                .get(&host)
-                .and_then(|submappings| lookup_submappings(uri.path(), submappings))
-                .cloned();
-            drop(route_cache);
-
-            if appid.is_some() {
-                break;
+        if appid.is_none() {
+            let (back_tx, back_rx) = oneshot::channel();
+            if self
+                .lookup_route_tx
+                .try_send(((host.clone(), uri.path().to_string()), back_tx))
+                .is_ok()
+            {
+                let _ = back_rx.await;
+                appid = self
+                    .route_cache
+                    .lock()
+                    .await
+                    .get(&host)
+                    .and_then(|submappings| lookup_submappings(uri.path(), submappings))
+                    .cloned();
             }
-
-            // Notify the worker thread
-            drop(
-                self.lookup_route_tx
-                    .try_send((host.clone(), uri.path().to_string())),
-            );
-
-            tokio::time::sleep(Duration::from_millis(50)).await;
         }
 
         let appid = appid.ok_or(SchedError::NoRouteMapping)?;
@@ -349,20 +355,18 @@ impl Scheduler {
             body: HttpBody::Binary(full_body),
         };
 
-        let mut app = None;
-
-        for _ in 0..5 {
-            app = self.apps.lock().await.get(&appid).cloned();
-            if app.is_some() {
-                break;
+        let mut app = self.apps.lock().await.get(&appid).cloned();
+        if app.is_none() {
+            let (back_tx, back_rx) = oneshot::channel();
+            if self
+                .lookup_app_tx
+                .try_send((appid.clone(), back_tx))
+                .is_ok()
+            {
+                let _ = back_rx.await;
+                app = self.apps.lock().await.get(&appid).cloned();
             }
-
-            // Notify the worker thread
-            drop(self.lookup_app_tx.try_send(appid.clone()));
-
-            tokio::time::sleep(Duration::from_millis(50)).await;
         }
-
         let app = app.ok_or(SchedError::NoRouteMapping)?;
 
         // Backend retries.
@@ -513,16 +517,17 @@ impl Scheduler {
         drop(clients);
     }
 
-    async fn lookup_route_background(&self, mut rx: Receiver<(String, String)>) {
+    async fn lookup_route_background(
+        &self,
+        mut rx: Receiver<((String, String), oneshot::Sender<()>)>,
+    ) {
         loop {
-            let (domain, path) = match rx.recv().await {
+            let ((domain, path), back_ch) = match rx.recv().await {
                 Some(x) => x,
                 None => return,
             };
             self.do_lookup_route_background(domain, path).await;
-
-            // Don't stress kv too much
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            let _ = back_ch.send(());
         }
     }
 
@@ -618,16 +623,14 @@ impl Scheduler {
         }
     }
 
-    async fn lookup_app_background(&self, mut rx: Receiver<AppId>) {
+    async fn lookup_app_background(&self, mut rx: Receiver<(AppId, oneshot::Sender<()>)>) {
         loop {
-            let appid = match rx.recv().await {
+            let (appid, back_ch) = match rx.recv().await {
                 Some(x) => x,
                 None => return,
             };
             self.do_lookup_app_background(appid).await;
-
-            // Don't stress kv too much
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            let _ = back_ch.send(());
         }
     }
 
