@@ -67,8 +67,6 @@ pub static PREFIX_APP_BUNDLE_V1: &'static [u8] = b"W\x00V1\x00APPBUNDLE\x00";
 
 pub static PREFIX_ROUTE_MAPPING_V1: &'static [u8] = b"W\x00V1\x00ROUTEMAP\x00";
 
-pub static PREFIX_LOG_V1: &'static [u8] = b"W\x00V1\x00LOG\x00";
-
 const MAX_LOCKS_PER_WORKER_DATA_TRANSACTION: usize = 256;
 
 pub struct DataClient {
@@ -550,57 +548,6 @@ impl DataClient {
             .map_err(|e| GenericError::Other(format!("app_bundle_delete: {:?}", e)))
     }
 
-    pub async fn log_range(
-        &self,
-        topic: &str,
-        range: std::ops::Range<SystemTime>,
-        mut callback: impl FnMut(&str, &str) -> bool,
-    ) -> GenericResult<()> {
-        let batch_size: u32 = 20;
-        let trim_prefix = join_slices(&[PREFIX_LOG_V1, topic.as_bytes(), b"\x00"]);
-        let start_prefix = join_slices(&[
-            PREFIX_LOG_V1,
-            topic.as_bytes(),
-            b"\x00",
-            make_time_str(range.start).as_bytes(),
-        ]);
-        let end_prefix = join_slices(&[
-            PREFIX_LOG_V1,
-            topic.as_bytes(),
-            b"\x00",
-            make_time_str(range.end).as_bytes(),
-        ]);
-        let mut current_prefix = start_prefix.clone();
-
-        loop {
-            let batch = self
-                .raw
-                .scan(current_prefix..end_prefix.clone(), batch_size)
-                .await
-                .map_err(|e| GenericError::Other(format!("log_range: {:?}", e)))?;
-            for item in batch.iter() {
-                let key: &[u8] = (&item.0).into();
-                let key = match std::str::from_utf8(&key[trim_prefix.len()..]) {
-                    Ok(x) => x,
-                    Err(_) => continue,
-                };
-                let value = match std::str::from_utf8(&item.1) {
-                    Ok(x) => x,
-                    Err(_) => continue,
-                };
-                if !callback(key, value) {
-                    return Ok(());
-                }
-            }
-
-            if batch.len() == batch_size as usize {
-                current_prefix = join_slices(&[(&batch.last().unwrap().0).into(), &[0u8]]);
-            } else {
-                return Ok(());
-            }
-        }
-    }
-
     pub async fn applog_write(
         &self,
         appid: &str,
@@ -624,11 +571,6 @@ impl DataClient {
         .await?;
         Ok(())
     }
-}
-
-fn make_time_str(time: SystemTime) -> String {
-    let time = chrono::DateTime::<chrono::Utc>::from(time);
-    format!("{}", time.format("%Y-%m-%dT%H:%M:%S%.6f"))
 }
 
 fn worker_data_key_prefix(namespace_id: &[u8; 16]) -> Vec<u8> {
