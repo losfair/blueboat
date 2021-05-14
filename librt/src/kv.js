@@ -57,14 +57,16 @@ class KvNamespace {
     /**
      * @param {ArrayBuffer | ArrayBufferView} key
      * @param {ArrayBuffer | ArrayBufferView} value
+     * @param {boolean} ifNotExists
      * @returns {Promise<void>}
      */
-    putRaw(key, value) {
+    putRaw(key, value, ifNotExists = false) {
         return new Promise((resolve, reject) => {
             _callServiceWrapper({
                 Async: {
                     KvPut: {
                         namespace: this.name,
+                        if_not_exists: ifNotExists,
                     }
                 }
             }, [key, value], (result) => {
@@ -82,12 +84,65 @@ class KvNamespace {
     /**
      * @param {string} key
      * @param {string} value
+     * @param {boolean} ifNotExists
      * @returns {Promise<void>}
      */
-    async put(key, value) {
+    async put(key, value, ifNotExists = false) {
         let keyRaw = new TextEncoder().encode(key);
         let valueRaw = new TextEncoder().encode(value);
-        await this.putRaw(keyRaw.buffer, valueRaw.buffer);
+        await this.putRaw(keyRaw.buffer, valueRaw.buffer, ifNotExists);
+    }
+
+    /**
+     * 
+     * @param {[ArrayBuffer | ArrayBufferView, ArrayBuffer | ArrayBufferView][]} assertions 
+     * @param {[ArrayBuffer | ArrayBufferView, ArrayBuffer | ArrayBufferView][]} writes
+     * @returns {Promise<boolean>}
+     */
+    cmpUpdateRaw(assertions, writes) {
+        const bufferList = [];
+        for(const [k, v] of assertions) {
+            bufferList.push(k);
+            bufferList.push(v);
+        }
+
+        for(const [k, v] of writes) {
+            bufferList.push(k);
+            bufferList.push(v);
+        }
+        return new Promise((resolve, reject) => {
+            _callServiceWrapper({
+                Async: {
+                    KvCmpUpdate: {
+                        namespace: this.name,
+                        num_assertions: assertions.length,
+                        num_writes: writes.length,
+                    }
+                }
+            }, bufferList, (result) => {
+                if(result.Err) {
+                    reject(new Error(result.Err));
+                } else if(result.Ok.Err) {
+                    reject(new Error(result.Ok.Err));
+                } else {
+                    resolve(result.Ok.Ok);
+                }
+            })
+        });
+    }
+
+        /**
+     * 
+     * @param {[string, string][]} assertions 
+     * @param {[string, string][]} writes
+     * @returns {Promise<boolean>}
+     */
+    async cmpUpdate(assertions, writes) {
+        const encoder = new TextEncoder();
+        return await this.cmpUpdateRaw(
+            assertions.map(x => x.map(x => encoder.encode(x))),
+            writes.map(x => x.map(x => encoder.encode(x))),
+        );
     }
 
     /**
@@ -194,56 +249,4 @@ const kvHandler = {
     }
 }
 
-export const kv = new Proxy({
-    beginTransaction() {
-        return new Promise((resolve, reject) => {
-            _callServiceWrapper({
-                Async: "KvBeginTransaction",
-            }, [], (result) => {
-                if(result.Err) {
-                    reject(new Error(result.Err));
-                } else if(result.Ok.Err) {
-                    reject(new Error(result.Ok.Err));
-                } else {
-                    resolve();
-                }
-            })
-        });
-    },
-
-    /**
-     * @returns {Promise<bool>}
-     */
-    commit() {
-        return new Promise((resolve, reject) => {
-            _callServiceWrapper({
-                Async: "KvCommitTransaction",
-            }, [], (result) => {
-                if(result.Err) {
-                    reject(new Error(result.Err));
-                } else if(result.Ok.Err) {
-                    reject(new Error(result.Ok.Err));
-                } else {
-                    resolve(result.Ok.Ok);
-                }
-            })
-        });
-    },
-
-    rollback() {
-        return new Promise((resolve, reject) => {
-            _callServiceWrapper({
-                Async: "KvRollbackTransaction",
-            }, [], (result) => {
-                if(result.Err) {
-                    reject(new Error(result.Err));
-                } else if(result.Ok.Err) {
-                    reject(new Error(result.Ok.Err));
-                } else {
-                    resolve();
-                }
-            })
-        });
-    }
-}, kvHandler);
-
+export const kv = new Proxy({}, kvHandler);
