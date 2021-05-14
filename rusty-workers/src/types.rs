@@ -8,7 +8,7 @@ pub struct WorkerConfiguration {
     pub executor: ExecutorConfiguration,
     pub fetch_service: SocketAddr,
     pub env: BTreeMap<String, String>,
-    pub kv_namespaces: BTreeMap<String, [u8; 16]>,
+    pub kv_namespaces: BTreeMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]

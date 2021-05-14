@@ -3,7 +3,6 @@ use crate::remote_buffer::*;
 use crate::runtime::Runtime;
 use anyhow::Result;
 use rusty_v8 as v8;
-use rusty_workers::db::WorkerDataTransaction;
 use rusty_workers::rpc::FetchServiceClient;
 use rusty_workers::tarpc;
 use rusty_workers::types::*;
@@ -47,11 +46,6 @@ struct IoProcessorSharedState {
     conf: Arc<WorkerConfiguration>,
     worker_runtime: Arc<Runtime>,
     fetch_client: AsyncMutex<Option<FetchServiceClient>>,
-
-    /// The current KV transaction.
-    ///
-    /// Don't allow multiple ongoing transactions for now, to prevent DoS.
-    ongoing_txn: AsyncMutex<Option<WorkerDataTransaction>>,
 
     result: crossbeam::channel::Sender<BackToExecutorItem>,
 }
@@ -112,7 +106,6 @@ impl IoWaiter {
                 conf,
                 worker_runtime,
                 fetch_client: AsyncMutex::new(None),
-                ongoing_txn: AsyncMutex::new(None),
                 result: result_tx,
             }),
         };
@@ -313,7 +306,7 @@ impl IoProcessorSharedState {
                 };
                 Ok((serde_json::to_string(&fetch_result)?, buffers))
             }
-            AsyncCallV::KvGet { namespace, lock } => {
+            AsyncCallV::KvGet { namespace } => {
                 let key = match task
                     .buffers
                     .get(0)
@@ -328,23 +321,11 @@ impl IoProcessorSharedState {
                     None => return Ok(mk_user_error("namespace does not exist")?),
                 };
 
-                let result = if let Some(ref mut txn) = *self.ongoing_txn.lock().await {
-                    if lock {
-                        if txn
-                            .lock_keys(namespace_id, std::iter::once(key.as_slice()))
-                            .await?
-                            == false
-                        {
-                            return Ok(mk_user_error("too many locks in this transaction")?);
-                        }
-                    }
-                    txn.get(namespace_id, &key).await?
-                } else {
-                    self.worker_runtime
-                        .data_client()
-                        .worker_data_get(namespace_id, &key)
-                        .await?
-                };
+                let result = self
+                    .worker_runtime
+                    .data_client()
+                    .worker_data_get(namespace_id, &key)
+                    .await?;
                 if let Some(r) = result {
                     Ok(mk_user_ok_with_buffers(
                         true,
@@ -377,14 +358,10 @@ impl IoProcessorSharedState {
                     Some(id) => id,
                     None => return Ok(mk_user_error("namespace does not exist")?),
                 };
-                if let Some(ref mut txn) = *self.ongoing_txn.lock().await {
-                    txn.put(namespace_id, &key, value).await?;
-                } else {
-                    self.worker_runtime
-                        .data_client()
-                        .worker_data_put(namespace_id, &key, value)
-                        .await?;
-                }
+                self.worker_runtime
+                    .data_client()
+                    .worker_data_put(namespace_id, &key, &value)
+                    .await?;
                 Ok(mk_user_ok(())?)
             }
             AsyncCallV::KvDelete { namespace } => {
@@ -401,21 +378,13 @@ impl IoProcessorSharedState {
                     Some(id) => id,
                     None => return Ok(mk_user_error("namespace does not exist")?),
                 };
-                if let Some(ref mut txn) = *self.ongoing_txn.lock().await {
-                    txn.delete(namespace_id, &key).await?
-                } else {
-                    self.worker_runtime
-                        .data_client()
-                        .worker_data_delete(namespace_id, &key)
-                        .await?;
-                }
+                self.worker_runtime
+                    .data_client()
+                    .worker_data_delete(namespace_id, &key)
+                    .await?;
                 Ok(mk_user_ok(())?)
             }
-            AsyncCallV::KvScan {
-                namespace,
-                limit,
-                lock,
-            } => {
+            AsyncCallV::KvScan { namespace, limit } => {
                 let start_key = match task
                     .buffers
                     .get(0)
@@ -438,71 +407,17 @@ impl IoProcessorSharedState {
                     return Ok(mk_user_error("limit is greater than MAX_KV_SCAN_LIMIT")?);
                 }
 
-                let keys = if let Some(ref mut txn) = *self.ongoing_txn.lock().await {
-                    let keys = txn
-                        .scan_keys(namespace_id, &start_key, end_key.as_deref(), limit)
-                        .await?;
-                    if lock {
-                        if txn
-                            .lock_keys(namespace_id, keys.iter().map(|x| x.as_slice()))
-                            .await?
-                            == false
-                        {
-                            return Ok(mk_user_error("too many locks in this transaction")?);
-                        }
-                    }
-                    keys
-                } else {
-                    self.worker_runtime
-                        .data_client()
-                        .worker_data_scan_keys(namespace_id, &start_key, end_key.as_deref(), limit)
-                        .await?
-                };
+                let keys = self
+                    .worker_runtime
+                    .data_client()
+                    .worker_data_scan_keys(namespace_id, &start_key, end_key.as_deref(), limit)
+                    .await?;
                 let keys: GenericResult<_> = futures::future::try_join_all(
                     keys.iter().map(|x| self.allocate_arraybuffer_with_data(x)),
                 )
                 .await;
 
                 Ok(mk_user_ok_with_buffers(&(), keys?)?)
-            }
-            AsyncCallV::KvBeginTransaction => {
-                let mut ongoing_txn = self.ongoing_txn.lock().await;
-
-                // Don't consume txn_collector bandwidth if we can do it here.
-                if let Some(x) = ongoing_txn.take() {
-                    drop(x.rollback().await);
-                }
-
-                let txn = self
-                    .worker_runtime
-                    .data_client()
-                    .worker_data_begin_transaction()
-                    .await?;
-                *ongoing_txn = Some(txn);
-                Ok(mk_user_ok(())?)
-            }
-            AsyncCallV::KvRollbackTransaction => {
-                let mut ongoing_txn = self.ongoing_txn.lock().await;
-                if let Some(x) = ongoing_txn.take() {
-                    drop(x.rollback().await);
-                    Ok(mk_user_ok(())?)
-                } else {
-                    Ok(mk_user_error("no ongoing transaction to rollback")?)
-                }
-            }
-            AsyncCallV::KvCommitTransaction => {
-                let mut ongoing_txn = self.ongoing_txn.lock().await;
-                if let Some(x) = ongoing_txn.take() {
-                    match x.commit().await {
-                        Ok(committed) => Ok(mk_user_ok(committed)?),
-                        Err(e) => {
-                            warn!("commit error: {:?}", e);
-                            Ok(mk_user_error("commit failed")?)
-                        }
-                    }
-                } else {
-                    Ok(mk_user_error("no ongoing transaction to commit")?)
-                }
             }
         }
     }

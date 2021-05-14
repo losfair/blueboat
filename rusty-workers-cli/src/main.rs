@@ -40,10 +40,6 @@ enum Cmd {
 
     /// App management.
     App {
-        /// TiKV PD address.
-        #[structopt(long, env = "TIKV_PD")]
-        tikv_pd: String,
-
         /// MySQL-compatible database URL.
         #[structopt(long, env = "DB_URL")]
         db_url: String,
@@ -143,12 +139,6 @@ enum AppCmd {
         #[structopt(long)]
         base64_key: bool,
     },
-    #[structopt(name = "delete-worker-data-namespace")]
-    DeleteWorkerDataNamespace {
-        namespace: String,
-        #[structopt(long)]
-        batch_size: u32,
-    },
 }
 
 #[derive(Debug, StructOpt)]
@@ -233,12 +223,8 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Cmd::App {
-            tikv_pd,
-            db_url,
-            op,
-        } => {
-            let client = DataClient::new(vec![tikv_pd], &db_url).await?;
+        Cmd::App { db_url, op } => {
+            let client = DataClient::new(&db_url).await?;
             match op {
                 AppCmd::ListRoutes { domain } => {
                     let routes = client.route_mapping_list_for_domain(&domain).await?;
@@ -312,8 +298,6 @@ async fn main() -> Result<()> {
                     limit,
                     base64_key,
                 } => {
-                    let namespace = rusty_workers::app::decode_id128(&namespace)
-                        .ok_or_else(|| CliError::BadId128)?;
                     let from = if !base64_key {
                         Vec::from(from)
                     } else {
@@ -342,8 +326,6 @@ async fn main() -> Result<()> {
                     base64_key,
                     base64_value,
                 } => {
-                    let namespace = rusty_workers::app::decode_id128(&namespace)
-                        .ok_or_else(|| CliError::BadId128)?;
                     let key = if !base64_key {
                         key.as_bytes().to_vec()
                     } else {
@@ -370,8 +352,6 @@ async fn main() -> Result<()> {
                     base64_key,
                     base64_value,
                 } => {
-                    let namespace = rusty_workers::app::decode_id128(&namespace)
-                        .ok_or_else(|| CliError::BadId128)?;
                     let key = if !base64_key {
                         key.as_bytes().to_vec()
                     } else {
@@ -382,7 +362,7 @@ async fn main() -> Result<()> {
                     } else {
                         base64::decode(&value)?
                     };
-                    client.worker_data_put(&namespace, &key, value).await?;
+                    client.worker_data_put(&namespace, &key, &value).await?;
                     println!("OK");
                 }
                 AppCmd::DeleteWorkerData {
@@ -390,8 +370,6 @@ async fn main() -> Result<()> {
                     key,
                     base64_key,
                 } => {
-                    let namespace = rusty_workers::app::decode_id128(&namespace)
-                        .ok_or_else(|| CliError::BadId128)?;
                     let key = if !base64_key {
                         key.as_bytes().to_vec()
                     } else {
@@ -399,20 +377,6 @@ async fn main() -> Result<()> {
                     };
                     client.worker_data_delete(&namespace, &key).await?;
                     println!("OK");
-                }
-                AppCmd::DeleteWorkerDataNamespace {
-                    namespace,
-                    batch_size,
-                } => {
-                    let namespace = rusty_workers::app::decode_id128(&namespace)
-                        .ok_or_else(|| CliError::BadId128)?;
-                    let keys = client
-                        .worker_data_scan_keys(&namespace, b"", None, batch_size)
-                        .await?;
-                    for k in keys.iter() {
-                        client.worker_data_delete(&namespace, k).await?;
-                    }
-                    println!("{}", keys.len());
                 }
             }
         }

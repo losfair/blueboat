@@ -80,10 +80,6 @@ struct Opt {
     #[structopt(long, env = "RW_ROUTE_CACHE_SIZE", default_value = "1000")]
     pub route_cache_size: usize,
 
-    /// TiKV cluster.
-    #[structopt(long, env = "RW_TIKV_CLUSTER")]
-    pub tikv_cluster: String,
-
     /// MySQL-compatible database URL.
     #[structopt(long, env = "RW_DB_URL")]
     pub db_url: String,
@@ -105,9 +101,7 @@ async fn main() -> Result<()> {
         runtime_cluster.push(elem.parse()?);
     }
 
-    let kv_client =
-        rusty_workers::db::DataClient::new(opt.tikv_cluster.split(",").collect(), &opt.db_url)
-            .await?;
+    let kv_client = rusty_workers::db::DataClient::new(&opt.db_url).await?;
 
     SCHEDULER
         .set(sched::Scheduler::new(

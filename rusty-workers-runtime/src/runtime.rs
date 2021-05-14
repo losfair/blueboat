@@ -55,8 +55,7 @@ impl Runtime {
         let isolate_pool_size = config.isolate_pool_size;
         let execution_concurrency = config.execution_concurrency;
 
-        let tikv_cluster: Vec<_> = config.tikv_cluster.split(",").collect();
-        let data_client = DataClient::new(tikv_cluster, &config.db_url).await?;
+        let data_client = DataClient::new(&config.db_url).await?;
 
         let isolate_config = IsolateConfig {
             max_memory_bytes: max_isolate_memory_bytes,

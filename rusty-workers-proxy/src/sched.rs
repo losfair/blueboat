@@ -707,23 +707,10 @@ impl SchedError {
     }
 }
 
-fn decode_kv_namespaces(namespaces: &Vec<KvNamespaceConfig>) -> BTreeMap<String, [u8; 16]> {
+fn decode_kv_namespaces(namespaces: &[KvNamespaceConfig]) -> BTreeMap<String, String> {
     namespaces
         .iter()
-        .filter_map(|ns| {
-            base64::decode(&ns.id)
-                .ok()
-                .filter(|x| x.len() == 16)
-                .map(|x| {
-                    let mut slice = [0u8; 16];
-                    slice.copy_from_slice(&x);
-                    (ns.name.clone(), slice)
-                })
-                .or_else(|| {
-                    warn!("decode_kv_namespaces: bad value for namespace: {}", ns.name);
-                    None
-                })
-        })
+        .map(|x| (x.name.clone(), x.id.clone()))
         .collect()
 }
 

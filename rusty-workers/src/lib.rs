@@ -2,12 +2,10 @@
 extern crate log;
 
 pub mod app;
+pub mod db;
 pub mod rpc;
 pub mod types;
 pub mod util;
-
-#[cfg(feature = "kv")]
-pub mod db;
 
 pub use futures;
 pub use tarpc;

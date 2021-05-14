@@ -22,11 +22,8 @@ rand = "0.8"
 hex = "0.4"
 stubborn-io = "0.3"
 git-version = "0.3"
-tikv-client = { version = "0.1", optional = true }
 base64 = "0.13"
 chrono = "0.4"
 mysql_async = "0.27"
 
 [features]
-default = ["kv"]
-kv = ["tikv-client"]
