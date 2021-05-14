@@ -5,3 +5,4 @@ CREATE TABLE `bundles` (
   PRIMARY KEY (`id`))
   CHARSET=utf8mb4 COLLATE utf8mb4_bin;
 
+ALTER TABLE `bundles` ADD INDEX (`createtime`);
