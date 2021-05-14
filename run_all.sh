@@ -12,7 +12,6 @@ cd ..
 
 ./target/release/rusty-workers-fetchd --rpc-listen 127.0.0.1:3200 &
 ./target/release/rusty-workers-runtime --rpc-listen 127.0.0.1:3201 \
-    --tikv-cluster 127.0.0.1:2379 \
     --db-url mysql://root@localhost:4000/rusty_workers \
     --max-num-of-instances 50 \
     --isolate-pool-size 60 \
@@ -21,7 +20,6 @@ cd ..
 ./target/release/rusty-workers-proxy \
     --fetch-service 127.0.0.1:3200 \
     --http-listen 0.0.0.0:3280 \
-    --tikv-cluster 127.0.0.1:2379 \
     --db-url mysql://root@localhost:4000/rusty_workers \
     --runtimes 127.0.0.1:3201 \
     --dropout-rate 0.0002 \

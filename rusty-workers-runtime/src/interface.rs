@@ -29,10 +29,25 @@ pub struct AsyncCall {
 pub enum AsyncCallV {
     SetTimeout(u64),
     Fetch(RequestObject),
-    KvGet { namespace: String },
-    KvPut { namespace: String },
-    KvDelete { namespace: String },
-    KvScan { namespace: String, limit: u32 },
+    KvGet {
+        namespace: String,
+    },
+    KvPut {
+        namespace: String,
+        if_not_exists: bool,
+    },
+    KvDelete {
+        namespace: String,
+    },
+    KvScan {
+        namespace: String,
+        limit: u32,
+    },
+    KvCmpUpdate {
+        namespace: String,
+        num_assertions: u32,
+        num_writes: u32,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

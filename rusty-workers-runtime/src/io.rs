@@ -335,7 +335,10 @@ impl IoProcessorSharedState {
                     Ok(mk_user_ok(false)?)
                 }
             }
-            AsyncCallV::KvPut { namespace } => {
+            AsyncCallV::KvPut {
+                namespace,
+                if_not_exists,
+            } => {
                 let key = match task
                     .buffers
                     .get(0)
@@ -360,7 +363,7 @@ impl IoProcessorSharedState {
                 };
                 self.worker_runtime
                     .data_client()
-                    .worker_data_put(namespace_id, &key, &value)
+                    .worker_data_put(namespace_id, &key, &value, if_not_exists)
                     .await?;
                 Ok(mk_user_ok(())?)
             }
@@ -418,6 +421,56 @@ impl IoProcessorSharedState {
                 .await;
 
                 Ok(mk_user_ok_with_buffers(&(), keys?)?)
+            }
+            AsyncCallV::KvCmpUpdate {
+                namespace,
+                num_assertions,
+                num_writes,
+            } => {
+                let mut index = 0usize;
+                let mut assertions = vec![];
+                let mut writes = vec![];
+                let namespace_id = match self.conf.kv_namespaces.get(&namespace) {
+                    Some(id) => id,
+                    None => return Ok(mk_user_error("namespace does not exist")?),
+                };
+                for i in 0..num_assertions + num_writes {
+                    let key = match task
+                        .buffers
+                        .get(index)
+                        .ok_or_else(|| GenericError::Other("missing key".into()))?
+                        .read_to_vec(MAX_KV_KEY_SIZE)
+                    {
+                        Some(x) => x,
+                        None => return Ok(mk_user_error("key too large")?),
+                    };
+                    index += 1;
+
+                    let value = match task
+                        .buffers
+                        .get(index)
+                        .ok_or_else(|| GenericError::Other("missing value".into()))?
+                        .read_to_vec(MAX_KV_VALUE_SIZE)
+                    {
+                        Some(x) => x,
+                        None => return Ok(mk_user_error("value too large")?),
+                    };
+                    index += 1;
+
+                    if i < num_assertions {
+                        assertions.push((key, value));
+                    } else {
+                        writes.push((key, value));
+                    }
+                }
+
+                let success = self
+                    .worker_runtime
+                    .data_client()
+                    .worker_data_cmpupdate(namespace_id, &assertions, &writes)
+                    .await?;
+
+                Ok(mk_user_ok(success)?)
             }
         }
     }

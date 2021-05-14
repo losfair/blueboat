@@ -3,7 +3,7 @@ use crate::{
     types::*,
     util::current_millis,
 };
-use mysql_async::{params, prelude::Queryable, Pool};
+use mysql_async::{params, prelude::Queryable, IsolationLevel, Pool, TxOpts};
 use rand::Rng;
 use std::time::SystemTime;
 use std::{
@@ -42,13 +42,34 @@ impl DataClient {
         namespace_id: &str,
         key: &[u8],
         value: &[u8],
+        if_not_exists: bool,
     ) -> GenericResult<()> {
         let mut conn = self.db.get_conn().await?;
         let empty_md: &[u8] = &[];
-        conn.exec_drop(
-            "insert into appkv (nsid, appkey, appvalue, appmetadata, appexpiration) values(?, ?, ?, ?, ?)",
-            (namespace_id, key, value, empty_md, 0u64)
-        ).await?;
+
+        let prms = params! {
+            "nsid" => namespace_id,
+            "appkey" => key,
+            "appvalue" => value,
+            "appmetadata" => empty_md,
+            "appexpiration" => 0u64,
+        };
+
+        if if_not_exists {
+            conn.exec_drop(
+                "insert ignore into appkv (nsid, appkey, appvalue, appmetadata, appexpiration) values(:nsid, :appkey, :appvalue, :appmetadata, :appexpiration)",
+                prms,
+            ).await?;
+        } else {
+            conn.exec_drop(
+                format!(
+                    "{} on duplicate key {}",
+                    "insert into appkv (nsid, appkey, appvalue, appmetadata, appexpiration) values(:nsid, :appkey, :appvalue, :appmetadata, :appexpiration)",
+                    "update appvalue = :appvalue",
+                ),
+                prms,
+            ).await?;
+        }
         Ok(())
     }
 
@@ -84,6 +105,43 @@ impl DataClient {
         )
         .await?;
         Ok(())
+    }
+
+    pub async fn worker_data_cmpupdate(
+        &self,
+        namespace_id: &str,
+        assertions: &[(Vec<u8>, Vec<u8>)],
+        writes: &[(Vec<u8>, Vec<u8>)],
+    ) -> GenericResult<bool> {
+        let mut opts = TxOpts::new();
+        opts.with_isolation_level(IsolationLevel::Serializable);
+        let mut txn = self.db.start_transaction(opts).await?;
+        let stmt = txn
+            .prep("select 1 from appkv where nsid = ? and appkey = ? and appvalue = ?")
+            .await?;
+        for (k, v) in assertions {
+            let existence: Option<u32> = txn.exec_first(&stmt, (namespace_id, k, v)).await?;
+            if existence.is_none() {
+                return Ok(false);
+            }
+        }
+        let empty_md: &[u8] = &[];
+        txn.exec_batch(
+            format!(
+                "{} on duplicate key {}",
+                "insert into appkv (nsid, appkey, appvalue, appmetadata, appexpiration) values(:nsid, :appkey, :appvalue, :appmetadata, :appexpiration)",
+                "update appvalue = :appvalue",
+            ),
+            writes.iter().map(|(k, v)| params! {
+                "nsid" => namespace_id,
+                "appkey" => k,
+                "appvalue" => v,
+                "appmetadata" => empty_md,
+                "appexpiration" => 0u64,
+            }).collect::<Vec<_>>(),
+        ).await?;
+        txn.commit().await?;
+        Ok(true)
     }
 
     pub async fn route_mapping_delete_domain(&self, domain: &str) -> GenericResult<()> {

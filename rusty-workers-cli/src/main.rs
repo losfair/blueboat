@@ -362,7 +362,9 @@ async fn main() -> Result<()> {
                     } else {
                         base64::decode(&value)?
                     };
-                    client.worker_data_put(&namespace, &key, &value).await?;
+                    client
+                        .worker_data_put(&namespace, &key, &value, false)
+                        .await?;
                     println!("OK");
                 }
                 AppCmd::DeleteWorkerData {
