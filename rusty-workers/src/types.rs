@@ -165,6 +165,12 @@ impl From<mysql_async::Error> for GenericError {
     }
 }
 
+impl From<serde_json::Error> for GenericError {
+    fn from(other: serde_json::Error) -> Self {
+        Self::Database(format!("{:?}", other))
+    }
+}
+
 impl WorkerHandle {
     pub fn generate() -> Self {
         Self {

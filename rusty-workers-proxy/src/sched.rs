@@ -597,16 +597,14 @@ impl Scheduler {
             for (id, (bundle_id, worker_config)) in apps {
                 match self.kv_client.app_metadata_get(&id.0).await {
                     Ok(Some(config)) => {
-                        if let Ok(config) = serde_json::from_slice::<AppConfig>(&config) {
-                            if let Ok(expected_bundle_id) = base64::decode(&config.bundle_id) {
-                                if expected_bundle_id != bundle_id
-                                    || config.env != worker_config.env
-                                    || decode_kv_namespaces(&config.kv_namespaces)
-                                        != worker_config.kv_namespaces
-                                {
-                                    info!("app changed. removing app {} from cache", id.0);
-                                    self.apps.lock().await.remove(&id);
-                                }
+                        if let Ok(expected_bundle_id) = base64::decode(&config.bundle_id) {
+                            if expected_bundle_id != bundle_id
+                                || config.env != worker_config.env
+                                || decode_kv_namespaces(&config.kv_namespaces)
+                                    != worker_config.kv_namespaces
+                            {
+                                info!("app changed. removing app {} from cache", id.0);
+                                self.apps.lock().await.remove(&id);
                             }
                         }
                     }
@@ -644,13 +642,7 @@ impl Scheduler {
         }
 
         let config: AppConfig = match self.kv_client.app_metadata_get(&id.0).await {
-            Ok(Some(metadata)) => match serde_json::from_slice(&metadata) {
-                Ok(x) => x,
-                Err(e) => {
-                    error!("cannot decode app metadata for app {}: {:?}", id.0, e);
-                    return;
-                }
-            },
+            Ok(Some(x)) => x,
             Ok(None) => {
                 warn!("do_lookup_app_background: app {} not found", id.0);
                 return;

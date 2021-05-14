@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 #[macro_use]
 extern crate log;
 
@@ -82,8 +83,6 @@ enum AppCmd {
         #[structopt(long)]
         path: String,
     },
-    #[structopt(name = "all-apps")]
-    AllApps,
     #[structopt(name = "add-app")]
     AddApp {
         config: String,
@@ -269,22 +268,6 @@ async fn main() -> Result<()> {
                     let result = client.route_mapping_lookup(&domain, &path).await?;
                     println!("{}", serde_json::to_string(&result)?);
                 }
-                AppCmd::AllApps => {
-                    print!("[");
-                    let mut first = true;
-                    client
-                        .app_metadata_for_each(|k| {
-                            if first {
-                                first = false;
-                            } else {
-                                print!(",");
-                            }
-                            print!("{}", serde_json::to_string(k).unwrap());
-                            true
-                        })
-                        .await?;
-                    println!("]");
-                }
                 AppCmd::AddApp { config, bundle } => {
                     let config = read_file(&config).await?;
                     let mut config: AppConfig = toml::from_str(&config)?;
@@ -310,12 +293,6 @@ async fn main() -> Result<()> {
                 }
                 AppCmd::DeleteApp { appid } => {
                     let appid = rusty_workers::app::AppId(appid);
-                    match cleanup_previous_app(&client, &appid).await {
-                        Ok(()) => {}
-                        Err(e) => {
-                            error!("cleanup_previous_app: {:?}", e);
-                        }
-                    }
                     client.app_metadata_delete(&appid.0).await?;
 
                     // TODO: Delete logs?
@@ -323,11 +300,7 @@ async fn main() -> Result<()> {
                     println!("OK");
                 }
                 AppCmd::GetApp { appid } => {
-                    let result: Option<AppConfig> = client
-                        .app_metadata_get(&appid)
-                        .await?
-                        .map(|x| serde_json::from_slice(&x))
-                        .transpose()?;
+                    let result: Option<AppConfig> = client.app_metadata_get(&appid).await?;
                     println!("{}", serde_json::to_string(&result)?);
                 }
                 AppCmd::GetBundle { bundle } => {
@@ -492,21 +465,12 @@ async fn read_file_raw(path: &str) -> Result<Vec<u8>> {
 }
 
 async fn do_add_app(client: &DataClient, config: &mut AppConfig, bundle: Vec<u8>) -> Result<()> {
-    match cleanup_previous_app(&client, &config.id).await {
-        Ok(()) => {}
-        Err(e) => {
-            error!("cleanup_previous_app: {:?}", e);
-        }
-    }
-
     let mut bundle_id = [0u8; 16];
     rand::thread_rng().fill(&mut bundle_id);
     client.app_bundle_put(&bundle_id, bundle).await?;
     config.bundle_id = rusty_workers::app::encode_id128(&bundle_id);
 
-    client
-        .app_metadata_put(&config.id.0, serde_json::to_vec(&config)?)
-        .await?;
+    client.app_metadata_put(config).await?;
     Ok(())
 }
 
@@ -514,24 +478,4 @@ fn make_context() -> tarpc::context::Context {
     let mut current = tarpc::context::current();
     current.deadline = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
     current
-}
-
-async fn cleanup_previous_app(
-    client: &DataClient,
-    appid: &rusty_workers::app::AppId,
-) -> Result<()> {
-    if let Some(prev_md) = client.app_metadata_get(&appid.0).await? {
-        if let Ok(prev_config) = serde_json::from_slice::<AppConfig>(&prev_md) {
-            client
-                .app_bundle_delete(
-                    &rusty_workers::app::decode_id128(&prev_config.bundle_id)
-                        .ok_or_else(|| CliError::BadId128)?,
-                )
-                .await?;
-            warn!("deleted previous bundle");
-        } else {
-            warn!("unable to decode previous metadata");
-        }
-    }
-    Ok(())
 }

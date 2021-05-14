@@ -1884,6 +1884,7 @@ dependencies = [
  "mysql_async",
  "rand 0.8.0",
  "serde",
+ "serde_json",
  "stubborn-io",
  "tarpc",
  "thiserror",

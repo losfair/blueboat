@@ -1,5 +1,9 @@
-use crate::{types::*, util::current_millis};
-use mysql_async::{prelude::Queryable, Pool};
+use crate::{
+    app::{AppConfig, AppId},
+    types::*,
+    util::current_millis,
+};
+use mysql_async::{params, prelude::Queryable, Pool};
 use rand::Rng;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
@@ -425,40 +429,53 @@ impl DataClient {
         Ok(())
     }
 
-    pub async fn app_metadata_for_each(
-        &self,
-        mut callback: impl FnMut(&str) -> bool,
-    ) -> GenericResult<()> {
-        self.scan_prefix_keys(PREFIX_APP_METADATA_V1, |k, ()| {
-            let appid = std::str::from_utf8(k).unwrap_or("");
-            callback(appid)
-        })
-        .await?;
+    pub async fn app_metadata_get(&self, appid: &str) -> GenericResult<Option<AppConfig>> {
+        let mut conn = self.db.get_conn().await?;
+        let (bundle_id, env, kv_namespaces): (String, String, String) = match conn
+            .exec_first(
+                "select bundle_id, env, kv_namespaces from apps where id = ?",
+                (appid,),
+            )
+            .await?
+        {
+            Some(x) => x,
+            None => return Ok(None),
+        };
+
+        let config = AppConfig {
+            id: AppId(appid.to_string()),
+            bundle_id,
+            env: serde_json::from_str(&env)?,
+            kv_namespaces: serde_json::from_str(&kv_namespaces)?,
+        };
+
+        Ok(Some(config))
+    }
+
+    pub async fn app_metadata_put(&self, config: &AppConfig) -> GenericResult<()> {
+        let mut conn = self.db.get_conn().await?;
+        conn.exec_drop(
+            format!(
+                "{} on duplicate key {}",
+                "insert into apps (id, bundle_id, env, kv_namespaces, createtime) values(:id, :bundle_id, :env, :kv_namespaces, :createtime)",
+                "update bundle_id = :bundle_id, env = :env, kv_namespaces = :kv_namespaces",
+            ),
+            params! {
+                "id" => &config.id.0,
+                "bundle_id" => &config.bundle_id,
+                "env" => serde_json::to_string(&config.env)?,
+                "kv_namespaces" => serde_json::to_string(&config.kv_namespaces)?,
+                "createtime" => current_millis(),
+            },
+        ).await?;
         Ok(())
     }
 
-    pub async fn app_metadata_get(&self, appid: &str) -> GenericResult<Option<Vec<u8>>> {
-        let key = join_slices(&[PREFIX_APP_METADATA_V1, appid.as_bytes()]);
-        self.raw
-            .get(key)
-            .await
-            .map_err(|e| GenericError::Other(format!("app_metadata_get: {:?}", e)))
-    }
-
-    pub async fn app_metadata_put(&self, appid: &str, value: Vec<u8>) -> GenericResult<()> {
-        let key = join_slices(&[PREFIX_APP_METADATA_V1, appid.as_bytes()]);
-        self.raw
-            .put(key, value)
-            .await
-            .map_err(|e| GenericError::Other(format!("app_metadata_put: {:?}", e)))
-    }
-
     pub async fn app_metadata_delete(&self, appid: &str) -> GenericResult<()> {
-        let key = join_slices(&[PREFIX_APP_METADATA_V1, appid.as_bytes()]);
-        self.raw
-            .delete(key)
-            .await
-            .map_err(|e| GenericError::Other(format!("app_metadata_delete: {:?}", e)))
+        let mut conn = self.db.get_conn().await?;
+        conn.exec_drop("delete from apps where id = ?", (appid,))
+            .await?;
+        Ok(())
     }
 
     pub async fn app_bundle_for_each(

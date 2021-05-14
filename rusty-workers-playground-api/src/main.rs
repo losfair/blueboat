@@ -111,9 +111,7 @@ impl Server {
                 self.kv.app_bundle_put(&bundle_id, bundle).await?;
                 config.bundle_id = rusty_workers::app::encode_id128(&bundle_id);
 
-                self.kv
-                    .app_metadata_put(&config.id.0, serde_json::to_vec(&config)?)
-                    .await?;
+                self.kv.app_metadata_put(&config).await?;
                 Ok(mk_json_response(&())?)
             }
             "/v1/delete_app" => {
