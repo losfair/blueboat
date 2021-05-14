@@ -1,9 +1,10 @@
 use crate::types::*;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::{Duration, UNIX_EPOCH}};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
-use mysql_async::Pool;
+use mysql_async::{Pool, prelude::Queryable};
+use rand::Rng;
 use tikv_client::{BoundRange, CheckLevel, Key, KvPair, Transaction, TransactionOptions};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Semaphore;
@@ -599,40 +600,19 @@ impl DataClient {
         }
     }
 
-    pub async fn log_put(&self, topic: &str, time: SystemTime, text: &str) -> GenericResult<()> {
-        let key = join_slices(&[
-            PREFIX_LOG_V1,
-            topic.as_bytes(),
-            b"\x00",
-            make_time_str(time).as_bytes(),
-        ]);
-        self.raw
-            .put(key, text)
-            .await
-            .map_err(|e| GenericError::Other(format!("log_put: {:?}", e)))
-    }
-
-    pub async fn log_delete_range(
-        &self,
-        topic: &str,
-        range: std::ops::Range<SystemTime>,
-    ) -> GenericResult<()> {
-        let start_prefix = join_slices(&[
-            PREFIX_LOG_V1,
-            topic.as_bytes(),
-            b"\x00",
-            make_time_str(range.start).as_bytes(),
-        ]);
-        let end_prefix = join_slices(&[
-            PREFIX_LOG_V1,
-            topic.as_bytes(),
-            b"\x00",
-            make_time_str(range.end).as_bytes(),
-        ]);
-        self.raw
-            .delete_range(start_prefix..end_prefix)
-            .await
-            .map_err(|e| GenericError::Other(format!("log_delete_range: {:?}", e)))
+    pub async fn applog_write(&self, appid: &str, logtime: SystemTime, logcontent: &str) -> GenericResult<()> {
+        let subid: u32 = rand::thread_rng().gen();
+        let mut conn = self.db.get_conn().await?;
+        conn.exec_drop(
+            "insert into applog (appid, logtime, subid, logcontent) values(?, ?, ?, ?)",
+            (
+                appid,
+                logtime.duration_since(UNIX_EPOCH).unwrap_or_else(|_| Duration::from_millis(0)).as_millis() as u64,
+                subid,
+                logcontent,
+            )
+        ).await?;
+        Ok(())
     }
 }
 

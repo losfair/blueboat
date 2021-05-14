@@ -113,6 +113,9 @@ pub enum GenericError {
     #[error("io: {0}")]
     Io(String),
 
+    #[error("db: {0}")]
+    Database(String),
+
     #[error("executor: {0}")]
     Executor(String),
 
@@ -153,6 +156,12 @@ pub struct RuntimeId(pub String);
 impl From<std::io::Error> for GenericError {
     fn from(other: std::io::Error) -> Self {
         Self::Io(format!("{:?}", other))
+    }
+}
+
+impl From<mysql_async::Error> for GenericError {
+    fn from(other: mysql_async::Error) -> Self {
+        Self::Database(format!("{:?}", other))
     }
 }
 

@@ -30,7 +30,7 @@ struct WorkerState {
 }
 
 struct LogEntry {
-    topic: String,
+    appid: String,
     time: SystemTime,
     text: String,
 }
@@ -326,9 +326,9 @@ impl Runtime {
         }
     }
 
-    pub fn write_log(&self, topic: impl Into<String>, text: impl Into<String>) {
+    pub fn write_log(&self, appid: impl Into<String>, text: impl Into<String>) {
         drop(self.log_tx.try_send(LogEntry {
-            topic: topic.into(),
+            appid: appid.into(),
             time: SystemTime::now(),
             text: text.into(),
         }));
@@ -355,7 +355,7 @@ async fn log_worker(rt: Weak<Runtime>, mut rx: tokio::sync::mpsc::Receiver<LogEn
         } else {
             break;
         };
-        let _ = rt.data_client.log_put(&entry.topic, entry.time, &entry.text).await;
+        let _ = rt.data_client.applog_write(&entry.appid, entry.time, &entry.text).await;
     }
 }
 

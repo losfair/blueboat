@@ -8,7 +8,6 @@ use rusty_workers::db::DataClient;
 use rusty_workers::tarpc;
 use rusty_workers::types::*;
 use std::net::SocketAddr;
-use std::time::SystemTime;
 use structopt::StructOpt;
 use thiserror::Error;
 use tokio::io::AsyncReadExt;
@@ -156,18 +155,6 @@ enum AppCmd {
         namespace: String,
         #[structopt(long)]
         batch_size: u32,
-    },
-    #[structopt(name = "logs")]
-    Logs {
-        appid: String,
-        #[structopt(long)]
-        since: String,
-    },
-    #[structopt(name = "delete-logs")]
-    DeleteLogs {
-        appid: String,
-        #[structopt(long)]
-        before: String,
     },
 }
 
@@ -355,12 +342,7 @@ async fn main() -> Result<()> {
                     }
                     client.app_metadata_delete(&appid.0).await?;
 
-                    client
-                        .log_delete_range(
-                            &format!("app-{}", appid.0),
-                            SystemTime::UNIX_EPOCH..SystemTime::now(),
-                        )
-                        .await?;
+                    // TODO: Delete logs?
 
                     println!("OK");
                 }
@@ -512,37 +494,6 @@ async fn main() -> Result<()> {
                         client.worker_data_delete(&namespace, k).await?;
                     }
                     println!("{}", keys.len());
-                }
-                AppCmd::Logs { appid, since } => {
-                    let now = SystemTime::now();
-                    let since = now - parse_duration::parse(&since)?;
-
-                    print!("[");
-                    let mut first = true;
-                    client
-                        .log_range(&format!("app-{}", appid), since..now, |time, text| {
-                            if first {
-                                first = false;
-                            } else {
-                                print!(",");
-                            }
-                            let item = serde_json::to_string(&serde_json::json!({
-                                "time": time,
-                                "text": text,
-                            }))
-                            .unwrap();
-                            print!("{}", item);
-                            true
-                        })
-                        .await?;
-                    println!("]");
-                }
-                AppCmd::DeleteLogs { appid, before } => {
-                    let end = SystemTime::now() - parse_duration::parse(&before)?;
-                    client
-                        .log_delete_range(&format!("app-{}", appid), SystemTime::UNIX_EPOCH..end)
-                        .await?;
-                    println!("OK");
                 }
             }
         }
