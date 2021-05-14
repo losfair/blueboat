@@ -106,7 +106,8 @@ async fn main() -> Result<()> {
     }
 
     let kv_client =
-        rusty_workers::db::DataClient::new(opt.tikv_cluster.split(",").collect(), &opt.db_url).await?;
+        rusty_workers::db::DataClient::new(opt.tikv_cluster.split(",").collect(), &opt.db_url)
+            .await?;
 
     SCHEDULER
         .set(sched::Scheduler::new(

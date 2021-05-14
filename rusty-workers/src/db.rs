@@ -1,10 +1,13 @@
 use crate::types::*;
-use std::{collections::BTreeMap, time::{Duration, UNIX_EPOCH}};
+use mysql_async::{prelude::Queryable, Pool};
+use rand::Rng;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
-use mysql_async::{Pool, prelude::Queryable};
-use rand::Rng;
+use std::{
+    collections::BTreeMap,
+    time::{Duration, UNIX_EPOCH},
+};
 use tikv_client::{BoundRange, CheckLevel, Key, KvPair, Transaction, TransactionOptions};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Semaphore;
@@ -215,7 +218,10 @@ impl ProtectedTransaction {
 }
 
 impl DataClient {
-    pub async fn new<S: Into<String> + Clone>(pd_endpoints: Vec<S>, db_url: &str) -> GenericResult<Self> {
+    pub async fn new<S: Into<String> + Clone>(
+        pd_endpoints: Vec<S>,
+        db_url: &str,
+    ) -> GenericResult<Self> {
         let raw = tikv_client::RawClient::new(pd_endpoints.clone())
             .await
             .map_err(|e| {
@@ -230,12 +236,7 @@ impl DataClient {
                 ))
             })?;
         let db = Pool::from_url(db_url)
-            .map_err(|e| {
-                GenericError::Other(format!(
-                    "db connection failed: {:?}",
-                    e,
-                ))
-            })?;
+            .map_err(|e| GenericError::Other(format!("db connection failed: {:?}", e,)))?;
         let (txn_collector_tx, txn_collector_rx) = channel(1000);
         tokio::spawn(async move {
             txn_collector_worker(txn_collector_rx).await;
@@ -600,18 +601,27 @@ impl DataClient {
         }
     }
 
-    pub async fn applog_write(&self, appid: &str, logtime: SystemTime, logcontent: &str) -> GenericResult<()> {
+    pub async fn applog_write(
+        &self,
+        appid: &str,
+        logtime: SystemTime,
+        logcontent: &str,
+    ) -> GenericResult<()> {
         let subid: u32 = rand::thread_rng().gen();
         let mut conn = self.db.get_conn().await?;
         conn.exec_drop(
             "insert into applog (appid, logtime, subid, logcontent) values(?, ?, ?, ?)",
             (
                 appid,
-                logtime.duration_since(UNIX_EPOCH).unwrap_or_else(|_| Duration::from_millis(0)).as_millis() as u64,
+                logtime
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_else(|_| Duration::from_millis(0))
+                    .as_millis() as u64,
                 subid,
                 logcontent,
-            )
-        ).await?;
+            ),
+        )
+        .await?;
         Ok(())
     }
 }

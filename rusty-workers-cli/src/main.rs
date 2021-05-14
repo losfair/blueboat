@@ -240,7 +240,11 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        Cmd::App { tikv_pd, db_url, op } => {
+        Cmd::App {
+            tikv_pd,
+            db_url,
+            op,
+        } => {
             let client = DataClient::new(vec![tikv_pd], &db_url).await?;
             match op {
                 AppCmd::AllRoutes => {

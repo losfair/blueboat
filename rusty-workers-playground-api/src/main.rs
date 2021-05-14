@@ -124,7 +124,7 @@ impl Server {
                 let appid = rusty_workers::app::AppId(opt.appid);
                 cleanup_previous_app(&self.kv, &appid).await?;
                 self.kv.app_metadata_delete(&appid.0).await?;
-                
+
                 // TODO: Delete logs?
 
                 Ok(mk_json_response(&())?)

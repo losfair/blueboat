@@ -340,7 +340,10 @@ impl IoProcessorSharedState {
                     }
                     txn.get(namespace_id, &key).await?
                 } else {
-                    self.worker_runtime.data_client().worker_data_get(namespace_id, &key).await?
+                    self.worker_runtime
+                        .data_client()
+                        .worker_data_get(namespace_id, &key)
+                        .await?
                 };
                 if let Some(r) = result {
                     Ok(mk_user_ok_with_buffers(
@@ -377,7 +380,10 @@ impl IoProcessorSharedState {
                 if let Some(ref mut txn) = *self.ongoing_txn.lock().await {
                     txn.put(namespace_id, &key, value).await?;
                 } else {
-                    self.worker_runtime.data_client().worker_data_put(namespace_id, &key, value).await?;
+                    self.worker_runtime
+                        .data_client()
+                        .worker_data_put(namespace_id, &key, value)
+                        .await?;
                 }
                 Ok(mk_user_ok(())?)
             }
@@ -398,7 +404,10 @@ impl IoProcessorSharedState {
                 if let Some(ref mut txn) = *self.ongoing_txn.lock().await {
                     txn.delete(namespace_id, &key).await?
                 } else {
-                    self.worker_runtime.data_client().worker_data_delete(namespace_id, &key).await?;
+                    self.worker_runtime
+                        .data_client()
+                        .worker_data_delete(namespace_id, &key)
+                        .await?;
                 }
                 Ok(mk_user_ok(())?)
             }
@@ -444,7 +453,9 @@ impl IoProcessorSharedState {
                     }
                     keys
                 } else {
-                    self.worker_runtime.data_client().worker_data_scan_keys(namespace_id, &start_key, end_key.as_deref(), limit)
+                    self.worker_runtime
+                        .data_client()
+                        .worker_data_scan_keys(namespace_id, &start_key, end_key.as_deref(), limit)
                         .await?
                 };
                 let keys: GenericResult<_> = futures::future::try_join_all(
@@ -462,7 +473,11 @@ impl IoProcessorSharedState {
                     drop(x.rollback().await);
                 }
 
-                let txn = self.worker_runtime.data_client().worker_data_begin_transaction().await?;
+                let txn = self
+                    .worker_runtime
+                    .data_client()
+                    .worker_data_begin_transaction()
+                    .await?;
                 *ongoing_txn = Some(txn);
                 Ok(mk_user_ok(())?)
             }

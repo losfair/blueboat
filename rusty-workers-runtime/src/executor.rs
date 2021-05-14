@@ -686,9 +686,7 @@ fn call_service_callback(
                     SyncCall::Log(s) => {
                         debug!("log: {}", s);
                         let state = InstanceState::get(scope);
-                        state
-                            .worker_runtime
-                            .write_log(state.appid.clone(), s);
+                        state.worker_runtime.write_log(state.appid.clone(), s);
                     }
                     SyncCall::Done => {
                         let state = InstanceState::get(scope);

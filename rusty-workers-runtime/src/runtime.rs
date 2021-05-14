@@ -355,7 +355,10 @@ async fn log_worker(rt: Weak<Runtime>, mut rx: tokio::sync::mpsc::Receiver<LogEn
         } else {
             break;
         };
-        let _ = rt.data_client.applog_write(&entry.appid, entry.time, &entry.text).await;
+        let _ = rt
+            .data_client
+            .applog_write(&entry.appid, entry.time, &entry.text)
+            .await;
     }
 }
 
