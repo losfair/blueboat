@@ -8,3 +8,5 @@ CREATE TABLE `applog` (
 ALTER TABLE `applog` ADD INDEX `time_range_query` (`appid`, `logtime`);
 
 ALTER TABLE `applog` ADD PRIMARY KEY (`appid`, `logtime`, `subid`);
+
+ALTER TABLE `applog` ADD INDEX (`logtime`);
