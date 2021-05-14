@@ -54,8 +54,6 @@ enum Cmd {
 
 #[derive(Debug, StructOpt)]
 enum AppCmd {
-    #[structopt(name = "all-routes")]
-    AllRoutes,
     #[structopt(name = "list-routes")]
     ListRoutes { domain: String },
     #[structopt(name = "add-route")]
@@ -247,34 +245,8 @@ async fn main() -> Result<()> {
         } => {
             let client = DataClient::new(vec![tikv_pd], &db_url).await?;
             match op {
-                AppCmd::AllRoutes => {
-                    print!("[");
-                    let mut first = true;
-                    client
-                        .route_mapping_for_each(|domain, path, appid| {
-                            if first {
-                                first = false;
-                            } else {
-                                print!(",");
-                            }
-                            print!(
-                                "{}",
-                                serde_json::to_string(&serde_json::json!({
-                                    "domain": domain,
-                                    "path": path,
-                                    "appid": appid,
-                                }))
-                                .unwrap()
-                            );
-                            true
-                        })
-                        .await?;
-                    println!("]");
-                }
                 AppCmd::ListRoutes { domain } => {
-                    let routes = client
-                        .route_mapping_list_for_domain(&domain, |_| true)
-                        .await?;
+                    let routes = client.route_mapping_list_for_domain(&domain).await?;
                     println!("{}", serde_json::to_string(&routes)?);
                 }
                 AppCmd::AddRoute {

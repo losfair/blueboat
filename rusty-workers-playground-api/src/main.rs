@@ -78,10 +78,7 @@ impl Server {
         match req_path.as_str() {
             "/v1/list_routes" => {
                 let opt: ListRoutesOpt = serde_json::from_slice(&req_body)?;
-                let routes = self
-                    .kv
-                    .route_mapping_list_for_domain(&opt.domain, |_| true)
-                    .await?;
+                let routes = self.kv.route_mapping_list_for_domain(&opt.domain).await?;
                 println!("{}", serde_json::to_string(&routes)?);
                 Ok(mk_json_response(&routes)?)
             }

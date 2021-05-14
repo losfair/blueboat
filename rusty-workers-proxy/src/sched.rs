@@ -534,11 +534,7 @@ impl Scheduler {
         }
         drop(route_cache);
 
-        match self
-            .kv_client
-            .route_mapping_list_for_domain(&domain, |_| true)
-            .await
-        {
+        match self.kv_client.route_mapping_list_for_domain(&domain).await {
             Ok(map) => {
                 let map: BTreeMap<_, _> = map.into_iter().map(|(k, v)| (k, AppId(v))).collect();
                 info!(
@@ -566,11 +562,7 @@ impl Scheduler {
                 .map(|x| x.0.clone())
                 .collect();
             for domain in domains {
-                match self
-                    .kv_client
-                    .route_mapping_list_for_domain(&domain, |_| true)
-                    .await
-                {
+                match self.kv_client.route_mapping_list_for_domain(&domain).await {
                     Ok(map) => {
                         let map: BTreeMap<_, _> =
                             map.into_iter().map(|(k, v)| (k, AppId(v))).collect();

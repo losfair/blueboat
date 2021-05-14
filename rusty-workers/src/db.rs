@@ -1,4 +1,4 @@
-use crate::types::*;
+use crate::{types::*, util::current_millis};
 use mysql_async::{prelude::Queryable, Pool};
 use rand::Rng;
 use std::ops::{Deref, DerefMut};
@@ -8,7 +8,7 @@ use std::{
     collections::BTreeMap,
     time::{Duration, UNIX_EPOCH},
 };
-use tikv_client::{BoundRange, CheckLevel, Key, KvPair, Transaction, TransactionOptions};
+use tikv_client::{BoundRange, CheckLevel, Key, Transaction, TransactionOptions};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Semaphore;
 
@@ -64,8 +64,6 @@ pub static PREFIX_WORKER_DATA_V2: &'static [u8] = b"W\x00V2\x00W\x00";
 pub static PREFIX_APP_METADATA_V1: &'static [u8] = b"W\x00V1\x00APPMD\x00";
 
 pub static PREFIX_APP_BUNDLE_V1: &'static [u8] = b"W\x00V1\x00APPBUNDLE\x00";
-
-pub static PREFIX_ROUTE_MAPPING_V1: &'static [u8] = b"W\x00V1\x00ROUTEMAP\x00";
 
 const MAX_LOCKS_PER_WORKER_DATA_TRANSACTION: usize = 256;
 
@@ -269,23 +267,6 @@ impl DataClient {
         })
     }
 
-    async fn delete_prefix(&self, prefix: &[u8]) -> GenericResult<()> {
-        assert!(prefix.len() > 0, "delete_prefix: prefix must be non-empty");
-        assert!(
-            *prefix.last().unwrap() == 0,
-            "delete_prefix: prefix must end with zero"
-        );
-        let start_prefix = prefix.to_vec();
-        let mut end_prefix = prefix.to_vec();
-        *end_prefix.last_mut().unwrap() = 1;
-
-        self.raw
-            .delete_range(start_prefix..end_prefix)
-            .await
-            .map_err(|e| GenericError::Other(format!("delete_prefix: {:?}", e)))
-    }
-
-    impl_scan_prefix!(scan_prefix, &[u8], scan, kvp_deref_key, kvp_deref_value);
     impl_scan_prefix!(scan_prefix_keys, (), scan_keys, key_deref, mk_unit);
 
     pub async fn worker_data_get(
@@ -384,47 +365,25 @@ impl DataClient {
     }
 
     pub async fn route_mapping_delete_domain(&self, domain: &str) -> GenericResult<()> {
-        let prefix = join_slices(&[PREFIX_ROUTE_MAPPING_V1, domain.as_bytes(), b"\x00"]);
-        self.delete_prefix(&prefix).await
-    }
-
-    pub async fn route_mapping_for_each(
-        &self,
-        mut callback: impl FnMut(&str, &str, &str) -> bool,
-    ) -> GenericResult<()> {
-        self.scan_prefix(PREFIX_ROUTE_MAPPING_V1, |k, v| {
-            use std::str::from_utf8;
-            let mut parts = k.split(|x| *x == 0);
-            let domain = parts.next().unwrap_or(b"");
-            let path = parts.next().unwrap_or(b"");
-            callback(
-                from_utf8(domain).unwrap_or(""),
-                from_utf8(path).unwrap_or(""),
-                from_utf8(v).unwrap_or(""),
-            )
-        })
-        .await?;
+        let mut conn = self.db.get_conn().await?;
+        conn.exec_drop("delete from routes where `domain` = ?", (domain,))
+            .await?;
         Ok(())
     }
 
     pub async fn route_mapping_list_for_domain(
         &self,
         domain: &str,
-        mut filter: impl FnMut(&[u8]) -> bool,
     ) -> GenericResult<BTreeMap<String, String>> {
-        let prefix = join_slices(&[PREFIX_ROUTE_MAPPING_V1, domain.as_bytes(), b"\x00"]);
-        let mut result = BTreeMap::new();
-        self.scan_prefix(&prefix, |k, v| {
-            if filter(k) {
-                result.insert(
-                    String::from_utf8_lossy(k).into_owned(),
-                    String::from_utf8_lossy(v).into_owned(),
-                );
-            }
-            true
-        })
-        .await?;
-        Ok(result)
+        let mut conn = self.db.get_conn().await?;
+        let items: Vec<(String, String)> = conn
+            .exec(
+                "select path, appid from routes where `domain` = ?",
+                (domain,),
+            )
+            .await?;
+
+        Ok(items.into_iter().collect())
     }
 
     pub async fn route_mapping_lookup(
@@ -432,12 +391,13 @@ impl DataClient {
         domain: &str,
         path: &str,
     ) -> GenericResult<Option<String>> {
-        let matches = self
-            .route_mapping_list_for_domain(domain, |x| path.as_bytes().starts_with(x))
-            .await?;
-
+        let mut conn = self.db.get_conn().await?;
+        let appid: Option<String> = conn.exec_first(
+            "select appid from routes where `domain` = ? and ? like concat(`path`, '%') order by length(`path`) desc limit 1",
+            (domain, path)
+        ).await?;
         // Most specific match
-        Ok(matches.into_iter().rev().next().map(|x| x.1))
+        Ok(appid)
     }
 
     pub async fn route_mapping_insert(
@@ -446,29 +406,23 @@ impl DataClient {
         path: &str,
         appid: String,
     ) -> GenericResult<()> {
-        let key = join_slices(&[
-            PREFIX_ROUTE_MAPPING_V1,
-            domain.as_bytes(),
-            b"\x00",
-            path.as_bytes(),
-        ]);
-        self.raw
-            .put(key, Vec::from(appid))
-            .await
-            .map_err(|e| GenericError::Other(format!("route_mapping_insert: {:?}", e)))
+        let mut conn = self.db.get_conn().await?;
+        conn.exec_drop(
+            "insert into routes (domain, path, appid, createtime) values(?, ?, ?, ?)",
+            (domain, path, appid, current_millis()),
+        )
+        .await?;
+        Ok(())
     }
 
     pub async fn route_mapping_delete(&self, domain: &str, path: &str) -> GenericResult<()> {
-        let key = join_slices(&[
-            PREFIX_ROUTE_MAPPING_V1,
-            domain.as_bytes(),
-            b"\x00",
-            path.as_bytes(),
-        ]);
-        self.raw
-            .delete(key)
-            .await
-            .map_err(|e| GenericError::Other(format!("route_mapping_delete: {:?}", e)))
+        let mut conn = self.db.get_conn().await?;
+        conn.exec_drop(
+            "delete from routes where domain = ? and path = ?",
+            (domain, path),
+        )
+        .await?;
+        Ok(())
     }
 
     pub async fn app_metadata_for_each(
@@ -587,14 +541,6 @@ fn join_slices(slices: &[&[u8]]) -> Vec<u8> {
         buf.extend_from_slice(s);
     }
     buf
-}
-
-fn kvp_deref_key(p: &KvPair) -> &[u8] {
-    (&p.0).into()
-}
-
-fn kvp_deref_value(p: &KvPair) -> &[u8] {
-    &p.1
 }
 
 fn key_deref(k: &Key) -> &[u8] {
