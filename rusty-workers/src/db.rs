@@ -62,11 +62,16 @@ impl DataClient {
             "appvalue" => value,
             "appmetadata" => empty_md,
             "appexpiration" => expiration,
+            "currenttime" => current_millis(),
         };
 
         if if_not_exists {
             conn.exec_drop(
-                "insert ignore into appkv (nsid, appkey, appvalue, appmetadata, appexpiration) values(:nsid, :appkey, :appvalue, :appmetadata, :appexpiration)",
+                format!(
+                    "{} where not exists ({})",
+                    "replace into appkv (nsid, appkey, appvalue, appmetadata, appexpiration) values(:nsid, :appkey, :appvalue, :appmetadata, :appexpiration)",
+                    "select 1 from appkv where nsid = :nsid and appkey = :appkey and (appexpiration = 0 or appexpiration > :currenttime)"
+                ),
                 prms,
             ).await?;
         } else {
