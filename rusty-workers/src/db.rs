@@ -30,8 +30,8 @@ impl DataClient {
         let mut conn = self.db.get_conn().await?;
         let value: Option<Vec<u8>> = conn
             .exec_first(
-                "select appvalue from appkv where nsid = ? and appkey = ?",
-                (namespace_id, key),
+                "select appvalue from appkv where nsid = ? and appkey = ? and (appexpiration = 0 or appexpiration > ?)",
+                (namespace_id, key, current_millis()),
             )
             .await?;
         Ok(value)
@@ -43,16 +43,25 @@ impl DataClient {
         key: &[u8],
         value: &[u8],
         if_not_exists: bool,
+        ttl_ms: u64,
     ) -> GenericResult<()> {
         let mut conn = self.db.get_conn().await?;
         let empty_md: &[u8] = &[];
+
+        let expiration = if ttl_ms != 0 {
+            current_millis()
+                .checked_add(ttl_ms)
+                .ok_or_else(|| GenericError::Other("expiration time overflow".into()))?
+        } else {
+            0u64
+        };
 
         let prms = params! {
             "nsid" => namespace_id,
             "appkey" => key,
             "appvalue" => value,
             "appmetadata" => empty_md,
-            "appexpiration" => 0u64,
+            "appexpiration" => expiration,
         };
 
         if if_not_exists {
@@ -65,7 +74,7 @@ impl DataClient {
                 format!(
                     "{} on duplicate key {}",
                     "insert into appkv (nsid, appkey, appvalue, appmetadata, appexpiration) values(:nsid, :appkey, :appvalue, :appmetadata, :appexpiration)",
-                    "update appvalue = :appvalue",
+                    "update appvalue = :appvalue, appexpiration = :appexpiration",
                 ),
                 prms,
             ).await?;

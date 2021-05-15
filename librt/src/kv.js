@@ -55,15 +55,19 @@ class KvNamespace {
      * @param {ArrayBuffer | ArrayBufferView} key
      * @param {ArrayBuffer | ArrayBufferView} value
      * @param {boolean} ifNotExists
+     * @param {Object} opts 
+     * @param {boolean | undefined} opts.ifNotExists
+     * @param {number | undefined} opts.ttlMs
      * @returns {Promise<void>}
      */
-    putRaw(key, value, ifNotExists = false) {
+    putRaw(key, value, opts) {
         return new Promise((resolve, reject) => {
             _callServiceWrapper({
                 Async: {
                     KvPut: {
                         namespace: this.name,
-                        if_not_exists: ifNotExists,
+                        if_not_exists: opts?.ifNotExists || false,
+                        ttl_ms: opts?.ttlMs || 0,
                     }
                 }
             }, [key, value], (result) => {
@@ -81,13 +85,15 @@ class KvNamespace {
     /**
      * @param {string} key
      * @param {string} value
-     * @param {boolean} ifNotExists
+     * @param {Object} opts 
+     * @param {boolean | undefined} opts.ifNotExists
+     * @param {number | undefined} opts.ttlMs
      * @returns {Promise<void>}
      */
-    async put(key, value, ifNotExists = false) {
+    async put(key, value, opts) {
         let keyRaw = new TextEncoder().encode(key);
         let valueRaw = new TextEncoder().encode(value);
-        await this.putRaw(keyRaw.buffer, valueRaw.buffer, ifNotExists);
+        await this.putRaw(keyRaw.buffer, valueRaw.buffer, opts);
     }
 
     /**

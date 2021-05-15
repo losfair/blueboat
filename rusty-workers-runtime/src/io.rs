@@ -338,6 +338,7 @@ impl IoProcessorSharedState {
             AsyncCallV::KvPut {
                 namespace,
                 if_not_exists,
+                ttl_ms,
             } => {
                 let key = match task
                     .buffers
@@ -363,7 +364,7 @@ impl IoProcessorSharedState {
                 };
                 self.worker_runtime
                     .data_client()
-                    .worker_data_put(namespace_id, &key, &value, if_not_exists)
+                    .worker_data_put(namespace_id, &key, &value, if_not_exists, ttl_ms)
                     .await?;
                 Ok(mk_user_ok(())?)
             }

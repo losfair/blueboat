@@ -35,6 +35,7 @@ pub enum AsyncCallV {
     KvPut {
         namespace: String,
         if_not_exists: bool,
+        ttl_ms: u64,
     },
     KvDelete {
         namespace: String,
