@@ -188,7 +188,7 @@ impl DataClient {
     ) -> GenericResult<()> {
         let mut conn = self.db.get_conn().await?;
         conn.exec_drop(
-            "insert into routes (domain, path, appid, createtime) values(?, ?, ?, ?)",
+            "replace into routes (domain, path, appid, createtime) values(?, ?, ?, ?)",
             (domain, path, appid, current_millis()),
         )
         .await?;
