@@ -427,6 +427,7 @@ impl IoProcessorSharedState {
                 namespace,
                 num_assertions,
                 num_writes,
+                ttl_ms,
             } => {
                 let mut index = 0usize;
                 let mut assertions = vec![];
@@ -468,7 +469,7 @@ impl IoProcessorSharedState {
                 let success = self
                     .worker_runtime
                     .data_client()
-                    .worker_data_cmpupdate(namespace_id, &assertions, &writes)
+                    .worker_data_cmpupdate(namespace_id, &assertions, &writes, ttl_ms)
                     .await?;
 
                 Ok(mk_user_ok(success)?)

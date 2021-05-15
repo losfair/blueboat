@@ -48,6 +48,7 @@ pub enum AsyncCallV {
         namespace: String,
         num_assertions: u32,
         num_writes: u32,
+        ttl_ms: u64,
     },
 }
 

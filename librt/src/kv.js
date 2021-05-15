@@ -100,9 +100,11 @@ class KvNamespace {
      * 
      * @param {[ArrayBuffer | ArrayBufferView, ArrayBuffer | ArrayBufferView][]} assertions 
      * @param {[ArrayBuffer | ArrayBufferView, ArrayBuffer | ArrayBufferView][]} writes
+     * @param {Object} opts
+     * @param {number | undefined} opts.ttlMs
      * @returns {Promise<boolean>}
      */
-    cmpUpdateRaw(assertions, writes) {
+    cmpUpdateRaw(assertions, writes, opts) {
         const bufferList = [];
         for(const [k, v] of assertions) {
             bufferList.push(k);
@@ -120,6 +122,7 @@ class KvNamespace {
                         namespace: this.name,
                         num_assertions: assertions.length,
                         num_writes: writes.length,
+                        ttl_ms: opts?.ttlMs || 0,
                     }
                 }
             }, bufferList, (result) => {
@@ -138,13 +141,16 @@ class KvNamespace {
      * 
      * @param {[string, string][]} assertions 
      * @param {[string, string][]} writes
+     * @param {Object} opts
+     * @param {number | undefined} opts.ttlMs
      * @returns {Promise<boolean>}
      */
-    async cmpUpdate(assertions, writes) {
+    async cmpUpdate(assertions, writes, opts) {
         const encoder = new TextEncoder();
         return await this.cmpUpdateRaw(
             assertions.map(x => x.map(x => encoder.encode(x))),
             writes.map(x => x.map(x => encoder.encode(x))),
+            opts,
         );
     }
 

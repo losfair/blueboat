@@ -126,7 +126,16 @@ impl DataClient {
         namespace_id: &str,
         assertions: &[(Vec<u8>, Vec<u8>)],
         writes: &[(Vec<u8>, Vec<u8>)],
+        ttl_ms: u64,
     ) -> GenericResult<bool> {
+        let expiration = if ttl_ms != 0 {
+            current_millis()
+                .checked_add(ttl_ms)
+                .ok_or_else(|| GenericError::Other("expiration time overflow".into()))?
+        } else {
+            0u64
+        };
+
         let mut opts = TxOpts::new();
         opts.with_isolation_level(IsolationLevel::RepeatableRead);
         let mut txn = self.db.start_transaction(opts).await?;
@@ -144,14 +153,14 @@ impl DataClient {
             format!(
                 "{} on duplicate key {}",
                 "insert into appkv (nsid, appkey, appvalue, appmetadata, appexpiration) values(:nsid, :appkey, :appvalue, :appmetadata, :appexpiration)",
-                "update appvalue = :appvalue",
+                "update appvalue = :appvalue, appexpiration = :appexpiration",
             ),
             writes.iter().map(|(k, v)| params! {
                 "nsid" => namespace_id,
                 "appkey" => k,
                 "appvalue" => v,
                 "appmetadata" => empty_md,
-                "appexpiration" => 0u64,
+                "appexpiration" => expiration,
             }).collect::<Vec<_>>(),
         ).await?;
         txn.commit().await?;
