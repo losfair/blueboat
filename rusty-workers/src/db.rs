@@ -92,14 +92,14 @@ impl DataClient {
         let mut conn = self.db.get_conn().await?;
         let result: Vec<Vec<u8>> = if let Some(end) = end {
             conn.exec(
-                "select appkey from appkv where nsid = ? and appkey between ? and ? limit ?",
-                (namespace_id, start, end, limit),
+                "select appkey from appkv where nsid = ? and appkey between ? and ? and (appexpiration = 0 or appexpiration > ?) limit ?",
+                (namespace_id, start, end, current_millis(), limit),
             )
             .await?
         } else {
             conn.exec(
-                "select appkey from appkv where nsid = ? and appkey >= ? limit ?",
-                (namespace_id, start, limit),
+                "select appkey from appkv where nsid = ? and appkey >= ? and (appexpiration = 0 or appexpiration > ?) limit ?",
+                (namespace_id, start, current_millis(), limit),
             )
             .await?
         };

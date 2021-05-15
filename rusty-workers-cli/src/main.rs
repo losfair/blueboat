@@ -363,7 +363,7 @@ async fn main() -> Result<()> {
                         base64::decode(&value)?
                     };
                     client
-                        .worker_data_put(&namespace, &key, &value, false)
+                        .worker_data_put(&namespace, &key, &value, false, 0)
                         .await?;
                     println!("OK");
                 }
