@@ -49,7 +49,7 @@ spec:
           value: "20"
         - name: RW_CPU_WAIT_TIMEOUT_MS
           value: "1000"
-        - name: RW_TIKV_CLUSTER
-          value: "__TIKV_CLUSTER__"
+        - name: RW_DB_URL
+          value: "__DB_URL__"
         ports:
         - containerPort: 3000

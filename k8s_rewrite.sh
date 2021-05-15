@@ -35,8 +35,8 @@ if [ -z "$NAMESPACE" ]; then
     exit 1
 fi
 
-if [ -z "$TIKV_CLUSTER" ]; then
-    echo "[-] TIKV_CLUSTER not defined"
+if [ -z "$DB_URL" ]; then
+    echo "[-] DB_URL not defined"
     exit 1
 fi
 
@@ -74,7 +74,7 @@ find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__EXTERNAL_IPS__#$EXTERNAL_I
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__IMAGE_PREFIX__#$IMAGE_PREFIX#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__IMAGE_SUFFIX__#$IMAGE_SUFFIX#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__NAMESPACE__#$NAMESPACE#g" '{}' ';'
-find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__TIKV_CLUSTER__#$TIKV_CLUSTER#g" '{}' ';'
+find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__DB_URL__#$DB_URL#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__NUM_PROXIES__#$NUM_PROXIES#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__NUM_RUNTIMES__#$NUM_RUNTIMES#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__NUM_FETCHD__#$NUM_FETCHD#g" '{}' ';'
