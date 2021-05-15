@@ -128,8 +128,9 @@ impl DataClient {
         writes: &[(Vec<u8>, Vec<u8>)],
         ttl_ms: u64,
     ) -> GenericResult<bool> {
+        let current_time = current_millis();
         let expiration = if ttl_ms != 0 {
-            current_millis()
+            current_time
                 .checked_add(ttl_ms)
                 .ok_or_else(|| GenericError::Other("expiration time overflow".into()))?
         } else {
@@ -140,10 +141,12 @@ impl DataClient {
         opts.with_isolation_level(IsolationLevel::RepeatableRead);
         let mut txn = self.db.start_transaction(opts).await?;
         let stmt = txn
-            .prep("select 1 from appkv where nsid = ? and appkey = ? and appvalue = ? for update")
+            .prep("select 1 from appkv where nsid = ? and appkey = ? and appvalue = ? and (appexpiration = 0 or appexpiration > ?) for update")
             .await?;
         for (k, v) in assertions {
-            let existence: Option<u32> = txn.exec_first(&stmt, (namespace_id, k, v)).await?;
+            let existence: Option<u32> = txn
+                .exec_first(&stmt, (namespace_id, k, v, current_time))
+                .await?;
             if existence.is_none() {
                 return Ok(false);
             }
