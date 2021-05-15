@@ -69,7 +69,7 @@ impl DataClient {
             conn.exec_drop(
                 format!(
                     "{} where not exists ({})",
-                    "replace into appkv (nsid, appkey, appvalue, appmetadata, appexpiration) values(:nsid, :appkey, :appvalue, :appmetadata, :appexpiration)",
+                    "replace into appkv (nsid, appkey, appvalue, appmetadata, appexpiration) select :nsid, :appkey, :appvalue, :appmetadata, :appexpiration",
                     "select 1 from appkv where nsid = :nsid and appkey = :appkey and (appexpiration = 0 or appexpiration > :currenttime)"
                 ),
                 prms,
