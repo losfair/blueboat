@@ -9,8 +9,11 @@ use rusty_workers::types::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, SystemTime};
-use tokio::sync::oneshot;
 use tokio::sync::RwLock as AsyncRwLock;
+use tokio::sync::{
+    mpsc::{Receiver, Sender},
+    oneshot,
+};
 
 pub struct Runtime {
     id: RuntimeId,
@@ -78,9 +81,8 @@ impl Runtime {
             log_tx,
         });
         let rt_weak = Arc::downgrade(&rt);
-        let rt_weak_2 = rt_weak.clone();
         tokio::spawn(statistics_update_worker(rt_weak, statistics_update_rx));
-        tokio::spawn(log_worker(rt_weak_2, log_rx));
+        tokio::spawn(log_worker(rt.clone(), log_rx));
         Ok(rt)
     }
 
@@ -342,22 +344,46 @@ async fn wait_until(deadline: Option<tokio::time::Instant>) {
     }
 }
 
-async fn log_worker(rt: Weak<Runtime>, mut rx: tokio::sync::mpsc::Receiver<LogEntry>) {
+async fn log_worker(rt: Arc<Runtime>, mut rx: tokio::sync::mpsc::Receiver<LogEntry>) {
+    // Mux
+    let channels = (0..16)
+        .map(|_| {
+            let rt = Arc::downgrade(&rt);
+            let (tx, mut rx): (Sender<Arc<LogEntry>>, Receiver<Arc<LogEntry>>) =
+                tokio::sync::mpsc::channel(16);
+            tokio::spawn(async move {
+                loop {
+                    let entry = if let Some(x) = rx.recv().await {
+                        x
+                    } else {
+                        break;
+                    };
+                    let rt = if let Some(x) = rt.upgrade() {
+                        x
+                    } else {
+                        break;
+                    };
+                    let _ = rt
+                        .data_client
+                        .applog_write(&entry.appid, entry.time, &entry.text)
+                        .await;
+                }
+            });
+            tx
+        })
+        .collect::<Vec<_>>();
+    drop(rt);
     loop {
         let entry = if let Some(x) = rx.recv().await {
-            x
+            Arc::new(x)
         } else {
             break;
         };
-        let rt = if let Some(x) = rt.upgrade() {
-            x
-        } else {
-            break;
-        };
-        let _ = rt
-            .data_client
-            .applog_write(&entry.appid, entry.time, &entry.text)
-            .await;
+        let futures = channels
+            .iter()
+            .map(|x| Box::pin(x.send(entry.clone())))
+            .collect::<Vec<_>>();
+        let _ = futures::future::select_all(futures.into_iter()).await;
     }
 }
 
