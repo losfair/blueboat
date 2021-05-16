@@ -29,7 +29,9 @@ class FetchEvent {
         try {
             await this._respondWith(res);
         } catch(e) {
-            console.log("respondWith exception: " + e);
+            console.log("caught exception in respondWith");
+            if(e && e.stack) console.log(e.stack);
+            else console.log(e);
             await this._respondWith(new Response("caught exception when handling request", { status: 500 }));
         }
     }
