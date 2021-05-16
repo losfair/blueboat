@@ -7,3 +7,4 @@ CREATE TABLE `appkv` (
 
 ALTER TABLE `appkv` ADD PRIMARY KEY (`nsid`, `appkey`);
 ALTER TABLE `appkv` ADD INDEX (`nsid`);
+ALTER TABLE `appkv` ADD INDEX (`appexpiration`);

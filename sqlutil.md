@@ -17,3 +17,9 @@ Delete unreferenced bundles:
 ```sql
 delete from bundles where not exists (select * from apps where bundle_id = bundles.id) and createtime < (select unix_timestamp() * 1000 - 180000);
 ```
+
+Delete expired KV entries:
+
+```sql
+delete from appkv where (appexpiration <> 0 and appexpiration < (select unix_timestamp() * 1000))
+```
