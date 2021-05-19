@@ -40,15 +40,15 @@ spec:
         - name: RW_MAX_NUM_OF_INSTANCES
           value: "25"
         - name: RW_MAX_CONCURRENT_REQUESTS
-          value: "80"
+          value: "23"
         - name: RW_MAX_INACTIVE_TIME_MS
           value: "180000"
         - name: RW_MAX_ISOLATE_MEMORY_BYTES
           value: "33554432"
         - name: RW_EXECUTION_CONCURRENCY
-          value: "20"
+          value: "5"
         - name: RW_CPU_WAIT_TIMEOUT_MS
-          value: "1000"
+          value: "3000"
         - name: RW_DB_URL
           value: "__DB_URL__"
         ports:
