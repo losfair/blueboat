@@ -30,23 +30,34 @@ spec:
         env:
         - name: RUST_LOG
           value: rusty_workers_proxy=info,rusty_workers=info
+        # Address of the fetch service to use.
         - name: RW_FETCH_SERVICE
           value: __NET_PREFIX__.3:3000
+        # Max I/O concurrency.
+        # Concurrent I/O operations more than this amount will wait in a queue.
         - name: RW_MAX_IO_CONCURRENCY
           value: "10"
+        # Max I/O operations per request.
+        # Currently not enforced!
         - name: RW_MAX_IO_PER_REQUEST
           value: "50"
+        # Max ArrayBuffer memory per worker.
         - name: RW_MAX_AB_MEMORY_MB
-          value: "16"
+          value: "128"
+        # Max CPU time per request.
         - name: RW_MAX_TIME_MS
-          value: "200"
+          value: "5000"
+        # List of runtime backends.
         - name: RUNTIMES
           # Query it 4 times when doing discovery
           value: __NET_PREFIX__.4:3000,__NET_PREFIX__.4:3000,__NET_PREFIX__.4:3000,__NET_PREFIX__.4:3000
+        # Size of the route cache.
         - name: RW_ROUTE_CACHE_SIZE
           value: "1000"
+        # Size of the app cache.
         - name: RW_APP_CACHE_SIZE
           value: "50"
+        # Database URL.
         - name: RW_DB_URL
           value: "__DB_URL__"
         ports:

@@ -33,22 +33,33 @@ spec:
         env:
         - name: RUST_LOG
           value: rusty_workers_runtime=info,rusty_workers=info
+        # The saturating threshold used in runtime load calculation.
         - name: RW_HIGH_MEMORY_THRESHOLD_BYTES
           value: "838860800"
+        # Size of the isolate warm-up pool. Should be larger than `RW_MAX_NUM_OF_INSTANCES`.
         - name: RW_ISOLATE_POOL_SIZE
-          value: "30"
+          value: "70"
+        # Max number of instances in the system.
         - name: RW_MAX_NUM_OF_INSTANCES
-          value: "25"
+          value: "60"
+        # Max number of concurrent connections to each runtime process.
+        # This should be lower than `RW_MAX_NUM_OF_INSTANCES` to avoid "storming"
+        # the scheduler (newer instances keep replacing older ones).
         - name: RW_MAX_CONCURRENT_REQUESTS
-          value: "23"
+          value: "56"
+        # Time after which unused instances will be deleted from the cache.
         - name: RW_MAX_INACTIVE_TIME_MS
-          value: "180000"
+          value: "600000" # 10 minutes
+        # Max heap memory per isolate. Excludes ArrayBuffer's.
         - name: RW_MAX_ISOLATE_MEMORY_BYTES
-          value: "33554432"
+          value: "67108864"
+        # Max concurrent workers doing CPU work.
         - name: RW_EXECUTION_CONCURRENCY
           value: "5"
+        # Max time for a worker to wait for CPU availability.
         - name: RW_CPU_WAIT_TIMEOUT_MS
           value: "3000"
+        # Database URL.
         - name: RW_DB_URL
           value: "__DB_URL__"
         ports:
