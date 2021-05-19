@@ -32,7 +32,7 @@ spec:
           value: rusty_workers_proxy=info,rusty_workers=info
         # Address of the fetch service to use.
         - name: RW_FETCH_SERVICE
-          value: __NET_PREFIX__.3:3000
+          value: fetch-service.__NAMESPACE__.svc.cluster.local:3000
         # Max I/O concurrency.
         # Concurrent I/O operations more than this amount will wait in a queue.
         - name: RW_MAX_IO_CONCURRENCY
@@ -49,8 +49,8 @@ spec:
           value: "5000"
         # List of runtime backends.
         - name: RUNTIMES
-          # Query it 4 times when doing discovery
-          value: __NET_PREFIX__.4:3000,__NET_PREFIX__.4:3000,__NET_PREFIX__.4:3000,__NET_PREFIX__.4:3000
+          # Query it 3 times when doing discovery
+          value: runtime-service.__NAMESPACE__.svc.cluster.local:3000,runtime-service.__NAMESPACE__.svc.cluster.local:3000,runtime-service.__NAMESPACE__.svc.cluster.local:3000
         # Size of the route cache.
         - name: RW_ROUTE_CACHE_SIZE
           value: "1000"

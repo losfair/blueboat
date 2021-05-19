@@ -15,11 +15,6 @@ fi
 
 . "$CONFIG"
 
-if [ -z "$NET_PREFIX" ]; then
-    echo "[-] NET_PREFIX not defined"
-    exit 1
-fi
-
 if [ -z "$EXTERNAL_IPS" ]; then
     echo "[-] EXTERNAL_IPS not defined"
     exit 1
@@ -69,7 +64,6 @@ fi
 rm -r "./k8s.$SUFFIX"
 cp -r "`dirname $0`/k8s" "./k8s.$SUFFIX" || exit 1
 
-find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__NET_PREFIX__#$NET_PREFIX#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__EXTERNAL_IPS__#$EXTERNAL_IPS#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__IMAGE_PREFIX__#$IMAGE_PREFIX#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__IMAGE_SUFFIX__#$IMAGE_SUFFIX#g" '{}' ';'

@@ -10,6 +10,7 @@ use rusty_workers::types::*;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use structopt::StructOpt;
+use tokio::net::lookup_host;
 
 use crate::config::*;
 use hyper::service::{make_service_fn, service_fn};
@@ -26,7 +27,7 @@ struct Opt {
     http_listen: SocketAddr,
 
     #[structopt(long, env = "RW_FETCH_SERVICE")]
-    fetch_service: SocketAddr,
+    fetch_service: String,
 
     /// Runtime service backends, comma-separated.
     #[structopt(long, env = "RUNTIMES")]
@@ -98,10 +99,19 @@ async fn main() -> Result<()> {
 
     let mut runtime_cluster: Vec<SocketAddr> = Vec::new();
     for elem in opt.runtimes.split(",") {
-        runtime_cluster.push(elem.parse()?);
+        let runtime_addr = lookup_host(elem)
+            .await?
+            .next()
+            .unwrap_or_else(|| panic!("runtime address lookup failed: {}", elem));
+        runtime_cluster.push(runtime_addr);
     }
 
     let kv_client = rusty_workers::db::DataClient::new(&opt.db_url).await?;
+
+    let fetch_service = lookup_host(&opt.fetch_service)
+        .await?
+        .next()
+        .expect("fetch service unresolved");
 
     SCHEDULER
         .set(sched::Scheduler::new(
@@ -112,7 +122,7 @@ async fn main() -> Result<()> {
                     max_io_concurrency: opt.max_io_concurrency,
                     max_io_per_request: opt.max_io_per_request,
                 },
-                fetch_service: opt.fetch_service,
+                fetch_service,
                 env: Default::default(),
                 kv_namespaces: Default::default(),
             },

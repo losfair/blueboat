@@ -6,7 +6,6 @@ metadata:
 spec:
   selector:
     app: proxy
-  clusterIP: __NET_PREFIX__.2
   externalIPs: __EXTERNAL_IPS__
   ports:
   - port: 8080
