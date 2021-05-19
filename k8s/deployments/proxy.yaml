@@ -32,7 +32,7 @@ spec:
           value: rusty_workers_proxy=info,rusty_workers=info
         # Address of the fetch service to use.
         - name: RW_FETCH_SERVICE
-          value: fetch-service.__NAMESPACE__.svc.cluster.local:3000
+          value: fetchd-service.__NAMESPACE__.svc.cluster.local:3000
         # Max I/O concurrency.
         # Concurrent I/O operations more than this amount will wait in a queue.
         - name: RW_MAX_IO_CONCURRENCY
