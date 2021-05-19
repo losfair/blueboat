@@ -21,7 +21,7 @@ A cloud-native distributed serverless workers platform.
 
 - [Rust](https://www.rust-lang.org/) nightly >= 1.50
 - [Node.js](https://nodejs.org/) and [npm](https://www.npmjs.com/)
-- [TiKV](https://github.com/tikv/tikv) with [Placement Driver](https://github.com/tikv/pd) ([how to build](https://pingcap.com/blog/building-running-and-benchmarking-tikv-and-tidb/))
+- A MySQL-compatible database server. [TiDB](https://github.com/pingcap/tidb) is recommended for clusters but you can also use anything else, e.g. AWS Aurora or just MySQL itself.
 
 ### Build
 
@@ -43,32 +43,6 @@ See `run_all.sh` as an example of getting everything up and running. Here are so
 to start each service manually:
 
 ```bash
-
-# Start TiKV Placement Driver.
-pd-server --name=pd1 \
-    --data-dir=playground/pd1 \
-    --client-urls="http://127.0.0.1:2379" \
-    --peer-urls="http://127.0.0.1:2380" \
-    --initial-cluster="pd1=http://127.0.0.1:2380" \
-    --log-file=playground/pd1.log
-
-# Start TiKV nodes.
-tikv-server --pd-endpoints="127.0.0.1:2379" \
-    --addr="127.0.0.1:20160" \
-    --status-addr="127.0.0.1:20181" \
-    --data-dir=playground/tikv1 \
-    --log-file=playground/tikv1.log
-tikv-server --pd-endpoints="127.0.0.1:2379" \
-    --addr="127.0.0.1:20161" \
-    --status-addr="127.0.0.1:20182" \
-    --data-dir=playground/tikv2 \
-    --log-file=playground/tikv2.log
-tikv-server --pd-endpoints="127.0.0.1:2379" \
-    --addr="127.0.0.1:20162" \
-    --status-addr="127.0.0.1:20183" \
-    --data-dir=playground/tikv3 \
-    --log-file=playground/tikv3.log
-
 # Start `fetchd`, the fetch service.
 #
 # `fetchd` is responsible for performing `fetch()` requests on behalf of apps. Since the
@@ -81,7 +55,7 @@ rusty-workers-fetchd --rpc-listen 127.0.0.1:3000
 # The runtime service handles execution of apps and consumes a lot of CPU and memory resources.
 # Each runtime process can execute multiple apps concurrently inside different V8 sandboxes.
 rusty-workers-runtime --rpc-listen 127.0.0.1:3001 \
-    --tikv-cluster 127.0.0.1:2379
+    --db-url mysql://root@localhost:4000/rusty_workers
 
 # Start `proxy`, the request scheduler with an HTTP frontend.
 #
@@ -90,7 +64,7 @@ rusty-workers-runtime --rpc-listen 127.0.0.1:3001 \
 rusty-workers-proxy \
     --fetch-service 127.0.0.1:3000 \
     --http-listen 0.0.0.0:3080 \
-    --tikv-cluster 127.0.0.1:2379 \
+    --db-url mysql://root@localhost:4000/rusty_workers \
     --runtimes 127.0.0.1:3001
 ```
 
@@ -99,8 +73,7 @@ rusty-workers-proxy \
 rusty-workers does not come with its own management UI yet but you can interact with the cluster using `rusty-workers-cli`:
 
 ```bash
-# Set TiKV PD address
-export TIKV_PD="127.0.0.1:2379"
+export DB_URL="mysql://root@localhost:4000/rusty_workers"
 
 # Create app configuration
 cat > counter.toml << EOF
@@ -125,16 +98,8 @@ async function handleRequest(request) {
 }
 EOF
 
-# Bundle the app
-mkdir tmp
-cd tmp
-cp ../counter.js ./index.js
-tar c . > ../counter.js.tar
-cd ..
-rm -r tmp
-
-# Deploy it
-rusty-workers-cli app add-app ./counter.toml --bundle ./counter.js.tar
+# Deploy the app
+rusty-workers-cli app add-single-file-app ./counter.toml --js ./counter.js
 
 # Add a route to the app
 rusty-workers-cli app add-route localhost --path /counter --appid 19640b0c-1dff-4b20-9599-0b4c4a11da3f
