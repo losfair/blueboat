@@ -208,7 +208,7 @@ export function _dispatchEvent(ev) {
                 headers: headers,
                 body: body,
             });
-            console.log(`[request] ${req.method} ${req.url} x-forwarded-for(${req.headers.get("x-forwarded-for")})`);
+            //console.log(`[request] ${req.method} ${req.url} x-forwarded-for(${req.headers.get("x-forwarded-for")})`);
             let targetEvent = new FetchEvent(req);
             try {
                 dispatchEvent(targetEvent);
