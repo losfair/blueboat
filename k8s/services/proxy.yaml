@@ -8,5 +8,5 @@ spec:
     app: proxy
   externalIPs: __EXTERNAL_IPS__
   ports:
-  - port: 8080
+  - port: __EXTERNAL_PORT__
     targetPort: 8080
