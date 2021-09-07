@@ -35,18 +35,18 @@ spec:
           value: rusty_workers_runtime=info,rusty_workers=info
         # The saturating threshold used in runtime load calculation.
         - name: RW_HIGH_MEMORY_THRESHOLD_BYTES
-          value: "838860800"
+          value: "__RW_HIGH_MEMORY_THRESHOLD_BYTES__"
         # Size of the isolate warm-up pool. Should be larger than `RW_MAX_NUM_OF_INSTANCES`.
         - name: RW_ISOLATE_POOL_SIZE
-          value: "70"
+          value: "__RW_ISOLATE_POOL_SIZE__"
         # Max number of instances in the system.
         - name: RW_MAX_NUM_OF_INSTANCES
-          value: "60"
+          value: "__RW_MAX_NUM_OF_INSTANCES__"
         # Max number of concurrent connections to each runtime process.
         # This should be lower than `RW_MAX_NUM_OF_INSTANCES` to avoid "storming"
         # the scheduler (newer instances keep replacing older ones).
         - name: RW_MAX_CONCURRENT_REQUESTS
-          value: "56"
+          value: "__RW_MAX_CONCURRENT_REQUESTS__"
         # Time after which unused instances will be deleted from the cache.
         - name: RW_MAX_INACTIVE_TIME_MS
           value: "600000" # 10 minutes
@@ -55,7 +55,7 @@ spec:
           value: "67108864"
         # Max concurrent workers doing CPU work.
         - name: RW_EXECUTION_CONCURRENCY
-          value: "5"
+          value: "__RW_EXECUTION_CONCURRENCY__"
         # Max time for a worker to wait for CPU availability.
         - name: RW_CPU_WAIT_TIMEOUT_MS
           value: "3000"
