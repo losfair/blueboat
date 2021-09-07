@@ -14,6 +14,22 @@ fi
 
 set +u
 
+if [ -z "$CPU_REQUEST_PER_RUNTIME" ]; then
+    CPU_REQUEST_PER_RUNTIME=0.1
+fi
+
+if [ -z "$MEM_REQUEST_PER_RUNTIME" ]; then
+    MEM_REQUEST_PER_RUNTIME=200Mi
+fi
+
+if [ -z "$CPU_LIMIT_PER_RUNTIME" ]; then
+    CPU_LIMIT_PER_RUNTIME=2
+fi
+
+if [ -z "$MEM_LIMIT_PER_RUNTIME" ]; then
+    MEM_LIMIT_PER_RUNTIME=1024Mi
+fi
+
 if [ -z "$RW_HIGH_MEMORY_THRESHOLD_BYTES" ]; then
     RW_HIGH_MEMORY_THRESHOLD_BYTES=536870912
 fi
@@ -49,6 +65,9 @@ find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__NUM_PROXIES__#$NUM_PROXIES
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__NUM_RUNTIMES__#$NUM_RUNTIMES#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__NUM_FETCHD__#$NUM_FETCHD#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__CPU_REQUEST_PER_RUNTIME__#$CPU_REQUEST_PER_RUNTIME#g" '{}' ';'
+find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__CPU_LIMIT_PER_RUNTIME__#$CPU_LIMIT_PER_RUNTIME#g" '{}' ';'
+find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__MEM_REQUEST_PER_RUNTIME__#$MEM_REQUEST_PER_RUNTIME#g" '{}' ';'
+find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__MEM_LIMIT_PER_RUNTIME__#$MEM_LIMIT_PER_RUNTIME#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__RW_HIGH_MEMORY_THRESHOLD_BYTES__#$RW_HIGH_MEMORY_THRESHOLD_BYTES#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__RW_ISOLATE_POOL_SIZE__#$RW_ISOLATE_POOL_SIZE#g" '{}' ';'
 find "./k8s.$SUFFIX" -name "*.yaml" -exec sed -i "s#__RW_MAX_NUM_OF_INSTANCES__#$RW_MAX_NUM_OF_INSTANCES#g" '{}' ';'

@@ -26,10 +26,10 @@ spec:
         resources:
           requests:
             cpu: __CPU_REQUEST_PER_RUNTIME__
-            memory: 1024Mi
+            memory: __MEM_REQUEST_PER_RUNTIME__
           limits:
-            # Enforce memory limit on runtime processes, in case v8 sandboxing failed to enforce it on isolate level.
-            memory: 1700Mi
+            cpu: __CPU_LIMIT_PER_RUNTIME__
+            memory: __MEM_LIMIT_PER_RUNTIME__
         env:
         - name: RUST_LOG
           value: rusty_workers_runtime=info,rusty_workers=info
