@@ -1,0 +1,27 @@
+{
+  "name": "jsland",
+  "version": "0.0.0",
+  "description": "",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "webpack",
+    "format": "prettier --write ./src/",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "AGPL-3.0",
+  "private": true,
+  "devDependencies": {
+    "json-schema-to-typescript": "^10.1.4",
+    "prettier": "^2.4.0",
+    "ts-loader": "^9.2.5",
+    "typescript": "^4.4.3",
+    "webpack": "^5.52.1",
+    "webpack-cli": "^4.8.0"
+  },
+  "dependencies": {
+    "ajv": "^8.6.3",
+    "octokit": "^1.5.0",
+    "whatwg-url": "^9.1.0"
+  }
+}

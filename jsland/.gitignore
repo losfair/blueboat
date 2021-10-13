@@ -1,0 +1,4 @@
+node_modules/
+/dist/
+/src/native_schema.ts
+/native_schema.json

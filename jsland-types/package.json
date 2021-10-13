@@ -1,0 +1,15 @@
+{
+  "name": "blueboat-types",
+  "version": "0.2.6",
+  "description": "Blueboat jsland types.",
+  "main": "src/index.d.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ajv": "^8.6.3",
+    "octokit": "^1.5.0"
+  }
+}

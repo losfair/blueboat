@@ -1,0 +1,20 @@
+[Unit]
+Description=The monolithic runtime for modern web backends.
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/blueboat_server -l "%i" \
+  --s3-bucket "$S3_BUCKET" --s3-region "$S3_REGION" \
+  --s3-endpoint "$S3_ENDPOINT" \
+  --db "$MYSQL_CONN_STRING" \
+  --mmdb-city "$MMDB_CITY" \
+  --wpbl-db "$WPBL_DB"
+DynamicUser=yes
+Environment=S3_ENDPOINT=-
+Environment=MYSQL_CONN_STRING=-
+Environment=MMDB_CITY=-
+Environment=WPBL_DB=-
+EnvironmentFile=/etc/blueboat/server.env
+
+[Install]
+WantedBy=multi-user.target
