@@ -1,3 +1,0 @@
-[submodule "deps/worker-fetch"]
-	path = deps/worker-fetch
-	url = https://github.com/losfair/worker-fetch
