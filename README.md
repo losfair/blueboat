@@ -2,4 +2,7 @@
 
 The monolithic runtime for modern web backends. Previously `rusty-workers`.
 
-Not yet ready to be used in production, though I've been running this on my personal servers for a few weeks :)
+Blueboat currently powers several services running on `.univalence.me` and `.invariant.cn`. Public ones include:
+
+- [https://id.invariant.cn](https://id.invariant.cn)
+- [https://lambda.app.invariant.cn](https://lambda.app.invariant.cn)

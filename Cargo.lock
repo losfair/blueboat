@@ -487,6 +487,7 @@ dependencies = [
 [[package]]
 name = "cexpr"
 version = "0.5.0"
+source = "git+https://github.com/jethrogb/rust-cexpr?rev=8ba98bb79df7333681fd91cac1f7662850af7453#8ba98bb79df7333681fd91cac1f7662850af7453"
 dependencies = [
  "nom 7.0.0",
 ]
@@ -2071,9 +2072,9 @@ dependencies = [
 
 [[package]]
 name = "minimal-lexical"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c835948974f68e0bd58636fc6c5b1fbff7b297e3046f11b3b3c18bbac012c6d"
+checksum = "9c64630dcdd71f1a64c435f54885086a0de5d6a12d104d69b165fb7d5286d677"
 
 [[package]]
 name = "miniz_oxide"
@@ -3864,9 +3865,9 @@ checksum = "533494a8f9b724d33625ab53c6c4800f7cc445895924a8ef649222dcb76e938b"
 
 [[package]]
 name = "skia-bindings"
-version = "0.42.0"
+version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82ff3765885c6f7c77047da54540953b0e4548e4bb93807cb297dfd1a1070431"
+checksum = "4769579fdc6e5f791955078fe0c0471fca08ff321f2b9730d58237137e97ffc4"
 dependencies = [
  "bindgen 0.59.1",
  "cc",
@@ -3882,9 +3883,9 @@ dependencies = [
 
 [[package]]
 name = "skia-safe"
-version = "0.42.0"
+version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51a3975bed8d0832bb6de1f170077898f77a6c40b7702ab8944ee3527f7ec847"
+checksum = "1e9564604e356bdcfb8b1c6bb9004210b40944cec5260a0fde5d158dc7e1edf7"
 dependencies = [
  "bitflags",
  "lazy_static 1.4.0",
