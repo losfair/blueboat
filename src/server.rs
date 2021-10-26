@@ -586,7 +586,7 @@ async fn raw_handle(req: Request<Body>, md_path: &str) -> Result<Response<Body>>
     Err(e) => {
       let mut res = hyper::Response::new(Body::from("invoke error".to_string()));
       *res.status_mut() = hyper::StatusCode::INTERNAL_SERVER_ERROR;
-      log::error!("app {}: {:?}", md_path, e);
+      log::error!("app {} request {:?}: {}", md_path, request_id, e);
       res
     }
   };
