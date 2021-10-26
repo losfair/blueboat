@@ -5,6 +5,8 @@ use rusty_v8 as v8;
 use std::convert::TryFrom;
 use thiserror::Error;
 
+use crate::ctx::BlueboatInitData;
+
 pub trait FunctionCallbackArgumentsExt<'s> {
   fn load_function_at(&self, i: i32) -> Result<v8::Local<'s, v8::Function>>;
 }
@@ -74,5 +76,14 @@ impl<'s> LocalValueExt<'s> for v8::Local<'s, v8::Value> {
   fn read_string<'t>(self, scope: &mut v8::HandleScope<'t>) -> Result<String> {
     let s = v8::Local::<v8::String>::try_from(self)?;
     Ok(s.to_rust_string_lossy(scope))
+  }
+}
+
+pub trait IsolateInitDataExt {
+  fn get_init_data(&self) -> &'static BlueboatInitData;
+}
+impl IsolateInitDataExt for v8::Isolate {
+  fn get_init_data(&self) -> &'static BlueboatInitData {
+    self.get_slot().copied().expect("missing init data slot")
   }
 }

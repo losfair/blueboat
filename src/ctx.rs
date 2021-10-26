@@ -7,13 +7,14 @@ use crate::{
   },
   app_mysql::AppMysql,
   bootstrap::{BlueboatBootstrapData, JSLAND_SNAPSHOT},
+  exec::Executor,
   lpch::LowPriorityMsg,
   metadata::{ApnsEndpointMetadata, Metadata},
   package::{Package, PackageKey},
   registry::SymbolRegistry,
-  v8util::ObjectExt,
+  v8util::{IsolateInitDataExt, ObjectExt},
 };
-use anyhow::Result;
+use anyhow::{bail, Result};
 use parking_lot::Mutex;
 use rusty_v8 as v8;
 use serde::{Deserialize, Serialize};
@@ -223,7 +224,7 @@ pub fn native_invoke_entry(
 ) {
   let res = native_invoke_entry_impl(scope, args, retval);
   if let Err(e) = res {
-    log::error!("native invoke error: {:?}", e);
+    log::error!("{}", e);
     let msg = v8::String::new(scope, &format!("{}", e)).unwrap();
     let exc = v8::Exception::error(scope, msg);
     scope.throw_exception(exc);
@@ -235,19 +236,39 @@ fn native_invoke_entry_impl<'s>(
   args: v8::FunctionCallbackArguments,
   retval: v8::ReturnValue,
 ) -> Result<()> {
-  #[derive(Error, Debug)]
-  #[error("unknown api: {0}")]
-  struct UnknownApi(String);
+  let package_key = &scope.get_init_data().key;
+  let request_id = Executor::try_current()
+    .and_then(|x| x.upgrade())
+    .map(|x| x.request_id.clone())
+    .unwrap_or_else(|| "unknown".to_string());
 
-  #[derive(Error, Debug)]
-  #[error("type mismatch")]
-  struct TypeMismatch;
-
-  let api_name = v8::Local::<v8::String>::try_from(args.get(0))?.to_rust_string_lossy(scope);
+  let api_name = v8::Local::<v8::String>::try_from(args.get(0))
+    .map_err(|e| {
+      anyhow::anyhow!(
+        "cannot get native api name, app {} request {:?}: {}",
+        package_key,
+        request_id,
+        e
+      )
+    })?
+    .to_rust_string_lossy(scope);
   log::debug!("native invoke: {}", api_name);
   if let Some(f) = API.get(&api_name) {
-    f(scope, args, retval)
+    if let Err(e) = f(scope, args, retval) {
+      bail!(
+        "native invoke error from app {} request {:?}: {}",
+        package_key,
+        request_id,
+        e
+      );
+    }
+    Ok(())
   } else {
-    Err(UnknownApi(api_name).into())
+    bail!(
+      "app {} request {:?} is invoking an unknown native api: {}",
+      package_key,
+      request_id,
+      api_name
+    );
   }
 }
