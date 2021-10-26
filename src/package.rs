@@ -5,18 +5,10 @@ use std::{
   cell::{Cell, RefCell},
   collections::HashMap,
   io::Read,
-  sync::Arc,
 };
 
 use itertools::Itertools;
 use rusty_v8 as v8;
-use swc::{
-  common::{errors::Handler, BytePos, FileName, SourceFile, SourceMap},
-  config::{Config, JscConfig, Options},
-  Compiler,
-};
-use swc_ecma_ast::EsVersion;
-use swc_ecma_parser::{Syntax, TsConfig};
 use tar::{Archive, EntryType};
 
 use crate::v8util::create_uint8array_from_bytes;
@@ -177,45 +169,15 @@ impl Package {
     abs_path: &str,
     script_id: i32,
   ) -> Option<v8::Local<'s, v8::Module>> {
-    let mut module_text = std::str::from_utf8(
+    let module_text = std::str::from_utf8(
       self
         .resolve_abs(&abs_path)
         .unwrap_or_else(|| panic!("unable to resolve module path: {}", abs_path)),
     )
-    .unwrap()
-    .to_string();
-
-    if abs_path.ends_with(".ts") {
-      // TS compile
-      let compiler = Compiler::new(Arc::new(SourceMap::default()));
-      let source = Arc::new(SourceFile::new(
-        FileName::Custom(abs_path.to_string()),
-        false,
-        FileName::Custom(abs_path.to_string()),
-        module_text,
-        BytePos(0),
-      ));
-      let handler = Handler::with_emitter_writer(Box::new(std::io::stderr()), None);
-      let opts = Options {
-        is_module: true,
-        source_file_name: Some(abs_path.to_string()),
-        config: Config {
-          jsc: JscConfig {
-            syntax: Some(Syntax::Typescript(TsConfig::default())),
-            target: Some(EsVersion::Es2021),
-            ..JscConfig::default()
-          },
-          ..Config::default()
-        },
-        ..Options::default()
-      };
-      let out = compiler.process_js_file(source, &handler, &opts).unwrap();
-      module_text = out.code;
-      log::debug!("transformed TS file {}", abs_path);
-    }
+    .unwrap();
 
     let undef = v8::undefined(scope);
-    let code = v8::String::new(scope, &module_text).unwrap();
+    let code = v8::String::new(scope, module_text).unwrap();
     let name = v8::String::new(scope, &abs_path).unwrap();
     let origin = v8::ScriptOrigin::new(
       scope,
@@ -235,15 +197,7 @@ impl Package {
   }
 
   fn normalize_path(&self, src: &str) -> String {
-    for suffix in &[
-      "",
-      ".ts",
-      ".mjs",
-      ".js",
-      "/index.ts",
-      "/index.mjs",
-      "/index.js",
-    ] {
+    for suffix in &["", ".mjs", ".js", "/index.mjs", "/index.js"] {
       let s = format!("{}{}", src, *suffix);
       if self.resolve_abs(&s).is_some() {
         return Self::split_path(&s).join("/");
