@@ -12,9 +12,6 @@ readme = "README.md"
 maintainer-scripts = "debian/maintainer-scripts/"
 assets = [
   ["target/release/blueboat_server", "usr/bin/", "755"],
-  ["../blueboat-fonts/*", "opt/blueboat/fonts/", "644"],
-  ["../blueboat-mmdb/*", "opt/blueboat/mmdb/", "644"],
-  ["../blueboat-wpbl/*", "opt/blueboat/wpbl/", "644"],
   ["debian/server.env", "etc/blueboat/server.env", "600"],
 ]
 conf-files = ["etc/blueboat/server.env"]
@@ -33,7 +30,7 @@ panic = "abort"
 panic = "abort"
 
 [dependencies]
-smr = { path = "../srtm" }
+smr = "0.1.0"
 rusty_v8 = "0.28.0"
 serde_v8 = "0.11.0"
 parking_lot = "0.11.2"

@@ -279,7 +279,8 @@ async fn async_main() {
         Some(x)
       }
       Err(e) => {
-        panic!("mmdb open failed: {:?}", e);
+        log::error!("mmdb open ({}) failed: {:?}", opt.mmdb_city, e);
+        None
       }
     }
   } else {
@@ -294,7 +295,8 @@ async fn async_main() {
         Some(x)
       }
       Err(e) => {
-        panic!("wpbl open failed: {:?}", e);
+        log::error!("wpbl open ({}) failed: {:?}", opt.wpbl_db, e);
+        None
       }
     }
   } else {
