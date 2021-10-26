@@ -12,6 +12,7 @@ use std::{
 
 use crate::{ctx::BlueboatCtx, ipc::BlueboatIpcRes};
 use anyhow::Result;
+use parking_lot::Mutex;
 use rusty_v8 as v8;
 use thiserror::Error;
 use tokio::{
@@ -192,9 +193,9 @@ impl Executor {
 
     let mut cancel = me.get_cancel();
 
-    // I'm not clear about the guarantees of Tokio `abort()` - so let's add our own guard, just to be sure.
-    let abort_guard = Arc::new(AtomicBool::new(false));
-    let abort_guard_2 = abort_guard.clone();
+    // A fence that prevents aborting the isolate after `enter()` returns.
+    let abort_fence = Arc::new(Mutex::new(false));
+    let abort_fence_2 = abort_fence.clone();
     let terminate_report = Arc::new(AtomicBool::new(false));
     let terminate_report_2 = terminate_report.clone();
 
@@ -205,7 +206,8 @@ impl Executor {
       // expensive operation.
       tokio::time::sleep(Duration::from_millis(100)).await;
 
-      if !abort_guard.load(Ordering::Relaxed) {
+      let abort_fence = abort_fence.lock();
+      if !*abort_fence {
         handle.terminate_execution();
         terminate_report.store(true, Ordering::Relaxed);
       }
@@ -218,9 +220,12 @@ impl Executor {
     me.busy_duration
       .set(me.busy_duration.get() + start.elapsed());
 
-    // Abort the task, and double-confirm.
+    // Abort the watcher task.
+    // XXX: Is this synchronous or asynchronous?
     computation_watcher.abort();
-    abort_guard_2.store(true, Ordering::Relaxed);
+
+    // Ensure that the watcher task will no longer abort the isolate.
+    *abort_fence_2.lock() = true;
 
     // If this is an abnormal termination, don't reuse the context. And the exception is useless.
     if terminate_report_2.load(Ordering::Relaxed) {

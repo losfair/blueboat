@@ -96,6 +96,10 @@ Router.get("/yaml/stringify", req => {
   return new Response(res);
 })
 
+Router.get("/never", req => {
+  while(true);
+});
+
 Router.use("/", async (req, next) => {
   const res = await next(req);
   res.headers.set("x-root-middleware", "1");
