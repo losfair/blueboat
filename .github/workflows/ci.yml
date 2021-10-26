@@ -35,6 +35,8 @@ jobs:
         uses: pnpm/action-setup@v2.0.1
         with:
           version: 6.18.0
+      - name: Install jsland deps
+        run: cd jsland && pnpm i
       - name: Build
         run: |
           BLUEBOAT_DEB=1 ./build.sh
