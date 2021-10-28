@@ -19,6 +19,9 @@ class BgEntry extends Background.BackgroundEntryBase {
 const bgEntry = new BgEntry();
 
 Router.get("/", req => new Response(sayHelloWorld()));
+Router.get("/exception", req => {
+  throw new Error("test exception");
+});
 Router.get("/embedded", req => new Response(Package["embedded.txt"]));
 Router.get("/embedded2", req => new Response(Package["embedded.txt"]));
 Router.get("/sleep", req => new Promise(resolve => setTimeout(() => resolve(new Response("done")), 1000)));
