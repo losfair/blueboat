@@ -110,24 +110,45 @@ async function realAppEntry(req: BlueboatRequest, body: ArrayBuffer) {
       res = {
         status: 500,
         headers: {
-          "Content-Type": ["text/html"]
+          "Content-Type": ["text/html"],
         },
       };
 
-      const traceUrl = new URL("https://analytics.app.invariant.cn/api/request");
-      traceUrl.searchParams.set("id", stdReq.headers.get("x-blueboat-request-id") || "");
-      resBody = new TextEncoder().encode(`
+      const reqId = stdReq.headers.get("x-blueboat-request-id") || "";
+      const traceUrl = new URL(
+        "https://analytics.app.invariant.cn/api/request"
+      );
+      traceUrl.searchParams.set("id", reqId);
+      resBody = new TextEncoder().encode(
+        Template.render(
+          `
 <!DOCTYPE html>
 <html>
-<head>
-<title>Blueboat: Exception</title>
-</head>
-<body>
-<p>Blueboat caught an exception from the application while handling your request.</p>
-<p><a href="${traceUrl.toString()}">Trace</a></p>
-</body>
-</html>
-`.trim());
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="https://cdn.staticfile.org/tailwindcss/2.2.17/tailwind.min.css" integrity="sha512-yXagpXH0ulYCN8G/Wl7GK+XIpdnkh5fGHM5rOzG8Kb9Is5Ua8nZWRx5/RaKypcbSHc56mQe0GBG0HQIGTmd8bw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <title>Blueboat: Application exception</title>
+  </head>
+  <body>
+    <div class="bg-gray-50">
+      <div class="flex flex-col h-screen space-y-3 py-20 px-8 md:px-16 lg:px-28 text-gray-600">
+        <p>Blueboat caught an exception from the application while handling your request.</p>
+        <p>Please check the <a href="{{traceUrl}}" class="text-blue-600">request trace</a>.</p>
+        <div class="flex flex-col pt-10 space-y-1 text-gray-400 text-sm">
+          <div>Request ID: {{reqId}}</div>
+          <div><a href="https://univalence.me" class="hover:text-gray-500">Univalence Labs</a></div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>`.trim(),
+          {
+            reqId,
+            traceUrl: traceUrl.toString(),
+          }
+        )
+      );
     }
   } else {
     res = {

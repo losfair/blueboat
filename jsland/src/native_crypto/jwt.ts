@@ -48,6 +48,8 @@ export function decode(
   token: string,
   key: KeyInfo,
   validation: Validation
-): { header: Header, claims: unknown } {
-  return <any>__blueboat_host_invoke("crypto_jwt_decode", token, key, validation);
+): { header: Header; claims: unknown } {
+  return <any>(
+    __blueboat_host_invoke("crypto_jwt_decode", token, key, validation)
+  );
 }
