@@ -84,8 +84,8 @@ async function realAppEntry(req: BlueboatRequest, body: ArrayBuffer) {
   let resBody: Uint8Array;
   if (routeInfo && methodMap[req.method](routeInfo[0])) {
     const [route, mw] = routeInfo;
-    let handleFunc = methodMap[req.method](route)!;
     try {
+      let handleFunc = methodMap[req.method](route)!;
       for (const x of mw) {
         for (const y of x) {
           const currentMw = y;
@@ -109,9 +109,25 @@ async function realAppEntry(req: BlueboatRequest, body: ArrayBuffer) {
       console.log(`error handling path ${url.pathname} (${e}): ${e.stack}`);
       res = {
         status: 500,
-        headers: {},
+        headers: {
+          "Content-Type": ["text/html"]
+        },
       };
-      resBody = new TextEncoder().encode("internal error");
+
+      const traceUrl = new URL("https://analytics.app.invariant.cn/api/request");
+      traceUrl.searchParams.set("id", stdReq.headers.get("x-blueboat-request-id") || "");
+      resBody = new TextEncoder().encode(`
+<!DOCTYPE html>
+<html>
+<head>
+<title>Blueboat: Exception</title>
+</head>
+<body>
+<p>Blueboat caught an exception from the application while handling your request.</p>
+<p><a href="${traceUrl.toString()}">Trace</a></p>
+</body>
+</html>
+`.trim());
     }
   } else {
     res = {

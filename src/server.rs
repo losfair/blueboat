@@ -563,7 +563,7 @@ async fn generic_invoke(
   Ok(res)
 }
 
-async fn raw_handle(req: Request<Body>, md_path: &str) -> Result<Response<Body>> {
+async fn raw_handle(mut req: Request<Body>, md_path: &str) -> Result<Response<Body>> {
   #[derive(Error, Debug)]
   #[error("metadata error")]
   struct MetadataError;
@@ -575,6 +575,9 @@ async fn raw_handle(req: Request<Body>, md_path: &str) -> Result<Response<Body>>
     .and_then(|x| x.to_str().ok())
     .map(|x| x.to_string())
     .unwrap_or_else(|| format!("u:{}", Uuid::new_v4().to_string()));
+  req
+    .headers_mut()
+    .insert(HDR_REQ_REQUEST_ID, HeaderValue::from_str(&request_id)?);
   let request = BlueboatRequest::from_hyper(req).await?;
   let request = BlueboatIpcReq {
     v: BlueboatIpcReqV::Http(request),
