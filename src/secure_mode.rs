@@ -33,7 +33,7 @@ fn init_seccomp() {
 
   // Special case for `openat`: read-only.
   {
-    let mask = !((libc::O_RDONLY | libc::O_CLOEXEC) as u32);
+    let mask = !((libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NONBLOCK | libc::O_DIRECTORY) as u32);
     ctx
       .set_rule_for_syscall(
         Action::Allow,
