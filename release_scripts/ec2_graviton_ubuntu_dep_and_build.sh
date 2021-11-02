@@ -8,7 +8,7 @@ sudo apt update
 sudo apt install -y \
   git libseccomp-dev build-essential libsqlite3-dev \
   pkg-config libssl-dev libclang-dev clang libz3-dev \
-  python2 python ninja-build libfontconfig1-dev
+  python2 python ninja-build libfontconfig1-dev curl
 
 git clone https://github.com/losfair/blueboat
 curl https://sh.rustup.rs -sSf | sh -s -- -y
