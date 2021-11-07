@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# https://stackoverflow.com/a/1115074
+readlink () {
+  python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "${1}"
+}
+
 set -euxo pipefail
 cd "$(dirname $0)"
 
@@ -16,8 +21,8 @@ docker run --rm --platform linux/arm64 \
   -e https_proxy \
   -e HTTP_PROXY \
   -e HTTPS_PROXY \
-  -v "$(readlink -f ../..)":/hostsrc:ro \
-  -v "$(readlink -f ../artifact)":/artifact \
+  -v "$(readlink ../..)":/hostsrc:ro \
+  -v "$(readlink ../artifact)":/artifact \
   losfair/blueboat-arm64cross-buildbox
 
 cp ../../docker/run.sh ./releasebox/
