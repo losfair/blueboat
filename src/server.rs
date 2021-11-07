@@ -34,9 +34,8 @@ use mysql_async::Pool;
 use parking_lot::Mutex;
 use rusoto_core::Region;
 use rusoto_s3::{GetObjectRequest, S3Client, S3};
-use serde::{Deserialize, Serialize};
 use smr::config::{APP_INACTIVE_TIMEOUT_MS, SPRING_CLEANING_INTERVAL_MS};
-use smr::ipc_channel::ipc::{IpcReceiver, IpcSender};
+use smr::ipc_channel::ipc::IpcSender;
 use smr::{ipc_channel::ipc::IpcSharedMemory, scheduler::Scheduler};
 
 use anyhow::Result;
@@ -356,7 +355,6 @@ async fn async_main() {
     lp_ctx.mysql = Some(pool);
   }
 
-  let lp_rx = create_lp_relay(lp_rx, 200);
   spawn_lp_handler(Arc::new(lp_ctx), lp_rx);
 
   let make_svc = make_service_fn(|_| async move { Ok::<_, hyper::Error>(service_fn(handle)) });
@@ -675,40 +673,14 @@ async fn fetch_package(md: &Metadata) -> Result<Arc<IpcSharedMemory>> {
   Ok(Arc::new(IpcSharedMemory::from_bytes(&body)))
 }
 
-fn create_lp_relay<T: Serialize + for<'de> Deserialize<'de> + Send + 'static>(
-  ipc_rx: IpcReceiver<T>,
-  cap: usize,
-) -> flume::Receiver<T> {
-  let (tx, rx) = flume::bounded(cap);
+fn spawn_lp_handler(ctx: Arc<LpContext>, rx: smr::ipc_channel::ipc::IpcReceiver<LowPriorityMsg>) {
   std::thread::spawn(move || loop {
-    let x = match ipc_rx.recv() {
+    let msg = match rx.recv() {
       Ok(x) => x,
       Err(_) => break,
     };
-    match tx.try_send(x) {
-      Ok(_) => {}
-      Err(_) => {
-        LP_DISPATCH_FAIL_COUNT.fetch_add(1, Ordering::Relaxed);
-      }
-    }
+    issue_lp(&ctx, msg);
   });
-  rx
-}
-
-fn spawn_lp_handler(ctx: Arc<LpContext>, rx: flume::Receiver<LowPriorityMsg>) {
-  for _ in 0..4 {
-    let rx = rx.clone();
-    let ctx = ctx.clone();
-    tokio::spawn(async move {
-      loop {
-        let msg = match rx.recv_async().await {
-          Ok(x) => x,
-          Err(_) => break,
-        };
-        issue_lp(&ctx, msg);
-      }
-    });
-  }
 }
 
 fn issue_lp(ctx: &Arc<LpContext>, msg: LowPriorityMsg) {
