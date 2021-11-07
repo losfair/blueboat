@@ -16,5 +16,6 @@ AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin \
   -l 127.0.0.1:2290 \
   --s3-bucket test --s3-region us-east-1 --s3-endpoint http://127.0.0.1:9000 \
   --db "$MYSQL_CONN_STRING" \
+  --log-kafka "$KAFKA_CONN_STRING" \
   --mmdb-city ~/Projects/blueboat-mmdb/GeoLite2-City.mmdb \
   --wpbl-db ~/Projects/blueboat-wpbl/wpbl.db

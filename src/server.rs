@@ -14,6 +14,7 @@ use crate::headers::{
 use crate::ipc::{BlueboatIpcReqV, BlueboatIpcRes};
 use crate::lpch::{LogEntry, LowPriorityMsg};
 use crate::pm::pm_handle;
+use crate::util::KafkaProducerService;
 use crate::wpbl::WpblDb;
 use crate::{
   ctx::BlueboatInitData,
@@ -29,9 +30,8 @@ use hyper::{
 };
 use maxminddb::geoip2::City;
 use memmap2::Mmap;
-use mysql_async::prelude::Queryable;
-use mysql_async::Pool;
 use parking_lot::Mutex;
+use rdkafka::producer::FutureRecord;
 use rusoto_core::Region;
 use rusoto_s3::{GetObjectRequest, S3Client, S3};
 use smr::config::{APP_INACTIVE_TIMEOUT_MS, SPRING_CLEANING_INTERVAL_MS};
@@ -75,6 +75,9 @@ struct Opt {
   db: String,
 
   #[structopt(long, default_value = "-")]
+  log_kafka: String,
+
+  #[structopt(long, default_value = "-")]
   mmdb_city: String,
 
   #[structopt(long, default_value = "-")]
@@ -87,7 +90,7 @@ struct CacheEntry {
 }
 
 struct LpContext {
-  mysql: Option<Pool>,
+  log_kafka: Option<KafkaProducerService>,
   log_permit: Arc<Semaphore>,
   bg_permit: Arc<Semaphore>,
 }
@@ -343,16 +346,16 @@ async fn async_main() {
   });
 
   let mut lp_ctx = LpContext {
-    mysql: None,
-    log_permit: Arc::new(Semaphore::new(100)),
-    bg_permit: Arc::new(Semaphore::new(100)),
+    log_kafka: None,
+    log_permit: Arc::new(Semaphore::new(5000)),
+    bg_permit: Arc::new(Semaphore::new(500)),
   };
 
   // Write logs
-  if opt.db != "-" {
-    log::info!("Logging enabled. Logs will be written to the provided database.");
-    let pool = Pool::new(opt.db.as_str());
-    lp_ctx.mysql = Some(pool);
+  if opt.log_kafka != "-" {
+    log::info!("Logging enabled. Logs will be written to the provided kafka cluster.");
+    let producer = KafkaProducerService::open(&opt.log_kafka).unwrap();
+    lp_ctx.log_kafka = Some(producer);
   }
 
   spawn_lp_handler(Arc::new(lp_ctx), lp_rx);
@@ -674,11 +677,13 @@ async fn fetch_package(md: &Metadata) -> Result<Arc<IpcSharedMemory>> {
 }
 
 fn spawn_lp_handler(ctx: Arc<LpContext>, rx: smr::ipc_channel::ipc::IpcReceiver<LowPriorityMsg>) {
+  let handle = tokio::runtime::Handle::current();
   std::thread::spawn(move || loop {
     let msg = match rx.recv() {
       Ok(x) => x,
       Err(_) => break,
     };
+    let _guard = handle.enter();
     issue_lp(&ctx, msg);
   });
 }
@@ -705,8 +710,8 @@ fn issue_lp(ctx: &Arc<LpContext>, msg: LowPriorityMsg) {
 async fn handle_lp(ctx: &Arc<LpContext>, msg: LowPriorityMsg) {
   match msg {
     LowPriorityMsg::Log(entry) => {
-      if let Some(pool) = &ctx.mysql {
-        if let Err(e) = write_log(&pool, entry).await {
+      if let Some(producer) = &ctx.log_kafka {
+        if let Err(e) = write_log(producer, entry).await {
           log::debug!("write_log failed: {:?}", e);
         }
       }
@@ -740,21 +745,23 @@ async fn handle_lp(ctx: &Arc<LpContext>, msg: LowPriorityMsg) {
   }
 }
 
-async fn write_log(pool: &Pool, entry: LogEntry) -> Result<()> {
-  let mut conn = pool.get_conn().await?;
-  conn
-    .exec_drop(
-      "insert into applog (apppath, appversion, reqid, msg, logseq, logtime) values(?, ?, ?, ?, ?, ?)",
-      (
-        &entry.app.path,
-        &entry.app.version,
-        &entry.request_id,
-        &entry.message,
-        entry.logseq,
-        &entry.time,
-      ),
+async fn write_log(producer: &KafkaProducerService, entry: LogEntry) -> Result<()> {
+  let entry = serde_json::to_string(&entry)?;
+  producer
+    .producer
+    .send(
+      FutureRecord {
+        topic: &producer.topic,
+        partition: Some(producer.partition),
+        payload: Some(entry.as_str()),
+        key: None::<&[u8]>,
+        timestamp: None,
+        headers: None,
+      },
+      rdkafka::util::Timeout::Never,
     )
-    .await?;
+    .await
+    .map_err(|(e, _)| e)?;
   Ok(())
 }
 

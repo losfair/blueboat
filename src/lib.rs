@@ -16,6 +16,7 @@ mod pm;
 mod registry;
 mod secure_mode;
 mod server;
+mod util;
 mod v8util;
 mod wpbl;
 
