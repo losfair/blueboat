@@ -8,6 +8,7 @@ readlink () {
 set -euxo pipefail
 cd "$(dirname $0)"
 
+mkdir ./artifact || true
 find ./artifact -mindepth 1 -delete
 
 docker build --build-arg HTTP_PROXY \
@@ -22,11 +23,11 @@ docker run --rm --platform linux/arm64 \
   -e HTTP_PROXY \
   -e HTTPS_PROXY \
   -v "$(readlink ../..)":/hostsrc:ro \
-  -v "$(readlink ../artifact)":/artifact \
+  -v "$(readlink ./artifact)":/artifact \
   losfair/blueboat-arm64cross-buildbox
 
 cp ../../docker/run.sh ./releasebox/
+cp ./artifact/target/debian/*.deb ./releasebox/blueboat.deb
 
-docker build --platform linux/arm64 -t losfair/blueboat \
-  -v "$(ls ./artifact/target/debian/*.deb):/blueboat.deb:ro" \
+docker build --platform linux/arm64 -t losfair/blueboat --squash \
   ./releasebox
