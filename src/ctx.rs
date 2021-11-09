@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::HashMap, time::Duration};
 
 use crate::{
   api::{
-    util::{v8_serialize, write_applog},
+    util::{mk_v8_string, v8_serialize, write_applog},
     API,
   },
   app_mysql::AppMysql,
@@ -180,6 +180,17 @@ impl BlueboatCtx {
       // Load package contents.
       let pack = package.pack(scope);
       ctx.global(scope).set_ext(scope, "Package", pack);
+      let version_string = mk_v8_string(scope, env!("CARGO_PKG_VERSION"))?;
+      ctx
+        .global(scope)
+        .set_ext(scope, "__blueboat_version", version_string.into());
+
+      if let Ok(analytics_domain) = std::env::var("SMRAPP_BLUEBOAT_ANALYTICS_URL") {
+        let s = mk_v8_string(scope, &analytics_domain)?;
+        ctx
+          .global(scope)
+          .set_ext(scope, "__blueboat_env_analytics_url", s.into());
+      }
 
       // Bootstrap.
       let bootstrap_data = BlueboatBootstrapData {

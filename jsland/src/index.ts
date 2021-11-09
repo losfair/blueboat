@@ -115,10 +115,15 @@ async function realAppEntry(req: BlueboatRequest, body: ArrayBuffer) {
       };
 
       const reqId = stdReq.headers.get("x-blueboat-request-id") || "";
-      const traceUrl = new URL(
-        "https://analytics.app.invariant.cn/api/request"
-      );
-      traceUrl.searchParams.set("id", reqId);
+      const reqTime = Date.now();
+
+      let traceUrl: URL | null = null;
+      const analyticsUrl: string | undefined = (<any>globalThis).__blueboat_env_analytics_url;
+      if(typeof analyticsUrl === "string") {
+        traceUrl = new URL(analyticsUrl);
+        traceUrl.searchParams.set("id", reqId);
+        traceUrl.searchParams.set("t", "" + reqTime);
+      }
       resBody = new TextEncoder().encode(
         Template.render(
           `
@@ -133,11 +138,13 @@ async function realAppEntry(req: BlueboatRequest, body: ArrayBuffer) {
   <body>
     <div class="bg-gray-50">
       <div class="flex flex-col h-screen space-y-3 py-20 px-8 md:px-16 lg:px-28 text-gray-600">
-        <p>Blueboat caught an exception from the application while handling your request.</p>
+        <p>The application thrown an exception while handling your request.</p>
+        {% if traceUrl %}
         <p>Please check the <a href="{{traceUrl}}" class="text-blue-600">request trace</a>.</p>
-        <div class="flex flex-col pt-10 space-y-1 text-gray-400 text-sm">
-          <div>Request ID: {{reqId}}</div>
-          <div><a href="https://univalence.me" class="hover:text-gray-500">Univalence Labs</a></div>
+        {% endif %}
+        <div class="flex flex-col pt-10 space-y-3 text-gray-400 text-sm">
+          <div>Request ID: {{reqTime}}/{{reqId}}</div>
+          <div><a href="https://github.com/losfair/blueboat" class="hover:text-gray-500">Blueboat v{{version}}</a></div>
         </div>
       </div>
     </div>
@@ -145,7 +152,9 @@ async function realAppEntry(req: BlueboatRequest, body: ArrayBuffer) {
 </html>`.trim(),
           {
             reqId,
-            traceUrl: traceUrl.toString(),
+            traceUrl: traceUrl?.toString(),
+            reqTime,
+            version: "" + (<any>globalThis).__blueboat_version,
           }
         )
       );
