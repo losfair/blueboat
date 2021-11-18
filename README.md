@@ -4,7 +4,7 @@
 
 Blueboat is an open-source alternative to Cloudflare Workers.
 
-Blueboat aims to be a developer-friendly platform for developing serverless web applications. A *monolithic* approach is followed: we try to implement features of commonly used libraries (in the web application context) natively in Rust, instead of requiring the user to pull in their own dependencies. Blueboat's [architecture](#architecture) ensures the security of the platform, prevents code duplication and keeps the overhead low.
+Blueboat aims to be a developer-friendly, multi-tenant platform for serverless web applications. A *monolithic* approach is followed: we try to implement features of commonly used libraries (in the web application context) natively in Rust to replace native Node addons, improve performance and reduce duplicated code. Blueboat's [architecture](#architecture) ensures the security of the platform, prevents code duplication and keeps the overhead low.
 
 *If you think a JavaScript library should be natively re-implemented in Blueboat, feel free to open an issue or a pull request!*
 
