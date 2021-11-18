@@ -6,24 +6,47 @@ Blueboat is an open-source alternative to Cloudflare Workers.
 
 **Warning: The hosted service is in Alpha stage and should only be used for testing purpose. There is absolutely no guarantee on uptime or data security for now.**
 
-1. Install `bbcli`:
+1. Install `bbcli`
+
+For Linux:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/losfair/bbcli/main/install.sh | sh
+curl -sSL -o /tmp/bbcli.tar.gz https://github.com/losfair/bbcli/releases/download/v0.1.0-alpha.1/bbcli_linux.tar.gz
+tar -xzvf /tmp/bbcli.tar.gz -C ~
+chmod +x ~/bbcli && rm /tmp/bbcli.tar.gz
 ```
 
-2. Clone the example project:
+For macOS:
+
+```bash
+curl -sSL -o /tmp/bbcli.tar.gz https://github.com/losfair/bbcli/releases/download/v0.1.0-alpha.1/bbcli_macos.tar.gz
+tar -xzvf /tmp/bbcli.tar.gz -C ~
+chmod +x ~/bbcli && rm /tmp/bbcli.tar.gz
+```
+
+2. Clone the example project
 
 ```bash
 git clone https://github.com/losfair/blueboat-examples
 ```
 
-3. Deploy the project:
+3. Deploy the project
 
 ```bash
 cd blueboat-examples/hello-world
-bbcli deploy --vars ./hosted.vars.yaml
+npm i
+~/bbcli deploy --vars ./hosted.vars.yaml
 ```
+
+On the first `bbcli deploy` it should print out a link for logging in using your GitHub account.
+
+Note the last line of the output. It should look like:
+
+```
+Key: managed/gh_XXXXXXX/com.example.blueboat.hello-world/metadata.json
+```
+
+The project is now available at `XXXXXXX-com-example-blueboat-hello--world.alpha.workers.rs`.
 
 ## Features
 
