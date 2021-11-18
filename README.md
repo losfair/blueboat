@@ -46,7 +46,7 @@ Note the last line of the output. It should look like:
 Key: managed/gh_XXXXXXX/com.example.blueboat.hello-world/metadata.json
 ```
 
-The project is now available at `XXXXXXX-com-example-blueboat-hello--world.alpha.workers.rs`.
+The project is now available at `XXXXXXX-com--example--blueboat--hello-world.alpha.workers.rs`.
 
 ## Features
 
