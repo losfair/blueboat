@@ -1,6 +1,29 @@
-# blueboat
+# Blueboat
+
+![CI](https://github.com/losfair/blueboat/actions/workflows/ci.yml/badge.svg)
 
 Blueboat is an open-source alternative to Cloudflare Workers.
+
+Blueboat aims to be a developer-friendly platform for developing serverless web applications. A *monolithic* approach is followed: we try to implement features of commonly used libraries (in the web application context) natively in Rust, instead of requiring the user to pull in their own dependencies. Blueboat's [architecture](#architecture) ensures the security of the platform, prevents code duplication and keeps the overhead low.
+
+*If you think a JavaScript library should be natively re-implemented in Blueboat, feel free to open an issue or a pull request!*
+
+A simple Blueboat application looks like:
+
+```ts
+Router.get("/", req => new Response("hello world"));
+
+Router.get("/example", req => {
+  return fetch("https://example.com");
+});
+
+Router.get("/yaml", req => {
+  const res = TextUtil.Yaml.stringify({
+    hello: "world",
+  });
+  return new Response(res);
+});
+```
 
 ## Quick start using the hosted service
 
@@ -49,27 +72,6 @@ Key: managed/gh_XXXXXXX/com.example.blueboat.hello-world/metadata.json
 The project is now available at `XXXXXXX-com--example--blueboat--hello-world.alpha.workers.rs`.
 
 ## Features
-
-Blueboat aims to be a developer-friendly platform for developing web applications. A *monolithic* approach is followed: we try to implement features of commonly used libraries (in the web application context) natively in Rust, instead of requiring the user to pull in their own dependencies. Blueboat's [architecture](#architecture) ensures the security of the platform, prevents code duplication and keeps the overhead low.
-
-*If you think a JavaScript library should be natively re-implemented in Blueboat, feel free to open an issue or a pull request!*
-
-A simple Blueboat application looks like:
-
-```ts
-Router.get("/", req => new Response("hello world"));
-
-Router.get("/example", req => {
-  return fetch("https://example.com");
-});
-
-Router.get("/yaml", req => {
-  const res = TextUtil.Yaml.stringify({
-    hello: "world",
-  });
-  return new Response(res);
-});
-```
 
 Supported and planned features:
 
@@ -193,10 +195,49 @@ hello.blueboat.example.com {
 
 [bbcp](https://github.com/losfair/bbcp) is the service that manages application deployment on Blueboat, and is itself a Blueboat application. We need to manually bootstrap it:
 
+1. Install [s3cmd](https://github.com/s3tools/s3cmd) and [zx](https://github.com/google/zx).
+
+2. Set up configuration:
+
 ```bash
 git clone https://github.com/losfair/bbcp
 mkdir bbcp-config
 cd bbcp-config
+cat > env.json << EOF
+{
+  "s3AccessKeyId": "your_s3_access_key_id",
+  "s3SecretAccessKey": "your_s3_secret_access_key",
+  "s3Region": "us-east-1",
+  "s3Bucket": "your-bucket.example.com",
+  "s3Prefix": "managed/",
+  "ghClientId": "your-github-client-id",
+  "ghClientSecret": "your-github-client-secret"
+}
+EOF
+cat > mysql.json << EOF
+{
+  "db": {
+    "url": "mysql://user:password@mysql-server/database"
+  }
+}
+EOF
+cat > s3.config << EOF
+access_key = your_s3_access_key_id
+secret_key = your_s3_secret_access_key
+use_https = True
+check_ssl_certificate = True
+EOF
+cat > run_deploy.sh << EOF
+#!/bin/bash
+
+set -euo pipefail
+cd "$(dirname $0)"
+cd ../bbcp/
+
+CONFIG_PATH=../bbcp-config S3_BUCKET=your-bucket.example.com ./deploy.sh
+EOF
+chmod +x run_deploy.sh
+./run_deploy.sh
 ```
 
 Next, follow the [set up a reverse proxy](#set-up-a-reverse-proxy) section to set up a public endpoint for your bbcp application. And done! You can now use `bbcli` to deploy to your Blueboat instance.
