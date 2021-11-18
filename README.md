@@ -27,6 +27,27 @@ bbcli deploy --vars ./hosted.vars.yaml
 
 ## Features
 
+Blueboat aims to be a developer-friendly platform for developing web applications. A *monolithic* approach is followed: we try to implement features of commonly used libraries (in the web application context) natively in Rust, instead of requiring the user to pull in their own dependencies. Blueboat's [architecture](#architecture) ensures the security of the platform, prevents code duplication and keeps the overhead low.
+
+*If you think a JavaScript library should be natively re-implemented in Blueboat, feel free to open an issue or a pull request!*
+
+A simple Blueboat application looks like:
+
+```ts
+Router.get("/", req => new Response("hello world"));
+
+Router.get("/example", req => {
+  return fetch("https://example.com");
+});
+
+Router.get("/yaml", req => {
+  const res = TextUtil.Yaml.stringify({
+    hello: "world",
+  });
+  return new Response(res);
+});
+```
+
 Supported and planned features:
 
 - Standard JavaScript features supported by V8
@@ -39,6 +60,10 @@ Supported and planned features:
   - [x] `URL`, `URLSearchParams`
   - [x] `crypto.getRandomValues`
   - [ ] `crypto.subtle`
+  - [ ] `console`
+    - [x] `console.log()`
+    - [x] `console.warn()`
+    - [x] `console.error()`
 - Request router
   - [x] The `Router` object
 - Cryptography extensions
@@ -74,7 +99,7 @@ The entire API definition is published as the [blueboat-types](https://www.npmjs
 ### Prerequisites
 
 - [Docker](https://www.docker.com/)
-- An S3-compatible bucket for storing app configuration and code
+- An S3-compatible bucket for storing application configuration and code
 - A MySQL service for storing [bbcp](https://github.com/losfair/bbcp) metadata
 - (Optional) A Kafka service for streaming logs
 
@@ -151,7 +176,7 @@ mkdir bbcp-config
 cd bbcp-config
 ```
 
-Next, follow the "Set up a reverse proxy" section to set up a public endpoint for your bbcp application. And done! You can now use `bbcli` to deploy to your Blueboat instance.
+Next, follow the [set up a reverse proxy](#set-up-a-reverse-proxy) section to set up a public endpoint for your bbcp application. And done! You can now use `bbcli` to deploy to your Blueboat instance.
 
 ## Architecture
 
@@ -169,7 +194,9 @@ Cloudflare has their team that operates the Workers platform, while most users w
 
 For all these reasons I decided to reconsider the execution model. Blueboat after the rewrite uses a tightly-coupled multi-process architecture based on [smr](https://github.com/losfair/smr) where each application runs in its own set of forked processes and isolated with [seccomp](https://man7.org/linux/man-pages/man2/seccomp.2.html). The cold-start overhead is higher than isolates in a shared process (in the tens of milliseconds range), but still far lower than a full container running node.
 
-## Web apps using Blueboat
+The APIs as described in [features](#features) are mostly implemented in Blueboat's native code which is shared between forked processes, so there isn't N copies for N application instances - there is only one copy of the native code. This allows Blueboat to follow a monolithic approach without incurring significant overhead, where a lot of features are directly bundled into the engine instead of requiring the user to pull in their own dependencies.
+
+## Web apps built on Blueboat
 
 Blueboat currently powers several services running on `.univalent.net`, `.invariant.cn` and `.palette.cat`. Public ones include:
 
