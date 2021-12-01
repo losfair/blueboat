@@ -351,7 +351,7 @@ dependencies = [
  "rusoto_core",
  "rusoto_s3",
  "rusqlite",
- "rusty_v8",
+ "rusty_v8 0.32.1",
  "schemars",
  "serde",
  "serde_json",
@@ -3213,6 +3213,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rusty_v8"
+version = "0.32.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3da4a230eacc444facafaf8adec5365263ca9c18744b5ccd3aefb9dcbdebd92d"
+dependencies = [
+ "bitflags",
+ "fslock",
+ "lazy_static 1.4.0",
+ "libc",
+ "which 4.2.2",
+]
+
+[[package]]
 name = "rustybuzz"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3422,7 +3435,7 @@ version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77240c6cc91c6ffcce6900d8b4ce5d0966a0d2f8614dd43d1948b52ebd915071"
 dependencies = [
- "rusty_v8",
+ "rusty_v8 0.28.0",
  "serde",
 ]
 
