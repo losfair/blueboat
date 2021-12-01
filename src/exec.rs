@@ -13,12 +13,12 @@ use std::{
 use crate::{ctx::BlueboatCtx, ipc::BlueboatIpcRes};
 use anyhow::Result;
 use parking_lot::Mutex;
-use rusty_v8 as v8;
 use thiserror::Error;
 use tokio::{
   sync::{watch, Mutex as AsyncMutex, OwnedMutexGuard, OwnedRwLockWriteGuard, RwLock},
   task::spawn_local,
 };
+use v8;
 
 pub struct Executor {
   pub ctx: &'static BlueboatCtx,

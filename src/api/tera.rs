@@ -1,6 +1,6 @@
 use anyhow::Result;
-use rusty_v8 as v8;
 use tera::{Context, Tera};
+use v8;
 
 use super::util::{mk_v8_string, v8_deserialize};
 

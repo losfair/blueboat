@@ -2,12 +2,12 @@ use crate::api::util::v8_deserialize;
 use crate::v8util::create_uint8array_from_bytes;
 use crate::{api::util::v8_deref_typed_array_assuming_noalias, impl_idenum};
 use anyhow::Result;
-use rusty_v8 as v8;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use skia_safe::EncodedImageFormat;
 use std::convert::TryFrom;
 use thiserror::Error;
+use v8;
 
 use super::CanvasConfig;
 

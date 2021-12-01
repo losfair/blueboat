@@ -1,7 +1,7 @@
 use anyhow::Result;
 use bytes::Bytes;
-use rusty_v8 as v8;
 use std::convert::TryFrom;
+use v8;
 
 use crate::{
   api::util::{v8_error, v8_serialize},

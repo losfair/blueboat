@@ -1,8 +1,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use anyhow::Result;
-use rusty_v8 as v8;
 use thiserror::Error;
+use v8;
 
 pub fn serialize_v8_value<'s>(
   scope: &mut v8::HandleScope<'s>,

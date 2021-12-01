@@ -7,10 +7,10 @@ use crate::{
 use anyhow::Result;
 use fraction::GenericFraction;
 use itertools::Itertools;
-use rusty_v8 as v8;
 use serde::{Deserialize, Serialize};
 use std::sync::mpsc;
 use thiserror::Error;
+use v8;
 use z3::ast::Ast;
 
 #[derive(Deserialize)]

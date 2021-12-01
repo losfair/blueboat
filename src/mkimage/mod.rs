@@ -1,8 +1,8 @@
 use std::mem::ManuallyDrop;
 
-use rusty_v8 as v8;
 use schemars::{schema_for, JsonSchema};
 use structopt::StructOpt;
+use v8;
 
 use crate::{
   api::{

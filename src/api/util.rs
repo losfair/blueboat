@@ -5,12 +5,12 @@ use std::{
 };
 
 use anyhow::Result;
-use rusty_v8 as v8;
 use serde::{Deserialize, Serialize};
 use smr::ipc_channel::ipc::IpcSender;
 use thiserror::Error;
 use time::PrimitiveDateTime;
 use uuid::Uuid;
+use v8;
 
 use crate::{
   ctx::BlueboatInitData,
@@ -115,7 +115,10 @@ pub unsafe fn v8_deref_typed_array_assuming_noalias<'s, 't>(
     }
   };
   let store = buf.get_backing_store();
-  let view = std::slice::from_raw_parts_mut(store.data() as *mut u8, store.byte_length());
+  let view = store
+    .data()
+    .map(|x| std::slice::from_raw_parts_mut(x.as_ptr() as *mut u8, store.byte_length()))
+    .unwrap_or(&mut []);
   let view = &mut view[view_offset..view_offset + view_length];
   TypedArrayView {
     _store: Some(store),
@@ -147,7 +150,12 @@ impl<'s> ArrayBufferBuilder<'s> {
     let buf = v8::ArrayBuffer::new(scope, len);
     let store = buf.get_backing_store();
     assert_eq!(store.byte_length(), len);
-    let slice = unsafe { std::slice::from_raw_parts_mut(store.data() as *mut u8, len) };
+    let slice = unsafe {
+      store
+        .data()
+        .map(|x| std::slice::from_raw_parts_mut(x.as_ptr() as *mut u8, store.byte_length()))
+        .unwrap_or(&mut [])
+    };
     Self {
       buf,
       _store: store,

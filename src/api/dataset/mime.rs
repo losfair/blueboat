@@ -1,6 +1,6 @@
 use anyhow::Result;
 use mime_guess::MimeGuess;
-use rusty_v8 as v8;
+use v8;
 
 use crate::api::util::mk_v8_string;
 

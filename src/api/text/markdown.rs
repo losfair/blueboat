@@ -1,8 +1,8 @@
 use anyhow::Result;
 use pulldown_cmark::{html, Options, Parser};
-use rusty_v8 as v8;
 use schemars::JsonSchema;
 use serde::Deserialize;
+use v8;
 
 use crate::api::util::{mk_v8_string, v8_deserialize};
 
