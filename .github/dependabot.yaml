@@ -1,0 +1,11 @@
+
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/jsland"
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "daily"
