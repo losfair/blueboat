@@ -7,13 +7,13 @@ use hyper::{
   Body, StatusCode,
 };
 use itertools::Itertools;
-use rusty_v8 as v8;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use smr::types::{BaseRequest, Request, Response};
 use std::convert::TryFrom;
 use thiserror::Error;
 use tokio::sync::watch;
+use v8;
 
 use crate::{
   api::util::v8_serialize,

@@ -16,7 +16,6 @@ use crate::{
 };
 use anyhow::{bail, Result};
 use parking_lot::Mutex;
-use rusty_v8 as v8;
 use serde::{Deserialize, Serialize};
 use smr::{
   ipc_channel::ipc::{IpcSender, IpcSharedMemory},
@@ -25,6 +24,7 @@ use smr::{
 use std::convert::TryFrom;
 use thiserror::Error;
 use tokio::runtime::Handle;
+use v8;
 
 pub const NI_ENTRY_KEY: &str = "__blueboat_host_invoke";
 

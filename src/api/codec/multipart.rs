@@ -4,8 +4,8 @@ use anyhow::Result;
 use bytes::Bytes;
 use futures::stream::once;
 use multer::Multipart;
-use rusty_v8 as v8;
 use serde::Serialize;
+use v8;
 
 use crate::{
   api::util::{v8_deref_typed_array_assuming_noalias, v8_serialize},

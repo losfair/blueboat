@@ -5,12 +5,12 @@ use std::{
 };
 
 use anyhow::Result;
-use rusty_v8 as v8;
 use serde::{Deserialize, Serialize};
 use smr::ipc_channel::ipc::IpcSender;
 use thiserror::Error;
 use time::PrimitiveDateTime;
 use uuid::Uuid;
+use v8;
 
 use crate::{
   ctx::BlueboatInitData,

@@ -3,11 +3,11 @@ pub mod multipart;
 use super::util::{v8_deref_typed_array_assuming_noalias, v8_deserialize};
 use crate::api::util::ArrayBufferBuilder;
 use anyhow::Result;
-use rusty_v8 as v8;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::convert::TryFrom;
 use thiserror::Error;
+use v8;
 
 #[derive(Deserialize, JsonSchema)]
 pub enum CodecBase64Mode {

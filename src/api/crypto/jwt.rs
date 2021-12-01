@@ -2,8 +2,8 @@ use std::collections::HashSet;
 
 use anyhow::Result;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header};
-use rusty_v8 as v8;
 use serde::{Deserialize, Serialize};
+use v8;
 
 use crate::{
   api::util::{mk_v8_string, v8_deserialize, v8_serialize},

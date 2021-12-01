@@ -1,7 +1,7 @@
 use anyhow::Result;
-use rusty_v8 as v8;
 use std::{any::Any, cell::RefCell, collections::HashMap, convert::TryFrom, rc::Rc};
 use thiserror::Error;
+use v8;
 
 pub struct SymbolRegistry {
   symbols: RefCell<HashMap<v8::Global<v8::Symbol>, Rc<dyn Any>>>,

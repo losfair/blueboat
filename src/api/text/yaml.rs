@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rusty_v8 as v8;
+use v8;
 
 use crate::{
   api::util::{mk_v8_string, v8_deserialize, v8_serialize},

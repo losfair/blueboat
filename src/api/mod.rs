@@ -17,9 +17,9 @@ use anyhow::Result;
 use bytes::Bytes;
 use itertools::Itertools;
 use phf::phf_map;
-use rusty_v8 as v8;
 use std::convert::TryFrom;
 use thiserror::Error;
+use v8;
 
 use crate::{
   exec::Executor,

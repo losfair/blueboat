@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use rusty_v8 as v8;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use thiserror::Error;
+use v8;
 
 use crate::{
   api::util::{v8_invoke_callback, v8_serialize},

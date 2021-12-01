@@ -10,7 +10,6 @@ use fontdue::{
   layout::{CoordinateSystem, HorizontalAlign, Layout, LayoutSettings, TextStyle},
   Font,
 };
-use rusty_v8 as v8;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use skia_safe::{
@@ -20,6 +19,7 @@ use skia_safe::{
 };
 use std::convert::TryFrom;
 use thiserror::Error;
+use v8;
 
 use crate::api::{
   graphics::fonts::search_font,

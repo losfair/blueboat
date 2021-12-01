@@ -4,10 +4,10 @@ use crate::v8util::create_uint8array_from_bytes;
 use anyhow::Result;
 use mysql_async::{Pool, Value};
 use num_derive::FromPrimitive;
-use rusty_v8 as v8;
 use std::convert::TryFrom;
 use thiserror::Error;
 use time::{Date, PrimitiveDateTime, Time};
+use v8;
 
 pub struct AppMysql {
   pool: Pool,

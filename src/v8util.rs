@@ -1,9 +1,9 @@
 use std::cell::Cell;
 
 use anyhow::Result;
-use rusty_v8 as v8;
 use std::convert::TryFrom;
 use thiserror::Error;
+use v8;
 
 use crate::ctx::BlueboatInitData;
 

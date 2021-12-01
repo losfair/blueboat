@@ -8,8 +8,8 @@ use std::{
 };
 
 use itertools::Itertools;
-use rusty_v8 as v8;
 use tar::{Archive, EntryType};
+use v8;
 
 use crate::v8util::create_uint8array_from_bytes;
 use std::convert::TryFrom;

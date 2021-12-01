@@ -3,10 +3,10 @@ use std::{collections::HashMap, rc::Weak, sync::Arc};
 use anyhow::Result;
 use mysql_async::{prelude::Queryable, TxOpts};
 use num_traits::FromPrimitive;
-use rusty_v8 as v8;
 use std::convert::TryFrom;
 use thiserror::Error;
 use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
+use v8;
 
 use crate::{
   api::util::v8_invoke_callback,
