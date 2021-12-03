@@ -1,4 +1,7 @@
-use std::{io::Cursor, sync::Arc};
+use std::{
+  io::Cursor,
+  sync::{atomic::AtomicBool, Arc},
+};
 
 use anyhow::Result;
 use ed25519_dalek::{Keypair, Signer};
@@ -33,9 +36,22 @@ pub struct RawMds {
   mux_width: u32,
 }
 
+struct BrokenGuard {
+  broken: Arc<AtomicBool>,
+}
+
+impl Drop for BrokenGuard {
+  fn drop(&mut self) {
+    self
+      .broken
+      .store(true, std::sync::atomic::Ordering::Relaxed);
+  }
+}
+
 #[derive(Clone)]
 pub struct RawMdsHandle {
   req_tx: flume::Sender<(proto::Request, oneshot::Sender<Result<proto::Response>>)>,
+  broken: Arc<AtomicBool>,
 }
 
 impl RawMds {
@@ -108,6 +124,7 @@ impl RawMds {
     url: String,
     mut stream: SplitStream<StreamTy>,
     mux_tx: Vec<tokio::sync::mpsc::Sender<proto::Response>>,
+    _broken: BrokenGuard,
   ) {
     loop {
       let msg = stream.next().await;
@@ -153,6 +170,7 @@ impl RawMds {
       flume::Sender<(proto::Request, oneshot::Sender<Result<proto::Response>>)>,
       _,
     ) = flume::bounded(10);
+    let broken = Arc::new(AtomicBool::new(false));
     let (sink, stream) = self.stream.split();
     let sink = Arc::new(Mutex::new(sink));
     let (mux_tx, mut mux_rx): (
@@ -161,7 +179,14 @@ impl RawMds {
     ) = (0..self.mux_width)
       .map(|_| tokio::sync::mpsc::channel(1))
       .unzip();
-    let recv_task_handle = tokio::spawn(Self::recv_task(url, stream, mux_tx));
+    let recv_task_handle = tokio::spawn(Self::recv_task(
+      url,
+      stream,
+      mux_tx,
+      BrokenGuard {
+        broken: broken.clone(),
+      },
+    ));
     let recv_task_handle = Arc::new(PMutex::new(Some(recv_task_handle)));
     mux_rx.reverse();
     for i in 0..self.mux_width {
@@ -180,11 +205,15 @@ impl RawMds {
         }
       });
     }
-    RawMdsHandle { req_tx }
+    RawMdsHandle { req_tx, broken }
   }
 }
 
 impl RawMdsHandle {
+  pub fn is_broken(&self) -> bool {
+    self.broken.load(std::sync::atomic::Ordering::Relaxed)
+  }
+
   pub async fn run<R: for<'a> Deserialize<'a>>(
     &self,
     script: &str,

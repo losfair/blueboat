@@ -112,7 +112,7 @@ static MEM_CRITICAL_WATERMARK_KB: OnceCell<u64> = OnceCell::const_new();
 static LP_TX: OnceCell<Mutex<IpcSender<LowPriorityMsg>>> = OnceCell::const_new();
 static MMDB_CITY: OnceCell<Option<maxminddb::Reader<Mmap>>> = OnceCell::const_new();
 static WPBL_DB: OnceCell<Option<WpblDb>> = OnceCell::const_new();
-static MDS: OnceCell<Option<MdsServiceState>> = OnceCell::const_new();
+static MDS: OnceCell<Option<Arc<Mutex<Arc<MdsServiceState>>>>> = OnceCell::const_new();
 
 static LP_DISPATCH_FAIL_COUNT: AtomicU64 = AtomicU64::new(0);
 static LP_LOG_ISSUE_FAIL_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -325,16 +325,15 @@ async fn async_main() {
         match key {
           Ok(secret) => {
             let public = ed25519_dalek::PublicKey::from(&secret);
-            let keypair = ed25519_dalek::Keypair { secret, public };
+            log::info!("MDS pubkey: {}", hex::encode(&public.as_bytes()));
+            let keypair = Arc::new(ed25519_dalek::Keypair { secret, public });
             loop {
-              match MdsServiceState::bootstrap(&opt.mds, &keypair).await {
-                Ok(x) => {
-                  log::info!(
-                    "Bootstrapped MDS from server {}. pub: {}",
-                    opt.mds,
-                    hex::encode(&public.as_bytes())
-                  );
-                  break Some(x);
+              match MdsServiceState::bootstrap(&opt.mds, keypair.clone()).await {
+                Ok(mds) => {
+                  log::info!("Bootstrapped MDS from server {}.", opt.mds,);
+                  let mds = Arc::new(Mutex::new(Arc::new(mds)));
+                  MdsServiceState::start_refresh_task(mds.clone());
+                  break Some(mds);
                 }
                 Err(e) => {
                   log::error!("mds bootstrap ({}) failed: {:?}", opt.mds, e);
