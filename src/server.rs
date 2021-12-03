@@ -13,6 +13,7 @@ use crate::headers::{
 };
 use crate::ipc::{BlueboatIpcReqV, BlueboatIpcRes};
 use crate::lpch::{LogEntry, LowPriorityMsg};
+use crate::mds::service::MdsServiceState;
 use crate::pm::pm_handle;
 use crate::util::KafkaProducerService;
 use crate::wpbl::WpblDb;
@@ -82,6 +83,9 @@ struct Opt {
 
   #[structopt(long, default_value = "-")]
   wpbl_db: String,
+
+  #[structopt(long, default_value = "-")]
+  mds: String,
 }
 
 struct CacheEntry {
@@ -108,6 +112,7 @@ static MEM_CRITICAL_WATERMARK_KB: OnceCell<u64> = OnceCell::const_new();
 static LP_TX: OnceCell<Mutex<IpcSender<LowPriorityMsg>>> = OnceCell::const_new();
 static MMDB_CITY: OnceCell<Option<maxminddb::Reader<Mmap>>> = OnceCell::const_new();
 static WPBL_DB: OnceCell<Option<WpblDb>> = OnceCell::const_new();
+static MDS: OnceCell<Option<MdsServiceState>> = OnceCell::const_new();
 
 static LP_DISPATCH_FAIL_COUNT: AtomicU64 = AtomicU64::new(0);
 static LP_LOG_ISSUE_FAIL_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -305,6 +310,52 @@ async fn async_main() {
     None
   };
   WPBL_DB.set(wpbl_db).unwrap_or_else(|_| unreachable!());
+
+  let mds = if opt.mds != "" {
+    let mds_key = std::env::var("MDS_KEY").ok();
+    match mds_key {
+      Some(key) => {
+        let key = base64::decode(&key)
+          .map_err(|_| anyhow::anyhow!("MDS_KEY is not valid base64"))
+          .and_then(|key| {
+            ed25519_dalek::SecretKey::from_bytes(&key).map_err(|e| {
+              anyhow::Error::from(e).context("MDS_KEY is not a valid ed25519 secret key")
+            })
+          });
+        match key {
+          Ok(secret) => {
+            let public = ed25519_dalek::PublicKey::from(&secret);
+            let keypair = ed25519_dalek::Keypair { secret, public };
+            match MdsServiceState::bootstrap(&opt.mds, &keypair).await {
+              Ok(x) => {
+                log::info!(
+                  "Bootstrapped MDS from server {}. pub: {}",
+                  opt.mds,
+                  hex::encode(&public.as_bytes())
+                );
+                Some(x)
+              }
+              Err(e) => {
+                log::error!("mds bootstrap ({}) failed: {:?}", opt.mds, e);
+                None
+              }
+            }
+          }
+          Err(e) => {
+            log::error!("mds open ({}) failed: {:?}", opt.mds, e);
+            None
+          }
+        }
+      }
+      None => {
+        log::error!("MDS_KEY not set");
+        None
+      }
+    }
+  } else {
+    None
+  };
+  MDS.set(mds).unwrap_or_else(|_| unreachable!());
 
   // Monitor memory pressure
   std::thread::spawn(|| {

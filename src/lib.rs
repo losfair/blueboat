@@ -8,6 +8,7 @@ mod gres;
 mod headers;
 mod ipc;
 mod lpch;
+mod mds;
 mod metadata;
 mod mkimage;
 mod objserde;

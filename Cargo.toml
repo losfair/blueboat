@@ -103,6 +103,12 @@ lazy_static = "1.4.0"
 serde_yaml = "0.8"
 jsonwebtoken = "7"
 rdkafka = "0.27.0"
+prost = "0.9"
+prost-types = "0.9"
+tokio-tungstenite = { version = "0.16", features = ["native-tls"] }
+
+[build-dependencies]
+prost-build = "0.9"
 
 [patch.crates-io]
 # cexpr v0.5.0 depends on nom v6.1.1 which depends on bitvec v0.19.4 which depends on funty v1.2.0.
