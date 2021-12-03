@@ -366,6 +366,10 @@ async fn async_main() {
 }
 
 async fn handle(mut req: Request<Body>) -> Result<Response<Body>, Infallible> {
+  if req.uri().path() == "/_blueboat/health" {
+    return Ok(Response::new(Body::from("OK")));
+  }
+
   let md_path = match req.headers().get(HDR_REQ_METADATA) {
     Some(x) => x.to_str().unwrap_or("").to_string(),
     None => {
