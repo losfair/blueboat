@@ -326,23 +326,25 @@ async fn async_main() {
           Ok(secret) => {
             let public = ed25519_dalek::PublicKey::from(&secret);
             let keypair = ed25519_dalek::Keypair { secret, public };
-            match MdsServiceState::bootstrap(&opt.mds, &keypair).await {
-              Ok(x) => {
-                log::info!(
-                  "Bootstrapped MDS from server {}. pub: {}",
-                  opt.mds,
-                  hex::encode(&public.as_bytes())
-                );
-                Some(x)
-              }
-              Err(e) => {
-                log::error!("mds bootstrap ({}) failed: {:?}", opt.mds, e);
-                None
+            loop {
+              match MdsServiceState::bootstrap(&opt.mds, &keypair).await {
+                Ok(x) => {
+                  log::info!(
+                    "Bootstrapped MDS from server {}. pub: {}",
+                    opt.mds,
+                    hex::encode(&public.as_bytes())
+                  );
+                  break Some(x);
+                }
+                Err(e) => {
+                  log::error!("mds bootstrap ({}) failed: {:?}", opt.mds, e);
+                  std::thread::sleep(std::time::Duration::from_secs(5));
+                }
               }
             }
           }
           Err(e) => {
-            log::error!("mds open ({}) failed: {:?}", opt.mds, e);
+            log::error!("mds key decode failed ({}): {}", opt.mds, e);
             None
           }
         }
@@ -413,6 +415,7 @@ async fn async_main() {
 
   let make_svc = make_service_fn(|_| async move { Ok::<_, hyper::Error>(service_fn(handle)) });
 
+  log::info!("Starting server on {}", opt.listen);
   Server::bind(&opt.listen).serve(make_svc).await.unwrap();
 }
 
