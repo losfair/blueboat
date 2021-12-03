@@ -78,20 +78,30 @@ impl MdsServiceState {
     });
   }
 
-  async fn scan_for_broken_servers(&mut self, changed: &mut bool) {
-    for (_, region) in self.regions.iter_mut() {
-      for server in region.servers.iter_mut() {
-        if server.handle.is_broken() {
-          log::info!("reconnecting to broken server {}", server.url);
-          *server = match ServerState::open(&server.url, &self.keypair).await {
-            Ok(x) => x,
-            Err(e) => {
-              log::error!("reconnect failed: {}", e);
-              continue;
-            }
-          };
-          *changed = true;
-        }
+  fn all_servers_mut(&mut self) -> impl Iterator<Item = &mut ServerState> {
+    std::iter::once(&mut self.bootstrap).chain(
+      self
+        .regions
+        .values_mut()
+        .map(|r| r.servers.iter_mut())
+        .flatten(),
+    )
+  }
+
+  async fn scan_for_broken_servers<'a>(&'a mut self, changed: &mut bool) {
+    let keypair = self.keypair.clone();
+    let it = self.all_servers_mut();
+    for server in it {
+      if server.handle.is_broken() {
+        log::info!("reconnecting to broken server {}", server.url);
+        *server = match ServerState::open(&server.url, &keypair).await {
+          Ok(x) => x,
+          Err(e) => {
+            log::error!("reconnect failed: {}", e);
+            continue;
+          }
+        };
+        *changed = true;
       }
     }
   }
