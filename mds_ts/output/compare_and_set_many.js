@@ -1,0 +1,1 @@
+let t=createPrimaryTransaction(),c=data.checks,ok=c.map(e=>t.Get(e[0])).map(e=>base64Encode(e.Wait())).reduce((e,a,i)=>e&&a===c[i][1],!0);ok&&(data.sets.forEach(([e,a])=>{a===null?t.Delete(e):t.Set(e,base64Decode(a))}),t.Commit().Wait()),output=ok;

@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-pub fn encode_path(path: &str) -> Result<Vec<u8>> {
+pub fn encode_path(path: &str) -> Result<String> {
   let path = path.as_bytes().split(|&x| x == b'/').collect::<Vec<_>>();
   let mut segs: Vec<Vec<u8>> = Vec::with_capacity(path.len());
   for seg in path {
@@ -13,12 +13,13 @@ pub fn encode_path(path: &str) -> Result<Vec<u8>> {
     out.push(0x00);
     segs.push(out);
   }
-  Ok(segs.concat())
+  Ok(String::from_utf8(segs.concat()).unwrap())
 }
 
-pub fn decode_path(path: &[u8]) -> Result<String> {
+pub fn decode_path(path: &str) -> Result<String> {
   let mut out = String::new();
   let mut i = 0;
+  let path = path.as_bytes();
   while i < path.len() {
     if path[i] != 0x02 {
       anyhow::bail!("path segment does not start with 0x02");
@@ -30,7 +31,7 @@ pub fn decode_path(path: &[u8]) -> Result<String> {
     if j == path.len() {
       anyhow::bail!("path segment does not end with 0x00");
     }
-    out.push_str(&String::from_utf8_lossy(&path[i + 1..j]));
+    out.push_str(std::str::from_utf8(&path[i + 1..j])?);
     out.push('/');
     i = j + 1;
   }

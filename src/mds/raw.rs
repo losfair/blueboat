@@ -19,6 +19,8 @@ use tokio::{
 };
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
+use super::keycodec::encode_path;
+
 mod proto {
   include!(concat!(env!("OUT_DIR"), "/mds.rs"));
 }
@@ -29,6 +31,22 @@ type SinkTy = SplitSink<StreamTy, tokio_tungstenite::tungstenite::Message>;
 #[derive(Error, Debug)]
 #[error("ws connection closed")]
 struct WsClose;
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub enum TriStateCheck<T> {
+  Absent,
+  Any,
+  Value(T),
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub enum TriStateSet<T> {
+  Delete,
+  Preserve,
+  Value(T),
+}
 
 pub struct RawMds {
   url: String,
@@ -234,5 +252,76 @@ impl RawMdsHandle {
       }
       None => anyhow::bail!("response does not contain a body"),
     }
+  }
+
+  pub async fn get_many<S: AsRef<str>>(
+    &self,
+    paths: impl IntoIterator<Item = S>,
+    primary: bool,
+  ) -> Result<Vec<Option<Vec<u8>>>> {
+    let keys = paths
+      .into_iter()
+      .map(|x| encode_path(x.as_ref()))
+      .collect::<Result<Vec<_>>>()?;
+    let values: Vec<Option<String>> = self.run(
+      include_str!("../../mds_ts/output/get_many.js"),
+      &serde_json::json!({ "keys": &keys, "primary": primary })).await?;
+    if values.len() != keys.len() {
+      anyhow::bail!("mds get: unexpected response length");
+    }
+    Ok(
+      values
+        .into_iter()
+        .map(|x| {
+          x.map(|x| base64::decode(x).map_err(anyhow::Error::from))
+            .transpose()
+        })
+        .collect::<Result<Vec<_>>>()?,
+    )
+  }
+
+  pub async fn compare_and_set_many<S: AsRef<str>, I: AsRef<[u8]>, V: AsRef<[u8]>>(
+    &self,
+    paths: impl IntoIterator<Item = (S, TriStateCheck<I>, TriStateSet<V>)>,
+  ) -> Result<()> {
+    let paths = paths.into_iter().collect::<Vec<_>>();
+    let checks: Vec<(String, Option<String>)> = paths
+      .iter()
+      .map(|(path, check, _)| -> Result<_> {
+        let path = encode_path(path.as_ref())?;
+        Ok(match check {
+          TriStateCheck::Value(x) => Some((path, Some(base64::encode(x.as_ref())))),
+          TriStateCheck::Absent => Some((path, None)),
+          TriStateCheck::Any => None,
+        })
+      })
+      .collect::<Result<Vec<Option<_>>>>()?
+      .into_iter()
+      .filter_map(|x| x)
+      .collect();
+    let sets: Vec<(String, Option<String>)> = paths
+      .iter()
+      .map(|(path, _, value)| -> Result<_> {
+        let path = encode_path(path.as_ref())?;
+        Ok(match value {
+          TriStateSet::Value(x) => Some((path, Some(base64::encode(x.as_ref())))),
+          TriStateSet::Delete => Some((path, None)),
+          TriStateSet::Preserve => None,
+        })
+      })
+      .collect::<Result<Vec<Option<_>>>>()?
+      .into_iter()
+      .filter_map(|x| x)
+      .collect();
+    let committed: bool = self
+      .run(
+        include_str!("../../mds_ts/output/compare_and_set_many.js"),
+        &serde_json::json!({ "checks": &checks, "sets": &sets }),
+      )
+      .await?;
+    if !committed {
+      anyhow::bail!("mds compare_and_set: precondition failed");
+    }
+    Ok(())
   }
 }
