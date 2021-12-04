@@ -19,7 +19,7 @@ use tokio::{
 };
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
-use super::keycodec::encode_path;
+use super::keycodec::{decode_path, encode_path};
 
 mod proto {
   include!(concat!(env!("OUT_DIR"), "/mds.rs"));
@@ -46,6 +46,15 @@ pub enum TriStateSet<T> {
   Delete,
   Preserve,
   Value(T),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrefixListOptions {
+  pub reverse: bool,
+  pub want_value: bool,
+  pub limit: u32,
+  pub cursor: Option<String>,
 }
 
 pub struct RawMds {
@@ -232,6 +241,14 @@ impl RawMdsHandle {
     self.broken.load(std::sync::atomic::Ordering::Relaxed)
   }
 
+  pub fn new_broken() -> Self {
+    let (req_tx, _) = flume::bounded(1);
+    RawMdsHandle {
+      req_tx,
+      broken: Arc::new(AtomicBool::new(true)),
+    }
+  }
+
   pub async fn run<R: for<'a> Deserialize<'a>>(
     &self,
     script: &str,
@@ -263,9 +280,12 @@ impl RawMdsHandle {
       .into_iter()
       .map(|x| encode_path(x.as_ref()))
       .collect::<Result<Vec<_>>>()?;
-    let values: Vec<Option<String>> = self.run(
-      include_str!("../../mds_ts/output/get_many.js"),
-      &serde_json::json!({ "keys": &keys, "primary": primary })).await?;
+    let values: Vec<Option<String>> = self
+      .run(
+        include_str!("../../mds_ts/output/get_many.js"),
+        &serde_json::json!({ "keys": &keys, "primary": primary }),
+      )
+      .await?;
     if values.len() != keys.len() {
       anyhow::bail!("mds get: unexpected response length");
     }
@@ -278,6 +298,29 @@ impl RawMdsHandle {
         })
         .collect::<Result<Vec<_>>>()?,
     )
+  }
+
+  pub async fn prefix_list<S: AsRef<str>>(
+    &self,
+    prefix: S,
+    opts: &PrefixListOptions,
+    primary: bool,
+  ) -> Result<Vec<(String, Vec<u8>)>> {
+    let prefix = encode_path(prefix.as_ref())?;
+    let pairs: Vec<(String, Option<String>)> = self
+      .run(
+        include_str!("../../mds_ts/output/prefix_list.js"),
+        &serde_json::json!({ "prefix": prefix, "opts": opts, "primary": primary }),
+      )
+      .await?;
+    pairs
+      .into_iter()
+      .map(|(k, v)| -> Result<(String, Vec<u8>)> {
+        let k = decode_path(&String::from_utf8_lossy(&base64::decode(&k)?))?;
+        let v = v.map(|x| base64::decode(&x)).transpose()?.unwrap_or(vec![]);
+        Ok((k, v))
+      })
+      .collect()
   }
 
   pub async fn compare_and_set_many<S: AsRef<str>, I: AsRef<[u8]>, V: AsRef<[u8]>>(

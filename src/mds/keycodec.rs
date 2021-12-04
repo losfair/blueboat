@@ -1,7 +1,11 @@
 use anyhow::Result;
 
 pub fn encode_path(path: &str) -> Result<String> {
-  let path = path.as_bytes().split(|&x| x == b'/').collect::<Vec<_>>();
+  let path = path
+    .as_bytes()
+    .split(|&x| x == b'/')
+    .filter(|x| !x.is_empty())
+    .collect::<Vec<_>>();
   let mut segs: Vec<Vec<u8>> = Vec::with_capacity(path.len());
   for seg in path {
     if seg.contains(&0x00) {
