@@ -840,5 +840,8 @@ async fn print_status() {
     "LP_LOG_ISSUE_FAIL_COUNT: {}",
     LP_LOG_ISSUE_FAIL_COUNT.load(Ordering::Relaxed)
   );
+  if let Some(Some(x)) = MDS.get() {
+    x.lock().print_status();
+  }
   log::info!("End of system status.");
 }

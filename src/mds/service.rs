@@ -83,6 +83,30 @@ impl MdsServiceState {
     Ok(me)
   }
 
+  pub fn print_status(&self) {
+    eprintln!("--- begin mds status ---");
+    eprintln!(
+      "public key: {}",
+      hex::encode(&self.keypair.public.as_bytes())
+    );
+    eprintln!(
+      "bootstrap server url {}, broken {}",
+      self.bootstrap.url,
+      self.bootstrap.handle.is_broken()
+    );
+    for (_, region) in &self.regions {
+      eprintln!("region {}", region.name);
+      for server in &region.servers {
+        eprintln!(
+          "\tserver url {}, broken {}",
+          server.url,
+          server.handle.is_broken()
+        );
+      }
+    }
+    eprintln!("--- end mds status ---");
+  }
+
   pub fn start_refresh_task(me: Arc<PMutex<Arc<Self>>>) {
     tokio::spawn(async move {
       loop {
