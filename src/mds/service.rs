@@ -15,6 +15,7 @@ const MUX_WIDTH: u32 = 8;
 #[derive(Clone)]
 pub struct MdsServiceState {
   keypair: Arc<Keypair>,
+  local_region: String,
   bootstrap: ServerState,
   shards: HashMap<String, Shard>,
 }
@@ -43,6 +44,7 @@ impl ServerState {
     let mut raw = RawMds::open(&ws_url, MUX_WIDTH).await?;
     let login_info = raw.authenticate(store, keypair).await?;
     let handle = raw.start();
+    log::info!("opened mds server {} in region {}", url, login_info.region);
     Ok(ServerState {
       url: url.to_string(),
       region: login_info.region,
@@ -73,10 +75,11 @@ impl ServerState {
 }
 
 impl MdsServiceState {
-  pub async fn bootstrap(url: &str, keypair: Arc<Keypair>) -> Result<Self> {
+  pub async fn bootstrap(url: &str, local_region: &str, keypair: Arc<Keypair>) -> Result<Self> {
     let bootstrap = ServerState::try_open(url, &keypair).await?;
     let mut me = Self {
       keypair: keypair,
+      local_region: local_region.to_string(),
       bootstrap,
       shards: HashMap::new(),
     };
@@ -112,6 +115,11 @@ impl MdsServiceState {
 
   pub fn get_shard_session(&self, name: &str) -> Option<&RawMdsHandle> {
     let shard = self.shards.get(name)?;
+    for s in &shard.servers {
+      if !s.handle.is_broken() && s.region == self.local_region {
+        return Some(&s.handle);
+      }
+    }
     for s in &shard.servers {
       if !s.handle.is_broken() {
         return Some(&s.handle);

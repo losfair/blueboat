@@ -88,6 +88,9 @@ struct Opt {
 
   #[structopt(long, default_value = "-")]
   mds: String,
+
+  #[structopt(long, default_value = "-")]
+  mds_local_region: String,
 }
 
 struct CacheEntry {
@@ -326,10 +329,16 @@ async fn async_main() {
         match key {
           Ok(secret) => {
             let public = ed25519_dalek::PublicKey::from(&secret);
-            log::info!("MDS pubkey: {}", hex::encode(&public.as_bytes()));
+            log::info!(
+              "MDS pubkey: {}, local region: {}",
+              hex::encode(&public.as_bytes()),
+              opt.mds_local_region
+            );
             let keypair = Arc::new(ed25519_dalek::Keypair { secret, public });
             loop {
-              match MdsServiceState::bootstrap(&opt.mds, keypair.clone()).await {
+              match MdsServiceState::bootstrap(&opt.mds, &opt.mds_local_region, keypair.clone())
+                .await
+              {
                 Ok(mds) => {
                   log::info!("Bootstrapped MDS from server {}.", opt.mds,);
                   let mds = Arc::new(Mutex::new(Arc::new(mds)));
