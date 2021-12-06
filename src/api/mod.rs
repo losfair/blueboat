@@ -5,12 +5,12 @@ pub mod dataset;
 pub mod external;
 mod fetch;
 pub mod graphics;
+pub mod kv;
 mod mysql;
 pub mod tera;
 pub mod text;
 pub mod util;
 pub mod validation;
-pub mod kv;
 
 use std::time::Duration;
 

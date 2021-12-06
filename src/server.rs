@@ -13,8 +13,8 @@ use crate::headers::{
 };
 use crate::ipc::{BlueboatIpcReqV, BlueboatIpcRes};
 use crate::lpch::{LogEntry, LowPriorityMsg};
-use crate::mds::MDS;
 use crate::mds::service::MdsServiceState;
+use crate::mds::MDS;
 use crate::pm::pm_handle;
 use crate::reliable_channel::create_reliable_channel;
 use crate::util::KafkaProducerService;
@@ -612,12 +612,12 @@ async fn generic_invoke(
   let w = Scheduler::get_worker(global_scheduler(), &pk, move || {
     let rch = create_reliable_channel(md.clone());
     BlueboatInitData {
-    key: pk2.clone(),
-    package: (*package).clone(),
-    metadata: (*md).clone(),
-    lp_tx: LP_TX.get().unwrap().lock().clone(),
-    rch: Some(rch),
-  }
+      key: pk2.clone(),
+      package: (*package).clone(),
+      metadata: (*md).clone(),
+      lp_tx: LP_TX.get().unwrap().lock().clone(),
+      rch: Some(rch),
+    }
   })
   .await?;
 

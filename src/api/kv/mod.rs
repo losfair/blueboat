@@ -14,9 +14,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use v8;
 
-use super::util::{
-  v8_deref_typed_array_assuming_noalias, v8_deserialize, v8_error, v8_serialize,
-};
+use super::util::{v8_deref_typed_array_assuming_noalias, v8_deserialize, v8_error, v8_serialize};
 
 #[derive(Serialize, Deserialize)]
 struct KvGetManyRequest {

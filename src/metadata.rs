@@ -18,11 +18,11 @@ pub struct Metadata {
   pub apns: HashMap<String, ApnsMetadata>,
 
   #[serde(default)]
-  pub kv_namespaces : HashMap<String, KvNamespaceMetadata>,
+  pub kv_namespaces: HashMap<String, KvNamespaceMetadata>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct KvNamespaceMetadata{
+pub struct KvNamespaceMetadata {
   pub region: String,
   pub prefix: String,
 }
