@@ -16,6 +16,7 @@ message Login {
 
 message LoginResponse {
   bool ok = 1;
+  string region = 2;
 }
 
 message Request {

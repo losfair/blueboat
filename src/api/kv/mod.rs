@@ -41,10 +41,10 @@ impl RchReqBody for KvGetManyRequest {
       .kv_namespaces
       .get(&self.namespace)
       .ok_or_else(|| anyhow::anyhow!("namespace not found"))?;
-    let region = mds
-      .get_region_session(&ns.region)
-      .ok_or_else(|| anyhow::anyhow!("region not found"))?;
-    let values = region
+    let shard = mds
+      .get_shard_session(&ns.shard)
+      .ok_or_else(|| anyhow::anyhow!("shard not found"))?;
+    let values = shard
       .get_many(
         self
           .keys
@@ -84,10 +84,10 @@ impl RchReqBody for KvCompareAndSetManyRequest<Vec<u8>> {
       .kv_namespaces
       .get(&self.namespace)
       .ok_or_else(|| anyhow::anyhow!("namespace not found"))?;
-    let region = mds
-      .get_region_session(&ns.region)
-      .ok_or_else(|| anyhow::anyhow!("region not found"))?;
-    let ok = region
+    let shard = mds
+      .get_shard_session(&ns.shard)
+      .ok_or_else(|| anyhow::anyhow!("shard not found"))?;
+    let ok = shard
       .compare_and_set_many(
         self
           .keys
@@ -157,10 +157,10 @@ impl RchReqBody for KvPrefixListRequest {
       .kv_namespaces
       .get(&self.namespace)
       .ok_or_else(|| anyhow::anyhow!("namespace not found"))?;
-    let region = mds
-      .get_region_session(&ns.region)
-      .ok_or_else(|| anyhow::anyhow!("region not found"))?;
-    let key_value_pairs = region
+    let shard = mds
+      .get_shard_session(&ns.shard)
+      .ok_or_else(|| anyhow::anyhow!("shard not found"))?;
+    let key_value_pairs = shard
       .prefix_list(
         format!("{}/{}", ns.prefix, self.prefix),
         &self.opts,
@@ -191,10 +191,10 @@ impl RchReqBody for KvPrefixDeleteRequest {
       .kv_namespaces
       .get(&self.namespace)
       .ok_or_else(|| anyhow::anyhow!("namespace not found"))?;
-    let region = mds
-      .get_region_session(&ns.region)
-      .ok_or_else(|| anyhow::anyhow!("region not found"))?;
-    region
+    let shard = mds
+      .get_shard_session(&ns.shard)
+      .ok_or_else(|| anyhow::anyhow!("shard not found"))?;
+    shard
       .prefix_delete(format!("{}/{}", ns.prefix, self.prefix))
       .await?;
     Ok(Box::new(KvPrefixDeleteResponse {}))

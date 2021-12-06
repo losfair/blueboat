@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct RegionConfig {
+pub struct ShardConfig {
   pub servers: Vec<ServerConfig>,
 }
 

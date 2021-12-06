@@ -3,7 +3,7 @@ use std::{
   sync::Arc,
 };
 
-use crate::mds::config::RegionConfig;
+use crate::mds::config::ShardConfig;
 
 use super::raw::{PrefixListOptions, RawMds, RawMdsHandle};
 use anyhow::Result;
@@ -16,11 +16,11 @@ const MUX_WIDTH: u32 = 8;
 pub struct MdsServiceState {
   keypair: Arc<Keypair>,
   bootstrap: ServerState,
-  regions: HashMap<String, Region>,
+  shards: HashMap<String, Shard>,
 }
 
 #[derive(Clone)]
-struct Region {
+struct Shard {
   name: String,
   servers: Vec<ServerState>,
 }
@@ -28,6 +28,7 @@ struct Region {
 #[derive(Clone)]
 struct ServerState {
   url: String,
+  region: String,
   handle: RawMdsHandle,
 }
 
@@ -40,10 +41,11 @@ impl ServerState {
       return Err(anyhow::anyhow!("invalid store name"));
     }
     let mut raw = RawMds::open(&ws_url, MUX_WIDTH).await?;
-    raw.authenticate(store, keypair).await?;
+    let login_info = raw.authenticate(store, keypair).await?;
     let handle = raw.start();
     Ok(ServerState {
       url: url.to_string(),
+      region: login_info.region,
       handle,
     })
   }
@@ -63,6 +65,7 @@ impl ServerState {
       );
       Self {
         url: url.to_string(),
+        region: "".to_string(),
         handle: RawMdsHandle::new_broken(),
       }
     })
@@ -75,10 +78,10 @@ impl MdsServiceState {
     let mut me = Self {
       keypair: keypair,
       bootstrap,
-      regions: HashMap::new(),
+      shards: HashMap::new(),
     };
-    if !me.load_regions(&mut false).await {
-      anyhow::bail!("failed to load regions");
+    if !me.load_shards(&mut false).await {
+      anyhow::bail!("failed to load shards");
     }
     Ok(me)
   }
@@ -94,9 +97,9 @@ impl MdsServiceState {
       self.bootstrap.url,
       self.bootstrap.handle.is_broken()
     );
-    for (_, region) in &self.regions {
-      eprintln!("region {}", region.name);
-      for server in &region.servers {
+    for (_, shard) in &self.shards {
+      eprintln!("shard {}", shard.name);
+      for server in &shard.servers {
         eprintln!(
           "\tserver url {}, broken {}",
           server.url,
@@ -107,9 +110,9 @@ impl MdsServiceState {
     eprintln!("--- end mds status ---");
   }
 
-  pub fn get_region_session(&self, name: &str) -> Option<&RawMdsHandle> {
-    let region = self.regions.get(name)?;
-    for s in &region.servers {
+  pub fn get_shard_session(&self, name: &str) -> Option<&RawMdsHandle> {
+    let shard = self.shards.get(name)?;
+    for s in &shard.servers {
       if !s.handle.is_broken() {
         return Some(&s.handle);
       }
@@ -135,26 +138,26 @@ impl MdsServiceState {
   }
 
   async fn refresh_once(&mut self, changed: &mut bool) {
-    self.load_regions(changed).await;
+    self.load_shards(changed).await;
     self.scan_for_broken_servers(changed).await;
   }
 
   fn all_servers_mut(&mut self) -> impl Iterator<Item = &mut ServerState> {
     std::iter::once(&mut self.bootstrap).chain(
       self
-        .regions
+        .shards
         .values_mut()
         .map(|r| r.servers.iter_mut())
         .flatten(),
     )
   }
 
-  async fn load_regions(&mut self, changed: &mut bool) -> bool {
-    let all_regions: BTreeMap<String, Vec<u8>> = match self
+  async fn load_shards(&mut self, changed: &mut bool) -> bool {
+    let all_shards: BTreeMap<String, Vec<u8>> = match self
       .bootstrap
       .handle
       .prefix_list(
-        "regions",
+        "shards",
         &PrefixListOptions {
           reverse: false,
           want_value: true,
@@ -167,43 +170,43 @@ impl MdsServiceState {
     {
       Ok(x) => x.into_iter().collect(),
       Err(e) => {
-        log::error!("failed to list regions: {}", e);
+        log::error!("failed to list shards: {}", e);
         return false;
       }
     };
-    let current_keys = self.regions.keys().cloned().collect::<Vec<_>>();
+    let current_keys = self.shards.keys().cloned().collect::<Vec<_>>();
     for key in &current_keys {
-      if !all_regions.contains_key(key.as_str()) {
-        log::warn!("region {} removed", key);
-        self.regions.remove(key);
+      if !all_shards.contains_key(key.as_str()) {
+        log::warn!("shard {} removed", key);
+        self.shards.remove(key);
         *changed = true;
       }
     }
 
-    for (region_name, region_config) in all_regions {
-      let mut config = match serde_json::from_slice::<RegionConfig>(&region_config) {
+    for (shard_name, shard_config) in all_shards {
+      let mut config = match serde_json::from_slice::<ShardConfig>(&shard_config) {
         Ok(config) => config,
         Err(err) => {
-          log::error!("invalid region config (region {}): {}", region_name, err);
+          log::error!("invalid shard config (shard {}): {}", shard_name, err);
           continue;
         }
       };
 
-      let mut region = Region {
-        name: region_name.clone(),
+      let mut shard = Shard {
+        name: shard_name.clone(),
         servers: Vec::new(),
       };
 
-      if let Some(current_region) = self.regions.get(&region_name) {
-        let current_urls: BTreeSet<&str> = current_region
+      if let Some(current_shard) = self.shards.get(&shard_name) {
+        let current_urls: BTreeSet<&str> = current_shard
           .servers
           .iter()
           .map(|s| s.url.as_str())
           .collect();
-        let current_servers: HashMap<&str, &RawMdsHandle> = current_region
+        let current_servers: HashMap<&str, &ServerState> = current_shard
           .servers
           .iter()
-          .map(|s| (s.url.as_str(), &s.handle))
+          .map(|s| (s.url.as_str(), s))
           .collect();
         let new_urls: BTreeSet<&str> = config.servers.iter().map(|s| s.url.as_str()).collect();
         if current_urls == new_urls {
@@ -214,10 +217,7 @@ impl MdsServiceState {
         while index < config.servers.len() {
           let server = &config.servers[index];
           if let Some(x) = current_servers.get(server.url.as_str()) {
-            region.servers.push(ServerState {
-              url: server.url.clone(),
-              handle: (*x).clone(),
-            });
+            shard.servers.push((*x).clone());
             config.servers.swap_remove(index);
           } else {
             index += 1;
@@ -226,12 +226,12 @@ impl MdsServiceState {
       }
 
       for s in &config.servers {
-        log::info!("connecting to server {} in region {}", s.url, region_name);
+        log::info!("connecting to server {} in shard {}", s.url, shard_name);
         let handle = ServerState::open(&s.url, &self.keypair).await;
-        region.servers.push(handle);
+        shard.servers.push(handle);
       }
-      log::info!("updated region {}", region_name);
-      self.regions.insert(region_name, region);
+      log::info!("updated shard {}", shard_name);
+      self.shards.insert(shard_name, shard);
       *changed = true;
     }
     true

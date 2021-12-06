@@ -23,7 +23,7 @@ pub struct Metadata {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct KvNamespaceMetadata {
-  pub region: String,
+  pub shard: String,
   pub prefix: String,
 }
 

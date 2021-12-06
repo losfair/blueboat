@@ -101,7 +101,11 @@ impl RawMds {
     Ok(T::decode(&mut Cursor::new(buf.as_slice()))?)
   }
 
-  pub async fn authenticate(&mut self, store: &str, keypair: &Keypair) -> Result<()> {
+  pub async fn authenticate(
+    &mut self,
+    store: &str,
+    keypair: &Keypair,
+  ) -> Result<proto::LoginResponse> {
     let challenge: proto::LoginChallenge = self.recv_msg().await?;
     log::info!("server version: {}", challenge.version);
     let sig = keypair.sign(&challenge.challenge);
@@ -119,7 +123,7 @@ impl RawMds {
       .await?;
     let res: proto::LoginResponse = self.recv_msg().await?;
     if res.ok {
-      Ok(())
+      Ok(res)
     } else {
       anyhow::bail!("login failed")
     }
