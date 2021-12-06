@@ -7,5 +7,6 @@ npx esbuild index.ts --bundle --outfile=index.js --target=es2021
 tar c . > ../pkg.tar
 cd ..
 
-RUST_LOG=debug S3CMD_CFG=~/minio.creds ../scripts/build_and_upload.mjs \
-  -f ./pkg.tar --s3_bucket test --s3_prefix pkg/
+RUST_LOG=debug S3CMD_CFG=~/blueboat_test_s3.creds ../scripts/build_and_upload.mjs \
+  -f ./pkg.tar --s3_bucket usw-blueboat-apps --s3_prefix pkg/ \
+  --kv ./pkg.kv.json

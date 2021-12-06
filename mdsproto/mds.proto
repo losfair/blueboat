@@ -1,0 +1,57 @@
+syntax = "proto3";
+package mds;
+option go_package = ".;protocol";
+
+message LoginChallenge {
+  bytes challenge = 1;
+  string version = 2;
+}
+
+message Login {
+  string store = 1;
+  bytes public_key = 2;
+  bytes signature = 3;
+  uint32 mux_width = 4;
+}
+
+message LoginResponse {
+  bool ok = 1;
+  string region = 2;
+}
+
+message Request {
+  uint32 lane = 1;
+  string program = 2;
+  string data = 3;
+}
+
+message Response {
+  uint32 lane = 1;
+  oneof body {
+    ErrorResponse error = 2;
+    string output = 3;
+  }
+}
+
+message StoreInfo {
+  string cluster = 1;
+  string subspace = 2;
+}
+
+message ErrorResponse {
+  string description = 1;
+}
+
+message Cluster {
+  ClusterRegion primary = 1;
+  repeated ClusterRegion replicas = 2;
+}
+
+message ClusterRegion {
+  string region = 1;
+  string config = 2;
+}
+
+message RoleList {
+  repeated string roles = 1;
+}

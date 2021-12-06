@@ -12,6 +12,7 @@ use crate::{
   metadata::{ApnsEndpointMetadata, Metadata},
   package::{Package, PackageKey},
   registry::SymbolRegistry,
+  reliable_channel::{ReliableChannel, ReliableChannelSeed},
   v8util::{IsolateInitDataExt, ObjectExt},
 };
 use anyhow::{bail, Result};
@@ -34,6 +35,7 @@ pub struct BlueboatInitData {
   pub package: IpcSharedMemory,
   pub metadata: Metadata,
   pub lp_tx: IpcSender<LowPriorityMsg>,
+  pub rch: Option<ReliableChannelSeed>,
 }
 
 impl InitData for BlueboatInitData {
@@ -47,6 +49,7 @@ pub struct BlueboatCtx {
   pub package: Package,
   pub metadata: &'static Metadata,
   pub lp_tx: &'static IpcSender<LowPriorityMsg>,
+  pub rch: ReliableChannel,
   pub isolate: Mutex<v8::OwnedIsolate>,
   pub v8_ctx: RefCell<v8::Global<v8::Context>>,
   pub context_template: v8::Global<v8::ObjectTemplate>,
@@ -57,7 +60,8 @@ pub struct BlueboatCtx {
 }
 
 impl BlueboatCtx {
-  pub fn init(d: BlueboatInitData) -> &'static Self {
+  pub fn init(mut d: BlueboatInitData) -> &'static Self {
+    let rch = d.rch.take().unwrap().run_forever();
     let d: &'static BlueboatInitData = Box::leak(Box::new(d));
     let mut isolate = v8::Isolate::new(v8::CreateParams::default().snapshot_blob(JSLAND_SNAPSHOT));
     isolate.set_slot(SymbolRegistry::new());
@@ -102,6 +106,7 @@ impl BlueboatCtx {
       package,
       metadata: &d.metadata,
       lp_tx: &d.lp_tx,
+      rch,
       isolate: Mutex::new(isolate),
       v8_ctx: RefCell::new(v8_ctx),
       context_template,

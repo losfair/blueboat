@@ -13,7 +13,10 @@ use crate::headers::{
 };
 use crate::ipc::{BlueboatIpcReqV, BlueboatIpcRes};
 use crate::lpch::{LogEntry, LowPriorityMsg};
+use crate::mds::service::MdsServiceState;
+use crate::mds::MDS;
 use crate::pm::pm_handle;
+use crate::reliable_channel::create_reliable_channel;
 use crate::util::KafkaProducerService;
 use crate::wpbl::WpblDb;
 use crate::{
@@ -82,6 +85,12 @@ struct Opt {
 
   #[structopt(long, default_value = "-")]
   wpbl_db: String,
+
+  #[structopt(long, default_value = "-")]
+  mds: String,
+
+  #[structopt(long, default_value = "-")]
+  mds_local_region: String,
 }
 
 struct CacheEntry {
@@ -306,6 +315,59 @@ async fn async_main() {
   };
   WPBL_DB.set(wpbl_db).unwrap_or_else(|_| unreachable!());
 
+  let mds = if opt.mds != "" {
+    let mds_key = std::env::var("MDS_KEY").ok();
+    match mds_key {
+      Some(key) => {
+        let key = base64::decode(&key)
+          .map_err(|_| anyhow::anyhow!("MDS_KEY is not valid base64"))
+          .and_then(|key| {
+            ed25519_dalek::SecretKey::from_bytes(&key).map_err(|e| {
+              anyhow::Error::from(e).context("MDS_KEY is not a valid ed25519 secret key")
+            })
+          });
+        match key {
+          Ok(secret) => {
+            let public = ed25519_dalek::PublicKey::from(&secret);
+            log::info!(
+              "MDS pubkey: {}, local region: {}",
+              hex::encode(&public.as_bytes()),
+              opt.mds_local_region
+            );
+            let keypair = Arc::new(ed25519_dalek::Keypair { secret, public });
+            loop {
+              match MdsServiceState::bootstrap(&opt.mds, &opt.mds_local_region, keypair.clone())
+                .await
+              {
+                Ok(mds) => {
+                  log::info!("Bootstrapped MDS from server {}.", opt.mds,);
+                  let mds = Arc::new(Mutex::new(Arc::new(mds)));
+                  MdsServiceState::start_refresh_task(mds.clone());
+                  break Some(mds);
+                }
+                Err(e) => {
+                  log::error!("mds bootstrap ({}) failed: {:?}", opt.mds, e);
+                  std::thread::sleep(std::time::Duration::from_secs(5));
+                }
+              }
+            }
+          }
+          Err(e) => {
+            log::error!("mds key decode failed ({}): {}", opt.mds, e);
+            None
+          }
+        }
+      }
+      None => {
+        log::error!("MDS_KEY not set");
+        None
+      }
+    }
+  } else {
+    None
+  };
+  MDS.set(mds).unwrap_or_else(|_| unreachable!());
+
   // Monitor memory pressure
   std::thread::spawn(|| {
     let mut last_wm: Option<MemoryWatermark> = None;
@@ -362,6 +424,7 @@ async fn async_main() {
 
   let make_svc = make_service_fn(|_| async move { Ok::<_, hyper::Error>(service_fn(handle)) });
 
+  log::info!("Starting server on {}", opt.listen);
   Server::bind(&opt.listen).serve(make_svc).await.unwrap();
 }
 
@@ -555,11 +618,15 @@ async fn generic_invoke(
   };
   let package = load_package(&pk, &md).await?;
   let pk2 = pk.clone();
-  let w = Scheduler::get_worker(global_scheduler(), &pk, move || BlueboatInitData {
-    key: pk2.clone(),
-    package: (*package).clone(),
-    metadata: (*md).clone(),
-    lp_tx: LP_TX.get().unwrap().lock().clone(),
+  let w = Scheduler::get_worker(global_scheduler(), &pk, move || {
+    let rch = create_reliable_channel(md.clone());
+    BlueboatInitData {
+      key: pk2.clone(),
+      package: (*package).clone(),
+      metadata: (*md).clone(),
+      lp_tx: LP_TX.get().unwrap().lock().clone(),
+      rch: Some(rch),
+    }
   })
   .await?;
 
@@ -787,5 +854,8 @@ async fn print_status() {
     "LP_LOG_ISSUE_FAIL_COUNT: {}",
     LP_LOG_ISSUE_FAIL_COUNT.load(Ordering::Relaxed)
   );
+  if let Some(Some(x)) = MDS.get() {
+    x.lock().print_status();
+  }
   log::info!("End of system status.");
 }
