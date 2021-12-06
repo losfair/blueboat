@@ -21,6 +21,7 @@ import * as datasetMod from "./dataset/index";
 import * as backgroundMod from "./background/index";
 import { appBackgroundEntry } from "./background/impl";
 import * as textMod from "./text/index";
+import * as kvMod from "./kv";
 
 const lateRoot = {
   App: appMod,
@@ -34,6 +35,7 @@ const lateRoot = {
   Dataset: datasetMod,
   Background: backgroundMod,
   TextUtil: textMod,
+  KV: kvMod,
   setTimeout,
   clearTimeout,
   setInterval,
@@ -184,4 +186,5 @@ declare global {
   const Dataset: typeof datasetMod;
   const Background: typeof backgroundMod;
   const TextUtil: typeof textMod;
+  const KV: typeof kvMod;
 }
