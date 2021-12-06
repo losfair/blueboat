@@ -16,6 +16,10 @@ use v8;
 
 use super::util::{v8_deref_typed_array_assuming_noalias, v8_deserialize, v8_error, v8_serialize};
 
+const MAX_KEYS_PER_OP: usize = 20;
+const MAX_KEY_SIZE: usize = 4096;
+const MAX_VALUE_SIZE: usize = 80000;
+
 #[derive(Serialize, Deserialize)]
 struct KvGetManyRequest {
   namespace: String,
@@ -130,6 +134,7 @@ impl<'s> KvCompareAndSetManyRequest<serde_v8::Value<'s>> {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct KvPrefixListRequest {
   namespace: String,
   prefix: String,
@@ -138,6 +143,7 @@ struct KvPrefixListRequest {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct KvPrefixListResponse {
   key_value_pairs: Vec<(String, Vec<u8>)>,
 }
@@ -162,6 +168,36 @@ impl RchReqBody for KvPrefixListRequest {
       )
       .await?;
     Ok(Box::new(KvPrefixListResponse { key_value_pairs }))
+  }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KvPrefixDeleteRequest {
+  namespace: String,
+  prefix: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KvPrefixDeleteResponse {}
+
+#[async_trait::async_trait]
+#[typetag::serde]
+impl RchReqBody for KvPrefixDeleteRequest {
+  async fn handle(self: Box<Self>, md: Arc<Metadata>) -> Result<Box<dyn erased_serde::Serialize>> {
+    let mds = get_mds()?;
+    let ns = md
+      .kv_namespaces
+      .get(&self.namespace)
+      .ok_or_else(|| anyhow::anyhow!("namespace not found"))?;
+    let region = mds
+      .get_region_session(&ns.region)
+      .ok_or_else(|| anyhow::anyhow!("region not found"))?;
+    region
+      .prefix_delete(format!("{}/{}", ns.prefix, self.prefix))
+      .await?;
+    Ok(Box::new(KvPrefixDeleteResponse {}))
   }
 }
 
@@ -227,7 +263,17 @@ pub fn api_kv_get_many<'a, 'b, 'c>(
         .collect();
       Ok(v8_serialize(scope, &out)?)
     },
-    |_, req| Ok(req),
+    |_, req| {
+      if req.keys.len() > MAX_KEYS_PER_OP {
+        anyhow::bail!("too many keys");
+      }
+      for k in &req.keys {
+        if k.as_bytes().len() > MAX_KEY_SIZE {
+          anyhow::bail!("key too large");
+        }
+      }
+      Ok(req)
+    },
   )
 }
 
@@ -247,7 +293,28 @@ pub fn api_kv_compare_and_set_many<'a, 'b, 'c>(
     args,
     "kv_compare_and_set_many<",
     |scope, rsp| Ok(v8::Boolean::new(scope, rsp.ok).into()),
-    |scope, req| req.encode(scope),
+    |scope, req| {
+      if req.keys.len() > MAX_KEYS_PER_OP {
+        anyhow::bail!("too many keys");
+      }
+      let req = req.encode(scope)?;
+      for k in &req.keys {
+        if k.key.as_bytes().len() > MAX_KEY_SIZE {
+          anyhow::bail!("key too large");
+        }
+        if let TriStateCheck::Value(x) = &k.check {
+          if x.len() > MAX_VALUE_SIZE {
+            anyhow::bail!("TriStateCheck: value too large");
+          }
+        }
+        if let TriStateSet::Value(x) = &k.set {
+          if x.len() > MAX_VALUE_SIZE {
+            anyhow::bail!("TriStateSet: value too large");
+          }
+        }
+      }
+      Ok(req)
+    },
   )
 }
 
@@ -276,6 +343,30 @@ pub fn api_kv_prefix_list<'a, 'b, 'c>(
       }
       Ok(out.into())
     },
-    |_, req| Ok(req),
+    |_, req| {
+      if req.prefix.as_bytes().len() > MAX_KEY_SIZE {
+        anyhow::bail!("prefix too large");
+      }
+      Ok(req)
+    },
+  )
+}
+
+pub fn api_kv_prefix_delete<'a, 'b, 'c>(
+  scope: &mut v8::HandleScope<'a>,
+  args: v8::FunctionCallbackArguments<'b>,
+  _retval: v8::ReturnValue<'c>,
+) -> Result<()> {
+  api_kv_generic::<KvPrefixDeleteRequest, _, KvPrefixDeleteResponse, _, _>(
+    scope,
+    args,
+    "kv_prefix_delete",
+    |scope, _| Ok(v8::undefined(scope).into()),
+    |_, req| {
+      if req.prefix.as_bytes().len() > MAX_KEY_SIZE {
+        anyhow::bail!("prefix too large");
+      }
+      Ok(req)
+    },
   )
 }

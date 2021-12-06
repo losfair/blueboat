@@ -130,3 +130,16 @@ Router.get("/kv/set", async req => {
   await ns.set("key1", "" + Date.now());
   return new Response(JSON.stringify({ ok: true }));
 });
+
+
+Router.get("/kv/list", async req => {
+  const ns = new KV.Namespace("ns1");
+  const v = await ns.prefixList("");
+  return new Response(JSON.stringify({ value: v, ok: true }));
+});
+
+Router.get("/kv/pd", async req => {
+  const ns = new KV.Namespace("ns1");
+  await ns.prefixDelete("");
+  return new Response(JSON.stringify({ ok: true }));
+});

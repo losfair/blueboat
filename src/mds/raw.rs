@@ -323,6 +323,17 @@ impl RawMdsHandle {
       .collect()
   }
 
+  pub async fn prefix_delete<S: AsRef<str>>(&self, prefix: S) -> Result<()> {
+    let prefix = encode_path(prefix.as_ref())?;
+    self
+      .run(
+        include_str!("../../mds_ts/output/prefix_delete.js"),
+        &serde_json::json!({ "prefix": prefix }),
+      )
+      .await?;
+    Ok(())
+  }
+
   pub async fn compare_and_set_many<S: AsRef<str>, I: AsRef<[u8]>, V: AsRef<[u8]>>(
     &self,
     paths: impl IntoIterator<Item = (S, TriStateCheck<I>, TriStateSet<V>)>,

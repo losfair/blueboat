@@ -84,6 +84,7 @@ pub static API: phf::Map<&'static str, ApiHandler> = phf_map! {
   "kv_get_many" => kv::api_kv_get_many,
   "kv_compare_and_set_many" => kv::api_kv_compare_and_set_many,
   "kv_prefix_list" => kv::api_kv_prefix_list,
+  "kv_prefix_delete" => kv::api_kv_prefix_delete,
 };
 
 #[derive(Error, Debug)]
