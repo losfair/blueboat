@@ -21,6 +21,7 @@ let s3_bucket = argv.s3_bucket;
 let s3_prefix = argv.s3_prefix;
 let env_file = argv.env;
 let mysql_file = argv.mysql;
+let kv_file = argv.kv;
 if(!file || !s3_bucket || !s3_prefix) throw new Error("missing args");
 if(!s3_prefix.endsWith("/") || s3_prefix.startsWith("/")) throw new Error("invalid s3 prefix");
 
@@ -38,10 +39,12 @@ let md = {
   package: packageS3Path,
   env: {},
   mysql: {},
+  kv_namespaces: {},
 };
 
 if(env_file) md.env = JSON.parse(fs.readFileSync(env_file, "utf-8"));
 if(mysql_file) md.mysql = JSON.parse(fs.readFileSync(mysql_file, "utf-8"));
+if(kv_file) md.kv_namespaces = JSON.parse(fs.readFileSync(kv_file, "utf-8"));
 await $`${s3_invoke} put ${file} ${"s3://" + s3_bucket + "/" + packageS3Path}`;
 
 let md_path = path.join(tmpdir, `metadata.json`);
