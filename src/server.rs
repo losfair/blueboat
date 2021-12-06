@@ -13,8 +13,10 @@ use crate::headers::{
 };
 use crate::ipc::{BlueboatIpcReqV, BlueboatIpcRes};
 use crate::lpch::{LogEntry, LowPriorityMsg};
+use crate::mds::MDS;
 use crate::mds::service::MdsServiceState;
 use crate::pm::pm_handle;
+use crate::reliable_channel::create_reliable_channel;
 use crate::util::KafkaProducerService;
 use crate::wpbl::WpblDb;
 use crate::{
@@ -112,7 +114,6 @@ static MEM_CRITICAL_WATERMARK_KB: OnceCell<u64> = OnceCell::const_new();
 static LP_TX: OnceCell<Mutex<IpcSender<LowPriorityMsg>>> = OnceCell::const_new();
 static MMDB_CITY: OnceCell<Option<maxminddb::Reader<Mmap>>> = OnceCell::const_new();
 static WPBL_DB: OnceCell<Option<WpblDb>> = OnceCell::const_new();
-static MDS: OnceCell<Option<Arc<Mutex<Arc<MdsServiceState>>>>> = OnceCell::const_new();
 
 static LP_DISPATCH_FAIL_COUNT: AtomicU64 = AtomicU64::new(0);
 static LP_LOG_ISSUE_FAIL_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -608,11 +609,15 @@ async fn generic_invoke(
   };
   let package = load_package(&pk, &md).await?;
   let pk2 = pk.clone();
-  let w = Scheduler::get_worker(global_scheduler(), &pk, move || BlueboatInitData {
+  let w = Scheduler::get_worker(global_scheduler(), &pk, move || {
+    let rch = create_reliable_channel(md.clone());
+    BlueboatInitData {
     key: pk2.clone(),
     package: (*package).clone(),
     metadata: (*md).clone(),
     lp_tx: LP_TX.get().unwrap().lock().clone(),
+    rch: Some(rch),
+  }
   })
   .await?;
 

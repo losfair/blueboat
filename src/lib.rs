@@ -20,6 +20,7 @@ mod server;
 mod util;
 mod v8util;
 mod wpbl;
+mod reliable_channel;
 
 pub use mkimage::main as mkimage_main;
 pub use pm::secure_init as pm_secure_init;

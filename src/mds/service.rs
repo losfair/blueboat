@@ -107,6 +107,16 @@ impl MdsServiceState {
     eprintln!("--- end mds status ---");
   }
 
+  pub fn get_region_session(&self, name: &str) -> Option<&RawMdsHandle> {
+    let region = self.regions.get(name)?;
+    for s in &region.servers {
+      if !s.handle.is_broken() {
+        return Some(&s.handle);
+      }
+    }
+    None
+  }
+
   pub fn start_refresh_task(me: Arc<PMutex<Arc<Self>>>) {
     tokio::spawn(async move {
       loop {

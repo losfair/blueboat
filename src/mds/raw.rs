@@ -326,35 +326,26 @@ impl RawMdsHandle {
   pub async fn compare_and_set_many<S: AsRef<str>, I: AsRef<[u8]>, V: AsRef<[u8]>>(
     &self,
     paths: impl IntoIterator<Item = (S, TriStateCheck<I>, TriStateSet<V>)>,
-  ) -> Result<()> {
-    let paths = paths.into_iter().collect::<Vec<_>>();
-    let checks: Vec<(String, Option<String>)> = paths
-      .iter()
-      .map(|(path, check, _)| -> Result<_> {
-        let path = encode_path(path.as_ref())?;
-        Ok(match check {
-          TriStateCheck::Value(x) => Some((path, Some(base64::encode(x.as_ref())))),
-          TriStateCheck::Absent => Some((path, None)),
-          TriStateCheck::Any => None,
-        })
-      })
-      .collect::<Result<Vec<Option<_>>>>()?
+  ) -> Result<bool> {
+    let paths = paths
       .into_iter()
-      .filter_map(|x| x)
+      .map(|(k, c, s)| Ok((encode_path(k.as_ref())?, c, s)))
+      .collect::<Result<Vec<_>>>()?;
+    let checks: Vec<(&str, Option<String>)> = paths
+      .iter()
+      .filter_map(|(path, check, _)| match check {
+        TriStateCheck::Value(x) => Some((path.as_str(), Some(base64::encode(x.as_ref())))),
+        TriStateCheck::Absent => Some((path.as_str(), None)),
+        TriStateCheck::Any => None,
+      })
       .collect();
-    let sets: Vec<(String, Option<String>)> = paths
+    let sets: Vec<(&str, Option<String>)> = paths
       .iter()
-      .map(|(path, _, value)| -> Result<_> {
-        let path = encode_path(path.as_ref())?;
-        Ok(match value {
-          TriStateSet::Value(x) => Some((path, Some(base64::encode(x.as_ref())))),
-          TriStateSet::Delete => Some((path, None)),
-          TriStateSet::Preserve => None,
-        })
+      .filter_map(|(path, _, value)| match value {
+        TriStateSet::Value(x) => Some((path.as_str(), Some(base64::encode(x.as_ref())))),
+        TriStateSet::Delete => Some((path.as_str(), None)),
+        TriStateSet::Preserve => None,
       })
-      .collect::<Result<Vec<Option<_>>>>()?
-      .into_iter()
-      .filter_map(|x| x)
       .collect();
     let committed: bool = self
       .run(
@@ -362,9 +353,6 @@ impl RawMdsHandle {
         &serde_json::json!({ "checks": &checks, "sets": &sets }),
       )
       .await?;
-    if !committed {
-      anyhow::bail!("mds compare_and_set: precondition failed");
-    }
-    Ok(())
+    Ok(committed)
   }
 }

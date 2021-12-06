@@ -10,6 +10,7 @@ pub mod tera;
 pub mod text;
 pub mod util;
 pub mod validation;
+pub mod kv;
 
 use std::time::Duration;
 
@@ -80,6 +81,9 @@ pub static API: phf::Map<&'static str, ApiHandler> = phf_map! {
   "text_yaml_stringify" => text::yaml::api_text_yaml_stringify,
   "external_s3_sign" => external::s3::api_external_s3_sign,
   "external_s3_list_objects_v2" => external::s3::api_external_s3_list_objects_v2,
+  "kv_get_many" => kv::api_kv_get_many,
+  "kv_compare_and_set_many" => kv::api_kv_compare_and_set_many,
+  "kv_prefix_list" => kv::api_kv_prefix_list,
 };
 
 #[derive(Error, Debug)]
