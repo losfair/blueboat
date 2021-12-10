@@ -1,5 +1,8 @@
+use std::time::Duration;
+
 use anyhow::Result;
 use lazy_static::lazy_static;
+use rand::Rng;
 use rdkafka::{producer::FutureProducer, ClientConfig};
 use regex::Regex;
 
@@ -34,4 +37,14 @@ impl KafkaProducerService {
       partition,
     })
   }
+}
+
+pub async fn random_backoff() {
+  let duration = Duration::from_millis(rand::thread_rng().gen_range(1000..5000));
+  tokio::time::sleep(duration).await;
+}
+
+pub async fn random_backoff_fast() {
+  let duration = Duration::from_millis(rand::thread_rng().gen_range(10..100));
+  tokio::time::sleep(duration).await;
 }

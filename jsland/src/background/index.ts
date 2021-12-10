@@ -1,1 +1,1 @@
-export { BackgroundEntryBase, atMostOnce } from "./impl";
+export { BackgroundEntryBase, atMostOnce, atLeastOnce } from "./impl";

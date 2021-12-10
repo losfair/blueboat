@@ -19,6 +19,8 @@ use tokio::{
 };
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
+use crate::util::random_backoff_fast;
+
 use super::keycodec::{decode_path, encode_path};
 
 mod proto {
@@ -61,6 +63,12 @@ pub struct RawMds {
   url: String,
   stream: StreamTy,
   mux_width: u32,
+}
+
+#[derive(Error, Debug)]
+#[error("retryable mds error: {description}")]
+pub struct RetryableMdsError {
+  description: String,
 }
 
 struct BrokenGuard {
@@ -269,7 +277,16 @@ impl RawMdsHandle {
     match res.body {
       Some(proto::response::Body::Output(s)) => Ok(serde_json::from_str(&s)?),
       Some(proto::response::Body::Error(s)) => {
-        anyhow::bail!("remote error: {}", s.description)
+        if s.retryable {
+          Err(anyhow::Error::from(RetryableMdsError {
+            description: s.description,
+          }))
+        } else {
+          Err(anyhow::anyhow!(
+            "non-retryable mds error: {}",
+            s.description
+          ))
+        }
       }
       None => anyhow::bail!("response does not contain a body"),
     }
@@ -362,12 +379,26 @@ impl RawMdsHandle {
         TriStateSet::Preserve => None,
       })
       .collect();
-    let committed: bool = self
-      .run(
-        include_str!("../../mds_ts/output/compare_and_set_many.js"),
-        &serde_json::json!({ "checks": &checks, "sets": &sets }),
-      )
-      .await?;
-    Ok(committed)
+    for _ in 0..5 {
+      let committed: bool = match self
+        .run(
+          include_str!("../../mds_ts/output/compare_and_set_many.js"),
+          &serde_json::json!({ "checks": &checks, "sets": &sets }),
+        )
+        .await
+      {
+        Ok(x) => x,
+        Err(e) => {
+          if e.downcast_ref::<RetryableMdsError>().is_some() {
+            log::warn!("retrying compare_and_set_many: {:?}", e);
+            random_backoff_fast().await;
+            continue;
+          }
+          return Err(e);
+        }
+      };
+      return Ok(committed);
+    }
+    anyhow::bail!("mds compare_and_set_many: too many retries")
   }
 }

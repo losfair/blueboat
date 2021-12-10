@@ -7,6 +7,7 @@ mod fetch;
 pub mod graphics;
 pub mod kv;
 mod mysql;
+pub mod task;
 pub mod tera;
 pub mod text;
 pub mod util;
@@ -43,6 +44,7 @@ pub static API: phf::Map<&'static str, ApiHandler> = phf_map! {
   "sleep" => api_sleep,
   "complete" => api_complete,
   "schedule_at_most_once" => api_schedule_at_most_once,
+  "schedule_at_least_once" => task::api_schedule_at_least_once,
   "encode" => api_encode,
   "decode" => api_decode,
   "fetch" => fetch::api_fetch,

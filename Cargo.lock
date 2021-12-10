@@ -300,7 +300,7 @@ dependencies = [
 
 [[package]]
 name = "blueboat"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "a2",
  "ammonia",
@@ -316,6 +316,7 @@ dependencies = [
  "css-color-parser",
  "curve25519-dalek",
  "ed25519-dalek",
+ "either",
  "erased-serde",
  "flume",
  "fontdue",
@@ -353,6 +354,7 @@ dependencies = [
  "reqwest",
  "resvg",
  "ring",
+ "rmp-serde",
  "rusoto_core",
  "rusoto_s3",
  "rusqlite",
@@ -3019,9 +3021,9 @@ checksum = "9ae028b272a6e99d9f8260ceefa3caa09300a8d6c8d2b2001316474bc52122e9"
 
 [[package]]
 name = "rdkafka"
-version = "0.27.0"
+version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a22ce72c78b471baba6c75bda6e03511ef2ee1bae3729902d2bb38951db1048"
+checksum = "1de127f294f2dba488ed46760b129d5ecbeabbd337ccbf3739cb29d50db2161c"
 dependencies = [
  "futures",
  "libc",
@@ -3036,9 +3038,9 @@ dependencies = [
 
 [[package]]
 name = "rdkafka-sys"
-version = "4.1.0+1.7.0"
+version = "4.2.0+1.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e212ccf56a2d4e0b9f874a1cad295495769e0cdbabe60e02b4f654d369a2d6a1"
+checksum = "9e542c6863b04ce0fa0c5719bc6b7b348cf8dd21af1bb03c9db5f9805b2a6473"
 dependencies = [
  "libc",
  "libz-sys",
@@ -3182,6 +3184,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72dfeba9c94fdc308dcfe165efa6855c698f317484b736605ff859c5fa81d992"
 dependencies = [
  "array-init",
+]
+
+[[package]]
+name = "rmp"
+version = "0.8.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f55e5fa1446c4d5dd1f5daeed2a4fe193071771a2636274d0d7a3b082aa7ad6"
+dependencies = [
+ "byteorder",
+ "num-traits",
+]
+
+[[package]]
+name = "rmp-serde"
+version = "0.15.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "723ecff9ad04f4ad92fe1c8ca6c20d2196d9286e9c60727c4cb5511629260e9d"
+dependencies = [
+ "byteorder",
+ "rmp",
+ "serde",
 ]
 
 [[package]]
