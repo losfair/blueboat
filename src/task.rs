@@ -167,9 +167,12 @@ async fn load_channel_rows() -> Result<Vec<(String, Vec<u8>)>> {
     Ok(mds) => mds,
     Err(_) => return Ok(vec![]),
   };
+  if !mds.has_metadata_shard() {
+    return Ok(vec![]);
+  }
   let sess = match mds.get_metadata_shard_session() {
     Some(sess) => sess,
-    None => return Ok(vec![]),
+    None => anyhow::bail!("cannot get metadata shard session"),
   };
   let region_scheduler_prefix = format!("task-scheduler/{}", get_mds().unwrap().get_local_region());
   sess

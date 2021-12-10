@@ -130,6 +130,10 @@ impl MdsServiceState {
     None
   }
 
+  pub fn has_metadata_shard(&self) -> bool {
+    self.metadata_shard.is_some()
+  }
+
   pub fn get_metadata_shard_session(&self) -> Option<&RawMdsHandle> {
     self.get_shard_session(&self.metadata_shard.as_ref()?)
   }

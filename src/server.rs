@@ -450,13 +450,18 @@ fn spawn_task_handler() {
       None => return,
     };
   tokio::spawn(async move {
+    let sem = Arc::new(Semaphore::new(50));
     loop {
       let (entry, completion) = match task_rx.recv().await {
         Some(x) => x,
         None => break,
       };
-      run_background_entry(entry).await;
-      completion.notify();
+      let permit = sem.clone().acquire_owned().await.unwrap();
+      tokio::spawn(async move {
+        run_background_entry(entry).await;
+        completion.notify();
+        drop(permit);
+      });
     }
   });
 }
