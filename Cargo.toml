@@ -87,7 +87,7 @@ rusoto_core = "0.47"
 rusoto_s3 = { version = "0.47" }
 maxminddb = { version = "0.21.0", features = ["mmap"] }
 memmap2 = { version = "0.3.0" }
-tera = "1.12.1"
+tera = "1.15.0"
 jtd = "0.3.1"
 multer = "2.0.1"
 bytes = { version = "1.1.0", features = ["serde"] }
