@@ -45,9 +45,14 @@ Router.get("/mime_by_ext", req => {
   const res = Dataset.Mime.guessByExt(url.searchParams.get("ext") || "") || "";
   return new Response(res + "\n");
 });
-Router.get("/background", req => {
-  console.log("scheduling background task");
-  Background.atMostOnce(bgEntry, "testLog", "hello from background");
+Router.get("/background/atMostOnce", req => {
+  console.log("scheduling background task (atMostOnce)");
+  Background.atMostOnce(bgEntry, "testLog", "hello from background (atMostOnce)");
+  return new Response("Scheduled.\n");
+});
+Router.get("/background/atLeastOnce", async req => {
+  console.log("scheduling background task (atLeastOnce)");
+  await Background.atLeastOnce(bgEntry, "testLog", "hello from background (atLeastOnce)");
   return new Response("Scheduled.\n");
 });
 Router.get("/markdown", req => {
