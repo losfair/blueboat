@@ -40,6 +40,7 @@ message StoreInfo {
 
 message ErrorResponse {
   string description = 1;
+  bool retryable = 2;
 }
 
 message Cluster {

@@ -18,6 +18,7 @@ pub struct MdsServiceState {
   local_region: String,
   bootstrap: ServerState,
   shards: HashMap<String, Shard>,
+  metadata_shard: Option<String>,
 }
 
 #[derive(Clone)]
@@ -82,6 +83,7 @@ impl MdsServiceState {
       local_region: local_region.to_string(),
       bootstrap,
       shards: HashMap::new(),
+      metadata_shard: None,
     };
     if !me.load_shards(&mut false).await {
       anyhow::bail!("failed to load shards");
@@ -128,6 +130,14 @@ impl MdsServiceState {
     None
   }
 
+  pub fn get_metadata_shard_session(&self) -> Option<&RawMdsHandle> {
+    self.get_shard_session(&self.metadata_shard.as_ref()?)
+  }
+
+  pub fn get_local_region(&self) -> &str {
+    &self.local_region
+  }
+
   pub fn start_refresh_task(me: Arc<PMutex<Arc<Self>>>) {
     tokio::spawn(async move {
       loop {
@@ -147,6 +157,7 @@ impl MdsServiceState {
 
   async fn refresh_once(&mut self, changed: &mut bool) {
     self.load_shards(changed).await;
+    self.load_config(changed).await;
     self.scan_for_broken_servers(changed).await;
   }
 
@@ -158,6 +169,32 @@ impl MdsServiceState {
         .map(|r| r.servers.iter_mut())
         .flatten(),
     )
+  }
+
+  async fn load_config(&mut self, changed: &mut bool) {
+    match self
+      .bootstrap
+      .handle
+      .get_many(&["config/metadata-shard"], false)
+      .await
+    {
+      Ok(x) => {
+        let metadata_shard: Option<String> =
+          x[0].as_ref().map(|x| String::from_utf8_lossy(x).into());
+        if metadata_shard != self.metadata_shard {
+          log::info!(
+            "metadata shard changed from {:?} to {:?}",
+            self.metadata_shard,
+            metadata_shard
+          );
+          self.metadata_shard = metadata_shard;
+          *changed = true;
+        }
+      }
+      Err(e) => {
+        log::error!("failed to load config/metadata-shard: {}", e);
+      }
+    }
   }
 
   async fn load_shards(&mut self, changed: &mut bool) -> bool {

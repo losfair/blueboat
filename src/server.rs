@@ -12,11 +12,14 @@ use crate::headers::{
   HDR_RES_HANDLE_LATENCY, HDR_RES_REQUEST_ID, PROXY_HEADER_WHITELIST,
 };
 use crate::ipc::{BlueboatIpcReqV, BlueboatIpcRes};
-use crate::lpch::{LogEntry, LowPriorityMsg};
+use crate::lpch::{BackgroundEntry, LogEntry, LowPriorityMsg};
 use crate::mds::service::MdsServiceState;
 use crate::mds::MDS;
 use crate::pm::pm_handle;
 use crate::reliable_channel::create_reliable_channel;
+use crate::task::{
+  spawn_preemptive_task_acceptor, ChannelRefresher, TaskCompletion, CHANNEL_REFRESHER,
+};
 use crate::util::KafkaProducerService;
 use crate::wpbl::WpblDb;
 use crate::{
@@ -420,12 +423,36 @@ async fn async_main() {
     lp_ctx.log_kafka = Some(producer);
   }
 
+  CHANNEL_REFRESHER
+    .set(ChannelRefresher::init().await)
+    .unwrap_or_else(|_| unreachable!());
+
   spawn_lp_handler(Arc::new(lp_ctx), lp_rx);
+
+  spawn_task_handler();
 
   let make_svc = make_service_fn(|_| async move { Ok::<_, hyper::Error>(service_fn(handle)) });
 
   log::info!("Starting server on {}", opt.listen);
   Server::bind(&opt.listen).serve(make_svc).await.unwrap();
+}
+
+fn spawn_task_handler() {
+  let mut task_rx: tokio::sync::mpsc::Receiver<(BackgroundEntry, TaskCompletion)> =
+    match spawn_preemptive_task_acceptor() {
+      Some(x) => x,
+      None => return,
+    };
+  tokio::spawn(async move {
+    loop {
+      let (entry, completion) = match task_rx.recv().await {
+        Some(x) => x,
+        None => break,
+      };
+      run_background_entry(entry).await;
+      completion.notify();
+    }
+  });
 }
 
 async fn handle(mut req: Request<Body>) -> Result<Response<Body>, Infallible> {
@@ -586,7 +613,9 @@ async fn load_md(path: &str) -> Result<Arc<Metadata>> {
     .into_async_read()
     .read_to_end(&mut body)
     .await?;
-  Ok(Arc::new(serde_json::from_slice(&body)?))
+  let mut md: Metadata = serde_json::from_slice(&body)?;
+  md.path = path.to_string();
+  Ok(Arc::new(md))
 }
 
 async fn generic_invoke(
@@ -788,30 +817,34 @@ async fn handle_lp(ctx: &Arc<LpContext>, msg: LowPriorityMsg) {
       }
     }
     LowPriorityMsg::Background(entry) => {
-      let request_id = format!(
-        "{}+bg-{}",
-        entry.request_id.split("+").next().unwrap(),
-        Uuid::new_v4().to_string()
-      );
-      let req = BlueboatIpcReq {
-        v: BlueboatIpcReqV::Background(entry.wire_bytes),
-        id: request_id,
-      };
-      let app = entry.app;
-      let fut = async {
-        match generic_invoke(req, &app.path, Some(app.version.as_str())).await {
-          Ok(_) => {}
-          Err(e) => {
-            log::warn!("background invoke failed (app {}): {:?}", app, e);
-          }
-        }
-      };
-      tokio::select! {
-        _ = fut => {}
-        _ = tokio::time::sleep(Duration::from_secs(30)) => {
-          log::warn!("background invoke timed out (app {})", app);
-        }
+      run_background_entry(entry).await;
+    }
+  }
+}
+
+async fn run_background_entry(entry: BackgroundEntry) {
+  let request_id = format!(
+    "{}+bg-{}",
+    entry.request_id.split("+").next().unwrap(),
+    Uuid::new_v4().to_string()
+  );
+  let req = BlueboatIpcReq {
+    v: BlueboatIpcReqV::Background(entry.wire_bytes),
+    id: request_id,
+  };
+  let app = entry.app;
+  let fut = async {
+    match generic_invoke(req, &app.path, Some(app.version.as_str())).await {
+      Ok(_) => {}
+      Err(e) => {
+        log::warn!("background invoke failed (app {}): {:?}", app, e);
       }
+    }
+  };
+  tokio::select! {
+    _ = fut => {}
+    _ = tokio::time::sleep(Duration::from_secs(30)) => {
+      log::warn!("background invoke timed out (app {})", app);
     }
   }
 }

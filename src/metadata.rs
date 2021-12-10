@@ -7,6 +7,9 @@ base64_serde_type!(Base64Standard, base64::STANDARD);
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Metadata {
+  #[serde(skip)]
+  pub path: String,
+
   pub version: String,
   pub package: String,
   pub env: HashMap<String, String>,

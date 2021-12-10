@@ -28,6 +28,7 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
+incremental = true
 
 [dependencies]
 smr = "0.1.0"
@@ -102,13 +103,15 @@ fraction = "0.9.0"
 lazy_static = "1.4.0"
 serde_yaml = "0.8"
 jsonwebtoken = "7"
-rdkafka = "0.27.0"
+rdkafka = "0.28.0"
 prost = "0.9"
 prost-types = "0.9"
 tokio-tungstenite = { version = "0.16", features = ["native-tls"] }
 bincode = "1"
 typetag = "0.1"
 erased-serde = "0.3"
+either = "1"
+rmp-serde = "0.15"
 
 [build-dependencies]
 prost-build = "0.9"
