@@ -94,6 +94,9 @@ struct Opt {
 
   #[structopt(long, default_value = "-")]
   mds_local_region: String,
+
+  #[structopt(long)]
+  accept_background_tasks: bool,
 }
 
 struct CacheEntry {
@@ -429,7 +432,10 @@ async fn async_main() {
 
   spawn_lp_handler(Arc::new(lp_ctx), lp_rx);
 
-  spawn_task_handler();
+  if opt.accept_background_tasks {
+    log::info!("This instance will accept background tasks.");
+    spawn_task_handler();
+  }
 
   let make_svc = make_service_fn(|_| async move { Ok::<_, hyper::Error>(service_fn(handle)) });
 

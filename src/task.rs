@@ -282,7 +282,11 @@ async fn preemptive_task_acceptor_worker<T: for<'x> Deserialize<'x> + Send + 'st
       {
         Ok(x) => {
           if x {
-            log::info!("acquired lock for channel {}", channel);
+            log::info!(
+              "acquired lock for channel {} with identity {}",
+              channel,
+              identity
+            );
             match channel_worker(*channel, props, &mut lock_json, &mut tx).await {
               Ok(()) => {}
               Err(e) => {
@@ -434,6 +438,14 @@ async fn real_channel_worker<T: for<'x> Deserialize<'x> + Send + 'static>(
         let partition = msg.partition();
         let offset = msg.offset();
 
+        let value: T = match rmp_serde::from_read(payload) {
+          Ok(x) => x,
+          Err(e) => {
+            log::error!("real_channel_worker: error while deserializing: {}", e);
+            continue;
+          }
+        };
+
         let partition_backlog = backlog.entry(partition).or_insert_with(BTreeMap::new);
         partition_backlog.insert(offset, false);
         if partition_backlog.len() > THRESHOLD {
@@ -443,14 +455,6 @@ async fn real_channel_worker<T: for<'x> Deserialize<'x> + Send + 'static>(
             partition
           );
         }
-
-        let value: T = match rmp_serde::from_read(payload) {
-          Ok(x) => x,
-          Err(e) => {
-            log::error!("real_channel_worker: error while deserializing: {}", e);
-            continue;
-          }
-        };
         let completion = TaskCompletion {
           tx: completion_tx.clone(),
           msg: TaskCompletionMessage { partition, offset },
