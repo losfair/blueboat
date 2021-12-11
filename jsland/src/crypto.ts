@@ -9,3 +9,7 @@ export function getRandomValues<
 >(out: T): T {
   return <T>__blueboat_host_invoke("crypto_getrandom", out);
 }
+
+export function randomUUID(): string {
+  return <string>__blueboat_host_invoke("crypto_random_uuid");
+}

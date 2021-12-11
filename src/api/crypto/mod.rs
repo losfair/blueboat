@@ -50,3 +50,14 @@ pub fn api_crypto_getrandom(
   retval.set(out.into());
   Ok(())
 }
+
+pub fn api_crypto_random_uuid(
+  scope: &mut v8::HandleScope,
+  _args: v8::FunctionCallbackArguments,
+  mut retval: v8::ReturnValue,
+) -> Result<()> {
+  let uuid = uuid::Uuid::new_v4();
+  let uuid = v8::String::new(scope, &uuid.to_string()).unwrap();
+  retval.set(uuid.into());
+  Ok(())
+}

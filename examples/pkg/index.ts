@@ -148,3 +148,5 @@ Router.get("/kv/pd", async req => {
   await ns.prefixDelete("");
   return new Response(JSON.stringify({ ok: true }));
 });
+
+Router.get("/random_uuid", () => new Response((<any>crypto).randomUUID()));

@@ -51,6 +51,7 @@ pub static API: phf::Map<&'static str, ApiHandler> = phf_map! {
   "log" => api_log,
   "crypto_digest" => crypto::api_crypto_digest,
   "crypto_getrandom" => crypto::api_crypto_getrandom,
+  "crypto_random_uuid" => crypto::api_crypto_random_uuid,
   "crypto_x25519_derive_public" => crypto::curve25519::api_crypto_x25519_derive_public,
   "crypto_x25519_diffie_hellman" => crypto::curve25519::api_crypto_x25519_diffie_hellman,
   "crypto_ed25519_derive_public" => crypto::curve25519::api_crypto_ed25519_derive_public,
