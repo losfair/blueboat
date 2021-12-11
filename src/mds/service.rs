@@ -9,8 +9,9 @@ use super::raw::{PrefixListOptions, RawMds, RawMdsHandle};
 use anyhow::Result;
 use ed25519_dalek::Keypair;
 use parking_lot::Mutex as PMutex;
+use rand::prelude::SliceRandom;
 
-const MUX_WIDTH: u32 = 8;
+const MUX_WIDTH: u32 = 16;
 
 #[derive(Clone)]
 pub struct MdsServiceState {
@@ -117,12 +118,15 @@ impl MdsServiceState {
 
   pub fn get_shard_session(&self, name: &str) -> Option<&RawMdsHandle> {
     let shard = self.shards.get(name)?;
-    for s in &shard.servers {
+    let mut servers = shard.servers.iter().collect::<Vec<_>>();
+    servers.shuffle(&mut rand::thread_rng());
+
+    for &s in &servers {
       if !s.handle.is_broken() && s.region == self.local_region {
         return Some(&s.handle);
       }
     }
-    for s in &shard.servers {
+    for &s in &servers {
       if !s.handle.is_broken() {
         return Some(&s.handle);
       }
