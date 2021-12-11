@@ -1,1 +1,1 @@
-export { BackgroundEntryBase, atMostOnce, atLeastOnce } from "./impl";
+export { BackgroundEntryBase, atMostOnce, atLeastOnce, DelayedTaskOpts, delayed } from "./impl";

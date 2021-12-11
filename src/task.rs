@@ -5,16 +5,18 @@ use std::{
 };
 
 use crate::{
+  kvutil::group_kv_rows_by_prefix,
+  lpch::BackgroundEntry,
   mds::{
-    get_mds,
+    get_mds, get_shard_session_with_infinite_retry_assuming_mds_exists,
     raw::{PrefixListOptions, TriStateCheck, TriStateSet},
   },
   util::random_backoff,
 };
 use anyhow::Result;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use either::Either;
 use futures::StreamExt;
-use itertools::Itertools;
 use parking_lot::Mutex;
 use rand::prelude::SliceRandom;
 use rdkafka::producer::FutureProducer;
@@ -41,17 +43,19 @@ impl TaskCompletion {
 struct TaskCompletionMessage {
   partition: i32,
   offset: i64,
+  delayed_task_prefix: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct KafkaChannelConfig {
+pub struct ChannelConfig {
   pub servers: String,
   pub topic: String,
   pub consumer_group: String,
+  pub delayed_task_shard: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
-struct KafkaChannelLock {
+struct ChannelLock {
   identity: String,
   ts: u64,
 }
@@ -62,8 +66,35 @@ pub struct ChannelRefresher {
 }
 
 pub struct ChannelSender {
-  pub config: KafkaChannelConfig,
-  pub producer: FutureProducer,
+  pub config: ChannelConfig,
+  pub kafka_producer: FutureProducer,
+}
+
+impl ChannelSender {
+  pub async fn add_delayed_task(&self, ts_secs: i64, entry: BackgroundEntry) -> Result<String> {
+    let delayed_task_shard = match &self.config.delayed_task_shard {
+      Some(shard) => shard,
+      None => anyhow::bail!("delayed task shard is not set"),
+    };
+    let mds = get_mds()?;
+    let shard = mds
+      .get_shard_session(delayed_task_shard)
+      .ok_or_else(|| anyhow::anyhow!("delayed task shard not available"))?;
+
+    let naive = NaiveDateTime::from_timestamp(ts_secs, 0);
+    let utc: DateTime<Utc> = DateTime::from_utc(naive, Utc);
+    let dt_id = format!("{}/{}", time_to_prefix(&utc), Uuid::new_v4());
+    let entry = rmp_serde::to_vec(&entry)?;
+    shard
+      .compare_and_set_many([(
+        dt_id.as_str(),
+        TriStateCheck::<&[u8]>::Any,
+        TriStateSet::Value(entry),
+      )])
+      .await?;
+
+    Ok(dt_id)
+  }
 }
 
 pub static CHANNEL_REFRESHER: OnceCell<ChannelRefresher> = OnceCell::const_new();
@@ -120,11 +151,11 @@ impl ChannelRefresher {
 
   async fn fetch_channels() -> Result<Vec<(String, Arc<ChannelSender>)>> {
     let rows = load_channel_rows().await?;
-    let channels = normalize_channel_rows(&rows);
+    let channels = group_kv_rows_by_prefix(&rows);
     let mut out: Vec<(String, Arc<ChannelSender>)> = vec![];
     for (k, v) in channels {
       if let Some(c) = v.get("config") {
-        if let Ok(c) = serde_json::from_slice::<KafkaChannelConfig>(*c) {
+        if let Ok(c) = serde_json::from_slice::<ChannelConfig>(*c) {
           let mut client_config = ClientConfig::new();
           client_config.set("bootstrap.servers", &c.servers);
           let producer: FutureProducer = match client_config.create() {
@@ -139,7 +170,7 @@ impl ChannelRefresher {
             k.to_string(),
             Arc::new(ChannelSender {
               config: c,
-              producer,
+              kafka_producer: producer,
             }),
           ));
         }
@@ -190,28 +221,6 @@ async fn load_channel_rows() -> Result<Vec<(String, Vec<u8>)>> {
     .map_err(|e| e.context("cannot list task scheduler channels"))
 }
 
-fn normalize_channel_rows<'a>(rows: &[(String, Vec<u8>)]) -> Vec<(&str, HashMap<&str, &[u8]>)> {
-  rows
-    .iter()
-    .filter(|(k, _)| k.chars().filter(|&c| c == '/').count() == 1)
-    .map(|(k, v)| {
-      let mut parts = k.split('/');
-      let key = parts.next().unwrap();
-      let prop = parts.next().unwrap();
-      (key, prop, v.as_slice())
-    })
-    .group_by(|(k, _, _)| *k)
-    .into_iter()
-    .map(|(k, group)| {
-      let mut props: HashMap<&str, &[u8]> = HashMap::new();
-      for k in group {
-        props.insert(k.1, k.2);
-      }
-      (k, props)
-    })
-    .collect()
-}
-
 async fn preemptive_task_acceptor_worker<T: for<'x> Deserialize<'x> + Send + 'static>(
   mut tx: tokio::sync::mpsc::Sender<(T, TaskCompletion)>,
 ) {
@@ -252,20 +261,20 @@ async fn preemptive_task_acceptor_worker<T: for<'x> Deserialize<'x> + Send + 'st
       .duration_since(SystemTime::UNIX_EPOCH)
       .unwrap()
       .as_millis() as u64;
-    let mut channels = normalize_channel_rows(&rows);
+    let mut channels = group_kv_rows_by_prefix(&rows);
 
     channels.shuffle(&mut rand::thread_rng());
 
     for (channel, props) in &channels {
       let original_lock_raw = props.get("lock").copied();
-      let lock: Option<KafkaChannelLock> =
+      let lock: Option<ChannelLock> =
         original_lock_raw.and_then(|x| serde_json::from_slice(x).ok());
       match &lock {
         Some(x) if now.saturating_sub(x.ts) < 25 * 1000 => continue,
         _ => {}
       }
 
-      let lock = KafkaChannelLock {
+      let lock = ChannelLock {
         identity: identity.clone(),
         ts: now,
       };
@@ -334,7 +343,7 @@ async fn channel_worker<T: for<'x> Deserialize<'x> + Send + 'static>(
   let config_json = *props
     .get("config")
     .ok_or_else(|| anyhow::anyhow!("missing config"))?;
-  let config: KafkaChannelConfig = serde_json::from_slice(config_json)?;
+  let config: ChannelConfig = serde_json::from_slice(config_json)?;
 
   let mut client_config = ClientConfig::new();
   client_config.set("bootstrap.servers", &config.servers);
@@ -355,6 +364,10 @@ async fn channel_worker<T: for<'x> Deserialize<'x> + Send + 'static>(
     config.topic.clone(),
     tx.clone(),
   )));
+  let _g_delayed = config
+    .delayed_task_shard
+    .as_ref()
+    .map(|x| Guard(tokio::spawn(delayed_task_worker(x.clone(), tx.clone()))));
 
   loop {
     random_backoff().await;
@@ -379,7 +392,7 @@ async fn channel_worker<T: for<'x> Deserialize<'x> + Send + 'static>(
     }
 
     // Renew
-    let mut lock: KafkaChannelLock = serde_json::from_slice(lock_json.as_slice())?;
+    let mut lock: ChannelLock = serde_json::from_slice(lock_json.as_slice())?;
     lock.ts = SystemTime::now()
       .duration_since(SystemTime::UNIX_EPOCH)
       .unwrap()
@@ -398,6 +411,106 @@ async fn channel_worker<T: for<'x> Deserialize<'x> + Send + 'static>(
     }
     *lock_json = new_lock_json;
   }
+}
+
+async fn delayed_task_worker<T: for<'x> Deserialize<'x> + Send + 'static>(
+  shard_name: String,
+  mut tx: tokio::sync::mpsc::Sender<(T, TaskCompletion)>,
+) {
+  loop {
+    delayed_task_worker_once(&shard_name, &mut tx).await;
+  }
+}
+
+async fn delayed_task_worker_once<T: for<'x> Deserialize<'x> + Send + 'static>(
+  shard_name: &str,
+  tx: &mut tokio::sync::mpsc::Sender<(T, TaskCompletion)>,
+) {
+  let (completion_tx, mut completion_rx): (
+    tokio::sync::mpsc::UnboundedSender<TaskCompletionMessage>,
+    tokio::sync::mpsc::UnboundedReceiver<TaskCompletionMessage>,
+  ) = tokio::sync::mpsc::unbounded_channel();
+  let now = time_to_prefix(&Utc::now());
+
+  let tasks = match get_shard_session_with_infinite_retry_assuming_mds_exists(shard_name)
+    .await
+    .prefix_list(
+      "",
+      PrefixListOptions {
+        reverse: false,
+        want_value: true,
+        limit: 100,
+        cursor: None,
+      },
+      true,
+    )
+    .await
+  {
+    Ok(tasks) => tasks,
+    Err(e) => {
+      log::error!("failed to list tasks: {}", e);
+      random_backoff().await;
+      return;
+    }
+  };
+
+  let mut processed_task_count = 0usize;
+
+  for (k, payload) in &tasks {
+    if k.as_str() > now.as_str() {
+      break;
+    }
+    let value = match rmp_serde::from_read(&payload[..]) {
+      Ok(x) => x,
+      Err(e) => {
+        log::error!("real_channel_worker: error while deserializing: {}", e);
+        continue;
+      }
+    };
+    let _ = tx
+      .send((
+        value,
+        TaskCompletion {
+          msg: TaskCompletionMessage {
+            delayed_task_prefix: Some(k.to_string()),
+            partition: -1,
+            offset: -1,
+          },
+          tx: completion_tx.clone(),
+        },
+      ))
+      .await;
+    processed_task_count += 1;
+  }
+  drop(completion_tx);
+
+  if processed_task_count == 0 {
+    random_backoff().await;
+    return;
+  }
+
+  loop {
+    let msg = match completion_rx.recv().await {
+      Some(x) => x,
+      None => break,
+    };
+    loop {
+      let shard = get_shard_session_with_infinite_retry_assuming_mds_exists(shard_name).await;
+      if let Err(e) = shard
+        .prefix_delete(msg.delayed_task_prefix.as_ref().unwrap())
+        .await
+      {
+        log::warn!("failed to delete delayed task, retrying: {}", e);
+        random_backoff().await;
+      } else {
+        break;
+      }
+    }
+  }
+  log::info!(
+    "finished delayed task batch of size {}",
+    processed_task_count
+  );
 }
 
 async fn real_channel_worker<T: for<'x> Deserialize<'x> + Send + 'static>(
@@ -460,7 +573,11 @@ async fn real_channel_worker<T: for<'x> Deserialize<'x> + Send + 'static>(
         }
         let completion = TaskCompletion {
           tx: completion_tx.clone(),
-          msg: TaskCompletionMessage { partition, offset },
+          msg: TaskCompletionMessage {
+            partition,
+            offset,
+            delayed_task_prefix: None,
+          },
         };
         let _ = tx.send((value, completion)).await;
       }
@@ -492,4 +609,8 @@ async fn real_channel_worker<T: for<'x> Deserialize<'x> + Send + 'static>(
   }
 
   log::warn!("consumer stream ended");
+}
+
+fn time_to_prefix(t: &DateTime<Utc>) -> String {
+  t.format("%Y/%m/%d/%H/%M/%S").to_string()
 }
