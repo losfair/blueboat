@@ -2,7 +2,7 @@ export * as Ed25519 from "./ed25519";
 export * as X25519 from "./x25519";
 export * as JWT from "./jwt";
 
-export type DigestAlgorithm = "sha1" | "sha256" | "sha384" | "sha512";
+export type DigestAlgorithm = "sha1" | "sha256" | "sha384" | "sha512" | "blake3";
 
 export function digest(
   algorithm: DigestAlgorithm,

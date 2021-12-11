@@ -112,6 +112,7 @@ typetag = "0.1"
 erased-serde = "0.3"
 either = "1"
 rmp-serde = "0.15"
+blake3 = "1"
 
 [build-dependencies]
 prost-build = "0.9"

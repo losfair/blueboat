@@ -21,15 +21,21 @@ pub fn api_crypto_digest(
   struct InvalidAlg;
 
   let alg = v8::Local::<v8::String>::try_from(args.get(1))?.to_rust_string_lossy(scope);
+  let data = v8::Local::<v8::TypedArray>::try_from(args.get(2))?;
+  let data = unsafe { v8_deref_typed_array_assuming_noalias(scope, data) };
+
   let alg: &'static ring::digest::Algorithm = match alg.as_str() {
     "sha1" => &ring::digest::SHA1_FOR_LEGACY_USE_ONLY,
     "sha256" => &ring::digest::SHA256,
     "sha384" => &ring::digest::SHA384,
     "sha512" => &ring::digest::SHA512,
+    "blake3" => {
+      let output = blake3::hash(&data);
+      retval.set(create_uint8array_from_bytes(scope, output.as_bytes()).into());
+      return Ok(());
+    }
     _ => return Err(InvalidAlg.into()),
   };
-  let data = v8::Local::<v8::TypedArray>::try_from(args.get(2))?;
-  let data = unsafe { v8_deref_typed_array_assuming_noalias(scope, data) };
   let mut ctx = ring::digest::Context::new(alg);
   ctx.update(&data);
   let output = ctx.finish();
