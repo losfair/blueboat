@@ -50,6 +50,7 @@ const methodMap: Record<
   (x: routerMod.Route) => routerMod.HttpHandler | undefined
 > = {
   GET: (x) => x.get,
+  HEAD: (x) => x.head || x.get,
   POST: (x) => x.post,
   PUT: (x) => x.put,
   PATCH: (x) => x.patch,

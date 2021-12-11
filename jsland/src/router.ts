@@ -1,5 +1,6 @@
 export interface Router {
   get(path: string, cb: HttpHandler): void;
+  head(path: string, cb: HttpHandler): void;
   post(path: string, cb: HttpHandler): void;
   put(path: string, cb: HttpHandler): void;
   patch(path: string, cb: HttpHandler): void;
@@ -17,6 +18,7 @@ export type MiddlewareHandler = (
 
 export interface Route {
   get?: HttpHandler;
+  head?: HttpHandler;
   post?: HttpHandler;
   put?: HttpHandler;
   patch?: HttpHandler;
@@ -106,6 +108,11 @@ export class RouterImpl implements Router {
   get(path: string, cb: HttpHandler): void {
     this.createChild(path, (r) => {
       r.get = cb;
+    });
+  }
+  head(path: string, cb: HttpHandler): void {
+    this.createChild(path, (r) => {
+      r.head = cb;
     });
   }
   put(path: string, cb: HttpHandler): void {

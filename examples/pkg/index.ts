@@ -150,3 +150,5 @@ Router.get("/kv/pd", async req => {
 });
 
 Router.get("/random_uuid", () => new Response((<any>crypto).randomUUID()));
+
+Router.get("/web/", App.serveStaticFiles("/web/", "static"));

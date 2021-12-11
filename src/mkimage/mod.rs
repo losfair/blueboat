@@ -117,16 +117,23 @@ pub fn main() {
   if let Some(sc) = &mut sc {
     let blob = sc
       .create_blob(v8::FunctionCodeHandling::Keep)
-      .expect("snapshot creation failed");
-    std::fs::write(&opt.output, &blob[..]).unwrap();
-    log::info!("Written snapshot.");
+      .expect("snapshot creation failed")
+      .to_vec();
 
-    {
-      let mut isolate = v8::Isolate::new(v8::CreateParams::default().snapshot_blob(blob));
+    const N: usize = 5;
+
+    for _ in 0..N {
+      let mut isolate = v8::Isolate::new(v8::CreateParams::default().snapshot_blob(blob.clone()));
       let mut isolate_scope = v8::HandleScope::new(&mut *isolate);
       v8::Context::new(&mut isolate_scope);
     }
-    log::info!("Context deserialization test succeeded.");
+    log::info!(
+      "Context deserialization test completed. All {} attempts succeeded.",
+      N
+    );
+
+    std::fs::write(&opt.output, &blob[..]).unwrap();
+    log::info!("Written snapshot.");
   }
 
   log::info!("Build completed.");
