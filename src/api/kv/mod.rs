@@ -163,7 +163,7 @@ impl RchReqBody for KvPrefixListRequest {
     let key_value_pairs = shard
       .prefix_list(
         format!("{}/{}", ns.prefix, self.prefix),
-        &self.opts,
+        self.opts,
         self.primary,
       )
       .await?;

@@ -178,7 +178,7 @@ async fn load_channel_rows() -> Result<Vec<(String, Vec<u8>)>> {
   sess
     .prefix_list(
       &region_scheduler_prefix,
-      &PrefixListOptions {
+      PrefixListOptions {
         limit: 1000,
         want_value: true,
         reverse: false,
@@ -235,7 +235,7 @@ async fn preemptive_task_acceptor_worker<T: for<'x> Deserialize<'x> + Send + 'st
     let rows = match sess
       .prefix_list(
         &region_scheduler_prefix,
-        &PrefixListOptions {
+        PrefixListOptions {
           limit: 1000,
           want_value: true,
           reverse: false,

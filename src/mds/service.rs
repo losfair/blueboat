@@ -207,7 +207,7 @@ impl MdsServiceState {
       .handle
       .prefix_list(
         "shards",
-        &PrefixListOptions {
+        PrefixListOptions {
           reverse: false,
           want_value: true,
           limit: 500,
