@@ -7,6 +7,7 @@ mod generational_cache;
 mod gres;
 mod headers;
 mod ipc;
+mod kvutil;
 mod lpch;
 mod mds;
 mod metadata;

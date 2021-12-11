@@ -45,6 +45,7 @@ pub static API: phf::Map<&'static str, ApiHandler> = phf_map! {
   "complete" => api_complete,
   "schedule_at_most_once" => api_schedule_at_most_once,
   "schedule_at_least_once" => task::api_schedule_at_least_once,
+  "schedule_delayed" => task::api_schedule_delayed,
   "encode" => api_encode,
   "decode" => api_decode,
   "fetch" => fetch::api_fetch,

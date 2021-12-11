@@ -324,9 +324,10 @@ impl RawMdsHandle {
   pub async fn prefix_list<S: AsRef<str>>(
     &self,
     prefix: S,
-    opts: &PrefixListOptions,
+    mut opts: PrefixListOptions,
     primary: bool,
   ) -> Result<Vec<(String, Vec<u8>)>> {
+    opts.cursor = opts.cursor.map(|x| encode_path(&x)).transpose()?;
     let prefix = encode_path(prefix.as_ref())?;
     let pairs: Vec<(String, Option<String>)> = self
       .run(

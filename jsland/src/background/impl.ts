@@ -3,6 +3,14 @@ import { wrapNativeAsync } from "../util";
 
 let registration: BackgroundEntryBase | null = null;
 
+export interface DelayedTaskOpts {
+  tsSecs: number;
+}
+
+export interface DelayedTaskInfo {
+  id: string;
+}
+
 export class BackgroundEntryBase {
   constructor() {
     if (registration)
@@ -41,6 +49,25 @@ export function atLeastOnce<
     __blueboat_host_invoke(
       "schedule_at_least_once",
       inv,
+      callback
+    )
+  );
+}
+
+export function delayed<
+  A,
+  T extends BackgroundEntryBase & { [P in K]: (arg: A) => unknown },
+  K extends keyof T & string
+>(base: T, key: K, arg: A, opts: DelayedTaskOpts): Promise<DelayedTaskInfo> {
+  const inv: BackgroundInvocation = {
+    entry: key,
+    arg,
+  };
+  return wrapNativeAsync((callback) =>
+    __blueboat_host_invoke(
+      "schedule_delayed",
+      inv,
+      opts,
       callback
     )
   );

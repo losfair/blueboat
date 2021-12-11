@@ -55,6 +55,13 @@ Router.get("/background/atLeastOnce", async req => {
   await Background.atLeastOnce(bgEntry, "testLog", "hello from background (atLeastOnce)");
   return new Response("Scheduled.\n");
 });
+Router.get("/background/delayed", async req => {
+  console.log("scheduling background task (delayed)");
+  let { id } = await Background.delayed(bgEntry, "testLog", "hello from background (delayed)", {
+    tsSecs: Date.now() / 1000 + 5,
+  });
+  return new Response(`Scheduled. ID: ${id}\n`);
+});
 Router.get("/markdown", req => {
   return new Response(TextUtil.Markdown.renderToHtml("# Hello world\n\nTest paragraph. <script></script>", {}), {
     headers: {
