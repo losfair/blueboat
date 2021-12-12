@@ -10,7 +10,7 @@ use std::{
 use anyhow::Result;
 use lazy_static::lazy_static;
 use rdkafka::{
-  producer::{FutureProducer, FutureRecord},
+  producer::{FutureProducer, FutureRecord, Producer},
   ClientConfig,
 };
 use regex::Regex;
@@ -92,6 +92,10 @@ impl LogService {
         pid,
       }),
     })
+  }
+
+  pub fn flush_before_exit(&self) {
+    self.inner.producer.flush(rdkafka::util::Timeout::Never);
   }
 
   pub fn write(&self, entry: &str) {

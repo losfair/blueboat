@@ -253,10 +253,13 @@ impl MemoryWatermark {
 async fn async_main() {
   let opt = Opt::from_args();
 
+  let mut syslog_service: Option<LogService> = None;
+
   if opt.syslog_kafka != "-" {
     let syslog = LogService::open(&opt.syslog_kafka)
       .map_err(|e| e.context("opening syslog-kafka"))
       .unwrap();
+    syslog_service = Some(syslog.clone());
     tracing_subscriber::registry()
       .with(
         tracing_subscriber::fmt::layer().with_filter(tracing_subscriber::filter::LevelFilter::WARN),
@@ -417,17 +420,19 @@ async fn async_main() {
     }
   });
 
-  let mut lp_ctx = LpContext {
-    log_kafka: None,
-    bg_permit: Arc::new(Semaphore::new(500)),
-  };
+  let mut applog_service: Option<LogService> = None;
 
   // Write logs
   if opt.log_kafka != "-" {
     log::warn!("Logging enabled. Logs will be written to the provided kafka cluster.");
     let producer = LogService::open(&opt.log_kafka).unwrap();
-    lp_ctx.log_kafka = Some(producer);
+    applog_service = Some(producer);
   }
+
+  let lp_ctx = LpContext {
+    log_kafka: applog_service.clone(),
+    bg_permit: Arc::new(Semaphore::new(500)),
+  };
 
   CHANNEL_REFRESHER
     .set(ChannelRefresher::init().await)
@@ -443,7 +448,41 @@ async fn async_main() {
   let make_svc = make_service_fn(|_| async move { Ok::<_, hyper::Error>(service_fn(handle)) });
 
   tracing::warn!(address = %opt.listen, "start listener");
-  Server::bind(&opt.listen).serve(make_svc).await.unwrap();
+  let server = Server::bind(&opt.listen).serve(make_svc);
+  let graceful = server.with_graceful_shutdown(shutdown_signal());
+
+  if let Err(e) = graceful.await {
+    tracing::error!(error = %e, "server error");
+  } else {
+    tracing::warn!("server shutdown");
+  }
+
+  if let Some(applog_service) = &applog_service {
+    applog_service.flush_before_exit();
+  }
+
+  if let Some(syslog_service) = &syslog_service {
+    syslog_service.flush_before_exit();
+  }
+
+  eprintln!("flushed logs");
+}
+
+async fn shutdown_signal() {
+  let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate()).unwrap();
+  let mut sigint = tokio::signal::unix::signal(SignalKind::interrupt()).unwrap();
+  loop {
+    tokio::select! {
+      _ = sigterm.recv() => {
+        tracing::warn!("received SIGTERM");
+        break;
+      }
+      _ = sigint.recv() => {
+        tracing::warn!("received SIGINT");
+        break;
+      }
+    }
+  }
 }
 
 fn spawn_task_handler() {

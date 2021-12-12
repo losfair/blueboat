@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
-use tracing::Span;
 
 use std::{
   cell::{Cell, RefCell},
