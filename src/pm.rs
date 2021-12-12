@@ -15,7 +15,7 @@ pub unsafe fn secure_init(
   envp: *mut *mut libc::c_char,
 ) {
   PM = Some(Mutex::new(pm_secure_start(argc, argv, envp, || {
-    pretty_env_logger::init_timed();
+    tracing_subscriber::fmt().init();
 
     if let Ok(x) = std::env::var("SMRAPP_BLUEBOAT_HTTP_PROXY") {
       std::env::set_var("HTTP_PROXY", &x);

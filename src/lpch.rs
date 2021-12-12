@@ -5,12 +5,12 @@ use crate::package::PackageKey;
 
 #[derive(Serialize, Deserialize)]
 pub enum LowPriorityMsg {
-  Log(LogEntry),
+  Log(AppLogEntry),
   Background(BackgroundEntry),
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct LogEntry {
+pub struct AppLogEntry {
   pub app: PackageKey,
   pub request_id: String,
   pub message: String,

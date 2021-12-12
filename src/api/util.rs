@@ -15,7 +15,7 @@ use v8;
 use crate::{
   ctx::BlueboatInitData,
   exec::Executor,
-  lpch::{LogEntry, LowPriorityMsg},
+  lpch::{AppLogEntry, LowPriorityMsg},
   package::PackageKey,
 };
 
@@ -192,7 +192,7 @@ pub fn write_applog2(
   lp_tx: &IpcSender<LowPriorityMsg>,
 ) {
   log::debug!("applog({})<{}>: {}", key, request_id, message);
-  let _ = lp_tx.send(LowPriorityMsg::Log(LogEntry {
+  let _ = lp_tx.send(LowPriorityMsg::Log(AppLogEntry {
     app: key.clone(),
     request_id: request_id.to_string(),
     message,

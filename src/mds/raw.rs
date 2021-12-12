@@ -19,7 +19,7 @@ use tokio::{
 };
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
-use crate::util::random_backoff_fast;
+use crate::backoff::random_backoff_fast;
 
 use super::keycodec::{decode_path, encode_path};
 

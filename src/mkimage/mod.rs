@@ -41,7 +41,7 @@ pub fn main() {
     return;
   }
   let dry = std::env::var("MKIMAGE_DRY_RUN").is_ok();
-  pretty_env_logger::init_timed();
+  tracing_subscriber::fmt().init();
   let opt = Opt::from_args();
 
   let platform = v8::new_default_platform(0, false).make_shared();

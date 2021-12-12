@@ -5,13 +5,13 @@ use std::{
 };
 
 use crate::{
+  backoff::random_backoff,
   kvutil::group_kv_rows_by_prefix,
   lpch::BackgroundEntry,
   mds::{
     get_mds, get_shard_session_with_infinite_retry_assuming_mds_exists,
     raw::{PrefixListOptions, TriStateCheck, TriStateSet},
   },
-  util::random_backoff,
 };
 use anyhow::Result;
 use chrono::{DateTime, NaiveDateTime, Utc};

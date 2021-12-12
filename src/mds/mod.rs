@@ -3,7 +3,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use tokio::sync::OnceCell;
 
-use crate::util::random_backoff;
+use crate::backoff::random_backoff;
 
 use self::{raw::RawMdsHandle, service::MdsServiceState};
 use anyhow::Result;

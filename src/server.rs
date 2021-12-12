@@ -12,7 +12,8 @@ use crate::headers::{
   HDR_RES_HANDLE_LATENCY, HDR_RES_REQUEST_ID, PROXY_HEADER_WHITELIST,
 };
 use crate::ipc::{BlueboatIpcReqV, BlueboatIpcRes};
-use crate::lpch::{BackgroundEntry, LogEntry, LowPriorityMsg};
+use crate::logsvc::LogService;
+use crate::lpch::{BackgroundEntry, LowPriorityMsg};
 use crate::mds::service::MdsServiceState;
 use crate::mds::MDS;
 use crate::pm::pm_handle;
@@ -20,7 +21,6 @@ use crate::reliable_channel::create_reliable_channel;
 use crate::task::{
   spawn_preemptive_task_acceptor, ChannelRefresher, TaskCompletion, CHANNEL_REFRESHER,
 };
-use crate::util::KafkaProducerService;
 use crate::wpbl::WpblDb;
 use crate::{
   ctx::BlueboatInitData,
@@ -37,12 +37,13 @@ use hyper::{
 use maxminddb::geoip2::City;
 use memmap2::Mmap;
 use parking_lot::Mutex;
-use rdkafka::producer::FutureRecord;
 use rusoto_core::Region;
 use rusoto_s3::{GetObjectRequest, S3Client, S3};
 use smr::config::{APP_INACTIVE_TIMEOUT_MS, SPRING_CLEANING_INTERVAL_MS};
 use smr::ipc_channel::ipc::IpcSender;
 use smr::{ipc_channel::ipc::IpcSharedMemory, scheduler::Scheduler};
+use tracing::Instrument;
+use tracing_subscriber::prelude::*;
 
 use anyhow::Result;
 use structopt::StructOpt;
@@ -84,6 +85,9 @@ struct Opt {
   log_kafka: String,
 
   #[structopt(long, default_value = "-")]
+  syslog_kafka: String,
+
+  #[structopt(long, default_value = "-")]
   mmdb_city: String,
 
   #[structopt(long, default_value = "-")]
@@ -105,8 +109,7 @@ struct CacheEntry {
 }
 
 struct LpContext {
-  log_kafka: Option<KafkaProducerService>,
-  log_permit: Arc<Semaphore>,
+  log_kafka: Option<LogService>,
   bg_permit: Arc<Semaphore>,
 }
 
@@ -125,7 +128,6 @@ static MMDB_CITY: OnceCell<Option<maxminddb::Reader<Mmap>>> = OnceCell::const_ne
 static WPBL_DB: OnceCell<Option<WpblDb>> = OnceCell::const_new();
 
 static LP_DISPATCH_FAIL_COUNT: AtomicU64 = AtomicU64::new(0);
-static LP_LOG_ISSUE_FAIL_COUNT: AtomicU64 = AtomicU64::new(0);
 static LP_BG_ISSUE_FAIL_COUNT: AtomicU64 = AtomicU64::new(0);
 
 const MIN_GAP_KB: u64 = 65536;
@@ -133,7 +135,6 @@ const WORKER_IDLE_TTL_SECS: u64 = 400;
 const CODE_CACHE_SWEEP_INTERVAL_SECS: u64 = WORKER_IDLE_TTL_SECS + 10;
 
 pub fn main() {
-  pretty_env_logger::init_timed();
   tokio::runtime::Builder::new_multi_thread()
     .enable_all()
     .build()
@@ -251,6 +252,22 @@ impl MemoryWatermark {
 
 async fn async_main() {
   let opt = Opt::from_args();
+
+  if opt.syslog_kafka != "-" {
+    let syslog = LogService::open(&opt.syslog_kafka)
+      .map_err(|e| e.context("opening syslog-kafka"))
+      .unwrap();
+    tracing_subscriber::registry()
+      .with(
+        tracing_subscriber::fmt::layer().with_filter(tracing_subscriber::filter::LevelFilter::INFO),
+      )
+      .with(syslog.with_filter(tracing_subscriber::filter::LevelFilter::DEBUG))
+      .init();
+    tracing::info!("starting");
+  } else {
+    tracing_subscriber::fmt().init();
+    log::info!("Logging to stderr. Please use --syslog-kafka in production.");
+  }
 
   let s3_client = S3Client::new(if opt.s3_endpoint != "-" {
     Region::Custom {
@@ -415,14 +432,13 @@ async fn async_main() {
 
   let mut lp_ctx = LpContext {
     log_kafka: None,
-    log_permit: Arc::new(Semaphore::new(5000)),
     bg_permit: Arc::new(Semaphore::new(500)),
   };
 
   // Write logs
   if opt.log_kafka != "-" {
     log::info!("Logging enabled. Logs will be written to the provided kafka cluster.");
-    let producer = KafkaProducerService::open(&opt.log_kafka).unwrap();
+    let producer = LogService::open(&opt.log_kafka).unwrap();
     lp_ctx.log_kafka = Some(producer);
   }
 
@@ -800,36 +816,23 @@ fn spawn_lp_handler(ctx: Arc<LpContext>, rx: smr::ipc_channel::ipc::IpcReceiver<
 }
 
 fn issue_lp(ctx: &Arc<LpContext>, msg: LowPriorityMsg) {
-  let (fail_counter, sem) = match msg {
-    LowPriorityMsg::Log(_) => (&LP_LOG_ISSUE_FAIL_COUNT, &ctx.log_permit),
-    LowPriorityMsg::Background(_) => (&LP_BG_ISSUE_FAIL_COUNT, &ctx.bg_permit),
-  };
-  match sem.clone().try_acquire_owned() {
-    Ok(permit) => {
-      let ctx = ctx.clone();
-      tokio::spawn(async move {
-        handle_lp(&ctx, msg).await;
-        drop(permit);
-      });
-    }
-    Err(_) => {
-      fail_counter.fetch_add(1, Ordering::Relaxed);
-    }
-  }
-}
-
-async fn handle_lp(ctx: &Arc<LpContext>, msg: LowPriorityMsg) {
   match msg {
-    LowPriorityMsg::Log(entry) => {
+    LowPriorityMsg::Log(msg) => {
       if let Some(producer) = &ctx.log_kafka {
-        if let Err(e) = write_log(producer, entry).await {
-          log::debug!("write_log failed: {:?}", e);
-        }
+        producer.write_applog(msg);
       }
     }
-    LowPriorityMsg::Background(entry) => {
-      run_background_entry(entry).await;
-    }
+    LowPriorityMsg::Background(entry) => match ctx.bg_permit.clone().try_acquire_owned() {
+      Ok(permit) => {
+        tokio::spawn(async move {
+          run_background_entry(entry).await;
+          drop(permit);
+        });
+      }
+      Err(_) => {
+        LP_BG_ISSUE_FAIL_COUNT.fetch_add(1, Ordering::Relaxed);
+      }
+    },
   }
 }
 
@@ -839,6 +842,17 @@ async fn run_background_entry(entry: BackgroundEntry) {
     entry.request_id.split("+").next().unwrap(),
     Uuid::new_v4().to_string()
   );
+  let package_span = entry.app.span();
+  let task_span = tracing::info_span!("background task", request_id = %request_id);
+  do_run_background_entry(entry, request_id)
+    .instrument(package_span)
+    .instrument(task_span)
+    .await;
+}
+
+async fn do_run_background_entry(entry: BackgroundEntry, request_id: String) {
+  tracing::debug!("run background task");
+
   let req = BlueboatIpcReq {
     v: BlueboatIpcReqV::Background(entry.wire_bytes),
     id: request_id,
@@ -858,38 +872,17 @@ async fn run_background_entry(entry: BackgroundEntry) {
     {
       Ok(_) => {}
       Err(e) => {
-        log::warn!("background invoke failed (app {}): {:?}", app, e);
+        tracing::error!(reason = "invoke", error = %e, "background task failed");
       }
     }
   };
   tokio::select! {
-    _ = fut => {}
+    _ = fut => {},
     _ = tokio::time::sleep(Duration::from_secs(30)) => {
-      log::warn!("background invoke timed out (app {})", app);
+      tracing::error!(reason = "timeout", "background task failed")
     }
   }
 }
-
-async fn write_log(producer: &KafkaProducerService, entry: LogEntry) -> Result<()> {
-  let entry = serde_json::to_string(&entry)?;
-  producer
-    .producer
-    .send(
-      FutureRecord {
-        topic: &producer.topic,
-        partition: Some(producer.partition),
-        payload: Some(entry.as_str()),
-        key: None::<&[u8]>,
-        timestamp: None,
-        headers: None,
-      },
-      rdkafka::util::Timeout::Never,
-    )
-    .await
-    .map_err(|(e, _)| e)?;
-  Ok(())
-}
-
 async fn print_status() {
   log::info!("Requested to print system status.");
   let md_cache_stats = md_cache().stats();
@@ -903,10 +896,6 @@ async fn print_status() {
   eprintln!(
     "LP_BG_ISSUE_FAIL_COUNT: {}",
     LP_BG_ISSUE_FAIL_COUNT.load(Ordering::Relaxed)
-  );
-  eprintln!(
-    "LP_LOG_ISSUE_FAIL_COUNT: {}",
-    LP_LOG_ISSUE_FAIL_COUNT.load(Ordering::Relaxed)
   );
   if let Some(Some(x)) = MDS.get() {
     x.lock().print_status();

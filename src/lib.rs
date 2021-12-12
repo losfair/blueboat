@@ -1,5 +1,6 @@
 mod api;
 mod app_mysql;
+mod backoff;
 mod bootstrap;
 mod ctx;
 mod exec;
@@ -8,6 +9,7 @@ mod gres;
 mod headers;
 mod ipc;
 mod kvutil;
+mod logsvc;
 mod lpch;
 mod mds;
 mod metadata;
@@ -20,7 +22,6 @@ mod reliable_channel;
 mod secure_mode;
 mod server;
 mod task;
-mod util;
 mod v8util;
 mod wpbl;
 

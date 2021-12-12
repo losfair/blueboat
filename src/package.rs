@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
+use tracing::Span;
 
 use std::{
   cell::{Cell, RefCell},
@@ -18,6 +19,12 @@ use std::convert::TryFrom;
 pub struct PackageKey {
   pub path: String,
   pub version: String,
+}
+
+impl PackageKey {
+  pub fn span(&self) -> Span {
+    tracing::info_span!("package", path = %self.path, version = %self.version)
+  }
 }
 
 impl Display for PackageKey {
