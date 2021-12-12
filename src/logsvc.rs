@@ -128,7 +128,13 @@ impl LogService {
 
   fn emit_syslog(&self, payload: &Payload) {
     match serde_json::to_string(payload) {
-      Ok(x) => self.write(&x),
+      Ok(x) => {
+        // Workaround https://github.com/losfair/blueboat/issues/54
+        if payload.level != "" && payload.level != "INFO" {
+          eprintln!("{}", x);
+        }
+        self.write(&x)
+      }
       Err(e) => eprintln!("[syslog] failed to serialize log entry: {}", e),
     }
   }

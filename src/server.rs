@@ -261,9 +261,6 @@ async fn async_main() {
       .unwrap();
     syslog_service = Some(syslog.clone());
     tracing_subscriber::registry()
-      .with(
-        tracing_subscriber::fmt::layer().with_filter(tracing_subscriber::filter::LevelFilter::WARN),
-      )
       .with(syslog.with_filter(tracing_subscriber::filter::LevelFilter::INFO))
       .init();
     tracing::warn!("blueboat starting");
