@@ -134,6 +134,7 @@ fn api_schedule_at_most_once(
       app: e.ctx.key.clone(),
       request_id: e.request_id.clone(),
       wire_bytes,
+      same_version: true,
     }))?;
   Ok(())
 }

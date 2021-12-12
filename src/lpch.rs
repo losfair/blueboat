@@ -23,4 +23,7 @@ pub struct BackgroundEntry {
   pub app: PackageKey,
   pub request_id: String,
   pub wire_bytes: Vec<u8>,
+
+  #[serde(default)]
+  pub same_version: bool,
 }

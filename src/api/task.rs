@@ -17,10 +17,18 @@ use super::util::{v8_deserialize, v8_error, v8_serialize};
 struct ScheduleAtLeastOnceRequest {
   wire_bytes: Vec<u8>,
   request_id: String,
+  same_version: bool,
 }
 
 #[derive(Serialize, Deserialize)]
 struct ScheduleAtLeastOnceResponse {}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScheduleAtLeastOnceOpts {
+  #[serde(default)]
+  same_version: bool,
+}
 
 #[async_trait::async_trait]
 #[typetag::serde]
@@ -33,6 +41,7 @@ impl RchReqBody for ScheduleAtLeastOnceRequest {
       },
       request_id: self.request_id,
       wire_bytes: self.wire_bytes,
+      same_version: self.same_version,
     };
     let entry = rmp_serde::to_vec(&entry)?;
     let ch = get_channel_refresher().get_random()?;
@@ -58,6 +67,8 @@ impl RchReqBody for ScheduleAtLeastOnceRequest {
 #[serde(rename_all = "camelCase")]
 struct ScheduleDelayedOpts {
   ts_secs: i64,
+  #[serde(default)]
+  same_version: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -65,6 +76,7 @@ struct ScheduleDelayedRequest {
   wire_bytes: Vec<u8>,
   request_id: String,
   ts_secs: i64,
+  same_version: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -83,6 +95,7 @@ impl RchReqBody for ScheduleDelayedRequest {
       },
       request_id: self.request_id,
       wire_bytes: self.wire_bytes,
+      same_version: self.same_version,
     };
     let ch = get_channel_refresher().get_random()?;
     let id = ch
@@ -99,12 +112,14 @@ pub fn api_schedule_at_least_once(
   _retval: v8::ReturnValue,
 ) -> Result<()> {
   let wire_bytes = serialize_v8_value(scope, args.get(1))?;
-  let callback = v8::Global::new(scope, args.load_function_at(2)?);
+  let opts: ScheduleAtLeastOnceOpts = v8_deserialize(scope, args.get(2))?;
+  let callback = v8::Global::new(scope, args.load_function_at(3)?);
   let exec = Executor::try_current_result()?;
   let ctx = exec.upgrade().unwrap().ctx;
   let req = ScheduleAtLeastOnceRequest {
     request_id: exec.upgrade().unwrap().request_id.clone(),
     wire_bytes,
+    same_version: opts.same_version,
   };
   Executor::spawn(&exec.clone(), async move {
     let out: Result<ScheduleAtLeastOnceResponse> = ctx.rch.call(req).await;
@@ -139,6 +154,7 @@ pub fn api_schedule_delayed(
     request_id: exec.upgrade().unwrap().request_id.clone(),
     wire_bytes,
     ts_secs: opts.ts_secs,
+    same_version: opts.same_version,
   };
   Executor::spawn(&exec.clone(), async move {
     let out: Result<ScheduleDelayedResponse> = ctx.rch.call(req).await;

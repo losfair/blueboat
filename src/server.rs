@@ -845,7 +845,17 @@ async fn run_background_entry(entry: BackgroundEntry) {
   };
   let app = entry.app;
   let fut = async {
-    match generic_invoke(req, &app.path, Some(app.version.as_str())).await {
+    match generic_invoke(
+      req,
+      &app.path,
+      if entry.same_version {
+        Some(app.version.as_str())
+      } else {
+        None
+      },
+    )
+    .await
+    {
       Ok(_) => {}
       Err(e) => {
         log::warn!("background invoke failed (app {}): {:?}", app, e);
