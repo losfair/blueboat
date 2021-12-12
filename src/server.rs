@@ -259,11 +259,11 @@ async fn async_main() {
       .unwrap();
     tracing_subscriber::registry()
       .with(
-        tracing_subscriber::fmt::layer().with_filter(tracing_subscriber::filter::LevelFilter::INFO),
+        tracing_subscriber::fmt::layer().with_filter(tracing_subscriber::filter::LevelFilter::WARN),
       )
-      .with(syslog.with_filter(tracing_subscriber::filter::LevelFilter::DEBUG))
+      .with(syslog.with_filter(tracing_subscriber::filter::LevelFilter::INFO))
       .init();
-    tracing::info!("starting");
+    tracing::warn!("blueboat starting");
   } else {
     tracing_subscriber::fmt().init();
     log::info!("Logging to stderr. Please use --syslog-kafka in production.");
@@ -851,7 +851,7 @@ async fn run_background_entry(entry: BackgroundEntry) {
 }
 
 async fn do_run_background_entry(entry: BackgroundEntry, request_id: String) {
-  tracing::debug!("run background task");
+  tracing::info!("run background task");
 
   let req = BlueboatIpcReq {
     v: BlueboatIpcReqV::Background(entry.wire_bytes),

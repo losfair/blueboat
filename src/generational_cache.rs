@@ -186,7 +186,7 @@ impl<K: Eq + Hash + Clone, V: Clone> GenerationalCache<K, V> {
       }
     }
     if total != 0 || evicted != 0 {
-      tracing::debug!(name = %self.name, updated, total, evicted, "generational cache sweep");
+      tracing::info!(name = %self.name, updated, total, evicted, "generational cache sweep");
     }
   }
 }
