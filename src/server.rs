@@ -309,7 +309,7 @@ async fn async_main() {
   let mmdb_city = if opt.mmdb_city != "-" {
     match maxminddb::Reader::open_mmap(&opt.mmdb_city) {
       Ok(x) => {
-        log::info!("Opened MMDB (city) at {}.", opt.mmdb_city);
+        log::warn!("Opened MMDB (city) at {}.", opt.mmdb_city);
         Some(x)
       }
       Err(e) => {
@@ -325,7 +325,7 @@ async fn async_main() {
   let wpbl_db = if opt.wpbl_db != "-" {
     match WpblDb::open(&opt.wpbl_db) {
       Ok(x) => {
-        log::info!("Opened Wikipedia blocklist DB at {}.", opt.wpbl_db);
+        log::warn!("Opened Wikipedia blocklist DB at {}.", opt.wpbl_db);
         Some(x)
       }
       Err(e) => {
@@ -352,24 +352,20 @@ async fn async_main() {
         match key {
           Ok(secret) => {
             let public = ed25519_dalek::PublicKey::from(&secret);
-            log::info!(
-              "MDS pubkey: {}, local region: {}",
-              hex::encode(&public.as_bytes()),
-              opt.mds_local_region
-            );
+            tracing::warn!(public = %hex::encode(&public.as_bytes()), local_region = %opt.mds_local_region, "mds info");
             let keypair = Arc::new(ed25519_dalek::Keypair { secret, public });
             loop {
               match MdsServiceState::bootstrap(&opt.mds, &opt.mds_local_region, keypair.clone())
                 .await
               {
                 Ok(mds) => {
-                  log::info!("Bootstrapped MDS from server {}.", opt.mds,);
+                  tracing::warn!(server = %opt.mds, "mds bootstrap ok");
                   let mds = Arc::new(Mutex::new(Arc::new(mds)));
                   MdsServiceState::start_refresh_task(mds.clone());
                   break Some(mds);
                 }
                 Err(e) => {
-                  log::error!("mds bootstrap ({}) failed: {:?}", opt.mds, e);
+                  tracing::warn!(server = %opt.mds, error = %e, "mds bootstrap failed");
                   std::thread::sleep(std::time::Duration::from_secs(5));
                 }
               }
@@ -398,19 +394,10 @@ async fn async_main() {
       let (wm, avail_mem) = memory_watermark(last_wm);
       if let Some(last) = last_wm {
         if last != wm {
-          log::info!(
-            "Memory watermark changed from {:?} to {:?}. {} KB available.",
-            last,
-            wm,
-            avail_mem
-          );
+          tracing::warn!(last_wm = ?last, new_wm = ?wm, avail_mem = %avail_mem, "memory watermark changed");
         }
       } else {
-        log::info!(
-          "Memory watermark initialized to {:?}. {} KB available.",
-          wm,
-          avail_mem
-        );
+        tracing::warn!(wm = ?wm, avail_mem = %avail_mem, "memory watermark initialized");
       }
       last_wm = Some(wm);
       wm.tune_smr_parameters();
@@ -423,7 +410,7 @@ async fn async_main() {
   tokio::spawn(sweep_code_cache());
   tokio::spawn(async move {
     let mut sig = tokio::signal::unix::signal(SignalKind::user_defined1()).unwrap();
-    log::info!("SIGUSR1 handler registered. Send SIGUSR1 to process {} and system status will be printed to stderr.", std::process::id());
+    log::warn!("SIGUSR1 handler registered. Send SIGUSR1 to process {} and system status will be printed to stderr.", std::process::id());
     loop {
       sig.recv().await;
       print_status().await;
@@ -437,7 +424,7 @@ async fn async_main() {
 
   // Write logs
   if opt.log_kafka != "-" {
-    log::info!("Logging enabled. Logs will be written to the provided kafka cluster.");
+    log::warn!("Logging enabled. Logs will be written to the provided kafka cluster.");
     let producer = LogService::open(&opt.log_kafka).unwrap();
     lp_ctx.log_kafka = Some(producer);
   }
@@ -449,13 +436,13 @@ async fn async_main() {
   spawn_lp_handler(Arc::new(lp_ctx), lp_rx);
 
   if opt.accept_background_tasks {
-    log::info!("This instance will accept background tasks.");
+    log::warn!("This instance will accept background tasks.");
     spawn_task_handler();
   }
 
   let make_svc = make_service_fn(|_| async move { Ok::<_, hyper::Error>(service_fn(handle)) });
 
-  log::info!("Starting server on {}", opt.listen);
+  tracing::warn!(address = %opt.listen, "start listener");
   Server::bind(&opt.listen).serve(make_svc).await.unwrap();
 }
 
@@ -842,10 +829,8 @@ async fn run_background_entry(entry: BackgroundEntry) {
     entry.request_id.split("+").next().unwrap(),
     Uuid::new_v4().to_string()
   );
-  let package_span = entry.app.span();
-  let task_span = tracing::info_span!("background task", request_id = %request_id);
+  let task_span = tracing::info_span!("background task", request_id = %request_id, package_path = %entry.app.path, package_version = %entry.app.version);
   do_run_background_entry(entry, request_id)
-    .instrument(package_span)
     .instrument(task_span)
     .await;
 }
@@ -884,7 +869,7 @@ async fn do_run_background_entry(entry: BackgroundEntry, request_id: String) {
   }
 }
 async fn print_status() {
-  log::info!("Requested to print system status.");
+  log::warn!("Requested to print system status.");
   let md_cache_stats = md_cache().stats();
   eprintln!("[md_cache]\n{}", md_cache_stats);
   let code_cache_stats = cache().stats();
@@ -900,5 +885,5 @@ async fn print_status() {
   if let Some(Some(x)) = MDS.get() {
     x.lock().print_status();
   }
-  log::info!("End of system status.");
+  eprintln!("End of system status.");
 }

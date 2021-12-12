@@ -21,12 +21,6 @@ pub struct PackageKey {
   pub version: String,
 }
 
-impl PackageKey {
-  pub fn span(&self) -> Span {
-    tracing::info_span!("package", path = %self.path, version = %self.version)
-  }
-}
-
 impl Display for PackageKey {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}[{}]", self.path, self.version)
