@@ -294,11 +294,7 @@ async fn preemptive_task_acceptor_worker<T: for<'x> Deserialize<'x> + Send + 'st
       {
         Ok(x) => {
           if x {
-            log::info!(
-              "acquired lock for channel {} with identity {}",
-              channel,
-              identity
-            );
+            tracing::warn!(%identity, %channel, "channel lock acquired");
             match channel_worker(*channel, props, &mut lock_json, &mut tx).await {
               Ok(()) => {}
               Err(e) => {
