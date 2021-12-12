@@ -1,4 +1,11 @@
-use std::{collections::BTreeMap, sync::Arc, time::SystemTime};
+use std::{
+  collections::BTreeMap,
+  sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+  },
+  time::SystemTime,
+};
 
 use anyhow::Result;
 use lazy_static::lazy_static;
@@ -17,6 +24,16 @@ lazy_static! {
   static ref KAFKA_CONFIG_MATCHER: Regex = Regex::new("^([a-zA-Z0-9._-]+):([0-9]+)@(.+)$").unwrap();
 }
 
+static NEXT_TID: AtomicU64 = AtomicU64::new(1);
+
+thread_local! {
+  static UNIQUE_TID: u64 = NEXT_TID.fetch_add(1, Ordering::Relaxed);
+}
+
+fn unique_tid() -> String {
+  format!("{}", UNIQUE_TID.with(|tid| *tid))
+}
+
 #[derive(Clone)]
 pub struct LogService {
   inner: Arc<LogServiceInner>,
@@ -26,6 +43,7 @@ pub struct LogService {
 struct Payload<'a> {
   host: &'a str,
   pid: u32,
+  tid: String,
   ts: f64,
   name: &'a str,
   target: &'a str,
@@ -34,6 +52,7 @@ struct Payload<'a> {
   file: &'a str,
   line: u32,
   fields: &'a BTreeMap<&'a str, serde_json::Value>,
+  span_id: String,
 }
 
 struct LogServiceInner {
@@ -118,7 +137,7 @@ where
   fn on_new_span(
     &self,
     attrs: &tracing::span::Attributes<'_>,
-    _id: &tracing::span::Id,
+    id: &tracing::span::Id,
     _ctx: tracing_subscriber::layer::Context<'_, S>,
   ) {
     let mut visitor = JsonVisitor {
@@ -126,31 +145,30 @@ where
     };
     attrs.record(&mut visitor);
     let md = attrs.metadata();
+    let name = format!("new span: {}", md.name());
+
     let payload = Payload {
       host: &self.inner.hostname,
       pid: self.inner.pid,
+      tid: unique_tid(),
       ts: now_ts_secs_f64(),
-      name: md.name(),
+      name: &name,
       target: md.target(),
       level: md.level().as_str(),
       module_path: md.module_path().unwrap_or(""),
       file: md.file().unwrap_or(""),
       line: md.line().unwrap_or(0),
       fields: &visitor.values,
+      span_id: format!("{}", id.into_u64()),
     };
     self.emit_syslog(&payload);
   }
 
   fn on_enter(&self, id: &tracing::span::Id, _ctx: tracing_subscriber::layer::Context<'_, S>) {
-    let mut m: BTreeMap<&'static str, serde_json::Value> = BTreeMap::new();
-    m.insert(
-      "id",
-      serde_json::Value::String(format!("{}", id.into_u64())),
-    );
-
     let payload = Payload {
       host: &self.inner.hostname,
       pid: self.inner.pid,
+      tid: unique_tid(),
       ts: now_ts_secs_f64(),
       name: "enter span",
       target: "",
@@ -158,21 +176,17 @@ where
       module_path: "",
       file: "",
       line: 0,
-      fields: &m,
+      fields: &BTreeMap::new(),
+      span_id: format!("{}", id.into_u64()),
     };
     self.emit_syslog(&payload);
   }
 
   fn on_exit(&self, id: &tracing::span::Id, _ctx: tracing_subscriber::layer::Context<'_, S>) {
-    let mut m: BTreeMap<&'static str, serde_json::Value> = BTreeMap::new();
-    m.insert(
-      "id",
-      serde_json::Value::String(format!("{}", id.into_u64())),
-    );
-
     let payload = Payload {
       host: &self.inner.hostname,
       pid: self.inner.pid,
+      tid: unique_tid(),
       ts: now_ts_secs_f64(),
       name: "exit span",
       target: "",
@@ -180,21 +194,17 @@ where
       module_path: "",
       file: "",
       line: 0,
-      fields: &m,
+      fields: &BTreeMap::new(),
+      span_id: format!("{}", id.into_u64()),
     };
     self.emit_syslog(&payload);
   }
 
   fn on_close(&self, id: tracing::span::Id, _ctx: tracing_subscriber::layer::Context<'_, S>) {
-    let mut m: BTreeMap<&'static str, serde_json::Value> = BTreeMap::new();
-    m.insert(
-      "id",
-      serde_json::Value::String(format!("{}", id.into_u64())),
-    );
-
     let payload = Payload {
       host: &self.inner.hostname,
       pid: self.inner.pid,
+      tid: unique_tid(),
       ts: now_ts_secs_f64(),
       name: "close span",
       target: "",
@@ -202,7 +212,8 @@ where
       module_path: "",
       file: "",
       line: 0,
-      fields: &m,
+      fields: &BTreeMap::new(),
+      span_id: format!("{}", id.into_u64()),
     };
     self.emit_syslog(&payload);
   }
@@ -216,6 +227,7 @@ where
     let payload = Payload {
       host: &self.inner.hostname,
       pid: self.inner.pid,
+      tid: unique_tid(),
       ts: now_ts_secs_f64(),
       name: md.name(),
       target: md.target(),
@@ -224,6 +236,7 @@ where
       file: md.file().unwrap_or(""),
       line: md.line().unwrap_or(0),
       fields: &visitor.values,
+      span_id: "".into(),
     };
     self.emit_syslog(&payload);
   }
