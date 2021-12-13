@@ -1,11 +1,12 @@
 use std::{
   collections::{BTreeMap, HashMap},
   sync::{Arc, Weak},
-  time::SystemTime,
+  time::{Instant, SystemTime},
 };
 
 use crate::{
   backoff::random_backoff,
+  consts::{TASK_LOCK_RENEWAL_TIMEOUT, TASK_LOCK_TTL},
   kvutil::group_kv_rows_by_prefix,
   lpch::BackgroundEntry,
   mds::{
@@ -270,8 +271,14 @@ async fn preemptive_task_acceptor_worker<T: for<'x> Deserialize<'x> + Send + 'st
       let lock: Option<ChannelLock> =
         original_lock_raw.and_then(|x| serde_json::from_slice(x).ok());
       match &lock {
-        Some(x) if now.saturating_sub(x.ts) < 25 * 1000 => continue,
-        _ => {}
+        Some(x) if now.saturating_sub(x.ts) > TASK_LOCK_TTL.as_millis() as u64 => {
+          tracing::info!(%channel, previous_owner = %x.identity, previous_ts = %x.ts, "previous lock expired");
+        }
+        Some(x) if identity == x.identity => {
+          tracing::info!(%channel, previous_owner = %x.identity, previous_ts = %x.ts, "taking back our own lock");
+        }
+        Some(_) => continue,
+        None => {}
       }
 
       let lock = ChannelLock {
@@ -295,7 +302,7 @@ async fn preemptive_task_acceptor_worker<T: for<'x> Deserialize<'x> + Send + 'st
         Ok(x) => {
           if x {
             tracing::warn!(%identity, %channel, "channel lock acquired");
-            match channel_worker(*channel, props, &mut lock_json, &mut tx).await {
+            match channel_worker(&identity, *channel, props, &mut lock_json, &mut tx).await {
               Ok(()) => {}
               Err(e) => {
                 log::error!("error while running task for channel {}: {}", channel, e);
@@ -330,12 +337,12 @@ async fn preemptive_task_acceptor_worker<T: for<'x> Deserialize<'x> + Send + 'st
 }
 
 async fn channel_worker<T: for<'x> Deserialize<'x> + Send + 'static>(
+  identity: &str,
   channel: &str,
   props: &HashMap<&str, &[u8]>,
   lock_json: &mut Vec<u8>,
   tx: &mut tokio::sync::mpsc::Sender<(T, TaskCompletion)>,
 ) -> Result<()> {
-  let region_scheduler_prefix = format!("task-scheduler/{}", get_mds().unwrap().get_local_region());
   let config_json = *props
     .get("config")
     .ok_or_else(|| anyhow::anyhow!("missing config"))?;
@@ -366,47 +373,68 @@ async fn channel_worker<T: for<'x> Deserialize<'x> + Send + 'static>(
     .map(|x| Guard(tokio::spawn(delayed_task_worker(x.clone(), tx.clone()))));
 
   loop {
+    let backoff_start = Instant::now();
     random_backoff().await;
+    let work_start = Instant::now();
 
-    let mds = get_mds().unwrap();
-    let sess = mds
-      .get_metadata_shard_session()
-      .ok_or_else(|| anyhow::anyhow!("no metadata shard session"))?;
-
-    let new_config = sess
-      .get_many(
-        &[format!("{}/{}/config", region_scheduler_prefix, channel)],
-        true,
-      )
-      .await?
-      .into_iter()
-      .next()
-      .unwrap();
-    if new_config.as_ref().map(|x| x.as_slice()) != Some(config_json) {
-      log::warn!("config changed for channel {}", channel);
-      return Ok(());
+    tokio::select! {
+      cont = renew_once(channel, config_json, lock_json) => {
+        if !cont? {
+          return Ok(());
+        }
+        let total_duration = backoff_start.elapsed();
+        let work_duration = work_start.elapsed();
+        tracing::info!(%identity, %channel, ?total_duration, ?work_duration, "lock renewal");
+      }
+      _ = tokio::time::sleep(TASK_LOCK_RENEWAL_TIMEOUT) => {
+        tracing::error!("exceeded lock renewal timeout");
+        anyhow::bail!("exceeded lock renewal timeout");
+      }
     }
-
-    // Renew
-    let mut lock: ChannelLock = serde_json::from_slice(lock_json.as_slice())?;
-    lock.ts = SystemTime::now()
-      .duration_since(SystemTime::UNIX_EPOCH)
-      .unwrap()
-      .as_millis() as u64;
-    let new_lock_json = serde_json::to_vec(&lock).unwrap();
-    if !sess
-      .compare_and_set_many([(
-        &format!("{}/{}/lock", region_scheduler_prefix, channel),
-        TriStateCheck::Value(lock_json.as_slice()),
-        TriStateSet::Value(&new_lock_json),
-      )])
-      .await?
-    {
-      log::warn!("failed to renew lock for channel {}", channel);
-      return Ok(());
-    }
-    *lock_json = new_lock_json;
   }
+}
+
+async fn renew_once(channel: &str, old_config: &[u8], lock_json: &mut Vec<u8>) -> Result<bool> {
+  let mds = get_mds().unwrap();
+  let sess = mds
+    .get_metadata_shard_session()
+    .ok_or_else(|| anyhow::anyhow!("no metadata shard session"))?;
+  let region_scheduler_prefix = format!("task-scheduler/{}", mds.get_local_region());
+
+  let new_config = sess
+    .get_many(
+      &[format!("{}/{}/config", region_scheduler_prefix, channel)],
+      true,
+    )
+    .await?
+    .into_iter()
+    .next()
+    .unwrap();
+  if new_config.as_ref().map(|x| x.as_slice()) != Some(old_config) {
+    log::warn!("config changed for channel {}", channel);
+    return Ok(false);
+  }
+
+  // Renew lock
+  let mut lock: ChannelLock = serde_json::from_slice(lock_json.as_slice())?;
+  lock.ts = SystemTime::now()
+    .duration_since(SystemTime::UNIX_EPOCH)
+    .unwrap()
+    .as_millis() as u64;
+  let new_lock_json = serde_json::to_vec(&lock).unwrap();
+  if !sess
+    .compare_and_set_many([(
+      &format!("{}/{}/lock", region_scheduler_prefix, channel),
+      TriStateCheck::Value(lock_json.as_slice()),
+      TriStateSet::Value(&new_lock_json),
+    )])
+    .await?
+  {
+    log::warn!("failed to renew lock for channel {}", channel);
+    return Ok(false);
+  }
+  *lock_json = new_lock_json;
+  Ok(true)
 }
 
 async fn delayed_task_worker<T: for<'x> Deserialize<'x> + Send + 'static>(
