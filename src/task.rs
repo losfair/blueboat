@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
   backoff::random_backoff,
-  consts::{TASK_LOCK_RENEWAL_TIMEOUT, TASK_LOCK_TTL},
+  consts::{TASK_CONSUMER_AUTO_COMMIT_INTERVAL_MS, TASK_LOCK_RENEWAL_TIMEOUT, TASK_LOCK_TTL},
   kvutil::group_kv_rows_by_prefix,
   lpch::BackgroundEntry,
   mds::{
@@ -353,6 +353,10 @@ async fn channel_worker<T: for<'x> Deserialize<'x> + Send + 'static>(
   client_config.set("group.id", &config.consumer_group);
   client_config.set("auto.offset.reset", "earliest");
   client_config.set("enable.auto.offset.store", "false");
+  client_config.set(
+    "auto.commit.interval.ms",
+    TASK_CONSUMER_AUTO_COMMIT_INTERVAL_MS,
+  );
   let consumer: StreamConsumer = client_config.create()?;
   consumer.subscribe(&[config.topic.as_str()])?;
 
