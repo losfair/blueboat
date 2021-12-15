@@ -8,6 +8,7 @@ export interface Router {
   options(path: string, cb: HttpHandler): void;
   any(path: string, cb: HttpHandler): void;
   use(path: string, cb: MiddlewareHandler): void;
+  setDebugPath(path: string): void;
 }
 
 export type HttpHandler = (req: Request) => Response | Promise<Response>;
@@ -32,6 +33,28 @@ interface RouteNode {
   middlewares: MiddlewareHandler[];
 }
 
+export interface RouteInfo {
+  method: keyof Route;
+  path: string;
+}
+
+function* collectRoutes(n: RouteNode, prefix: string): Generator<RouteInfo, void> {
+  for (const m of Object.keys(n.target)) {
+    if ((<any>n.target)[m]) {
+      yield {
+        method: <keyof Route>m,
+        path: prefix || "/",
+      };
+    }
+  }
+  for (const [k, v] of n.children) {
+    const thisPrefix = prefix + "/" + k;
+    for (const r of collectRoutes(v, thisPrefix)) {
+      yield r;
+    }
+  }
+}
+
 export class RouterImpl implements Router {
   private root: RouteNode = {
     target: {},
@@ -39,7 +62,7 @@ export class RouterImpl implements Router {
     middlewares: [],
   };
 
-  constructor() {}
+  constructor() { }
 
   private createChild(
     path: string,
@@ -153,6 +176,19 @@ export class RouterImpl implements Router {
       r.patch = cb;
       r.delete = cb;
       r.options = cb;
+    });
+  }
+  setDebugPath(path: string): void {
+    this.get(path, _req => {
+      const routes = [...collectRoutes(this.root, "")];
+      routes.sort((a, b) => a.path < b.path ? -1 : a.path == b.path ? 0 : 1);
+      return new Response(JSON.stringify({
+        routes,
+      }, null, 2), {
+        headers: {
+          "Content-Type": "application/json",
+        }
+      })
     });
   }
 }
