@@ -20,7 +20,7 @@ export function serveStaticFiles(stripPrefix: string, addPrefix: string): (req: 
     if (!u.pathname.startsWith(stripPrefix)) {
       return notFound();
     }
-    const path = u.pathname.substr(stripPrefix.length);
+    const path = decodeRequestPath(u.pathname.substr(stripPrefix.length));
     let packagePath = addPrefix + path;
     if (packagePath.endsWith('/')) {
       packagePath += 'index.html';
@@ -47,6 +47,11 @@ export function serveStaticFiles(stripPrefix: string, addPrefix: string): (req: 
       }
     });
   }
+}
+
+function decodeRequestPath(u: string): string {
+  const x = new URLSearchParams("x=" + u);
+  return x.get("x")!;
 }
 
 function computeEntityTag(bytes: Uint8Array): string {
