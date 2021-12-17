@@ -2,11 +2,10 @@
 
 ![CI](https://github.com/losfair/blueboat/actions/workflows/ci.yml/badge.svg)
 
-Blueboat is an open-source alternative to Cloudflare Workers.
+Blueboat is an open-source alternative to Cloudflare Workers and aims to be a developer-friendly, multi-tenant platform for serverless web applications.
 
-Blueboat aims to be a developer-friendly, multi-tenant platform for serverless web applications. A *monolithic* approach is followed: we try to implement features of commonly used libraries (in the web application context) natively in Rust to replace native Node addons, improve performance and reduce duplicated code. Blueboat's [architecture](#architecture) ensures the security of the platform, prevents code duplication and keeps the overhead low.
-
-*If you think a JavaScript library should be natively re-implemented in Blueboat, feel free to open an issue or a pull request!*
+- [Features](#features)
+- [Deploy](#deploy-your-own-blueboat-instance)
 
 A simple Blueboat application looks like:
 
@@ -77,62 +76,11 @@ The entire API definition is published as the [blueboat-types](https://www.npmjs
 
 ## Deploy your own Blueboat instance
 
-### Prerequisites
+Blueboat depends on various external services such as [FoundationDB](https://www.foundationdb.org/) and [Kafka](https://kafka.apache.org/) to operate reliably as a distributed system, but you don't need all these services to run Blueboat on a single machine. Just pull [b6t](https://github.com/losfair/b6t) - this contains all necessary dependencies to get Blueboat up and running.
 
-- [Docker](https://www.docker.com/)
-- An S3-compatible bucket for storing application configuration and code
-- A MySQL service for storing [bbcp](https://github.com/losfair/bbcp) metadata
-- (Optional) A Kafka service for streaming logs
+After starting `b6t` you need to set up a reverse proxy such as Nginx or [Caddy](https://caddyserver.com/) to accept external traffic. Blueboat loads the application's metadata from the S3 key specified in the `X-Blueboat-Metadata` header, and this information should be provided by the reverse proxy.
 
-### Deploy
-
-Example docker-compose file:
-
-```yaml
-version: "3"
-services:
-  blueboat:
-    image: ghcr.io/losfair/blueboat:latest
-    user: daemon
-    ports:
-    - "127.0.0.1:3000:3000"
-    entrypoint:
-    - /usr/bin/blueboat_server
-    - -l
-    - 0.0.0.0:3000
-    - --s3-bucket
-    - my-bucket.example.com
-    - --s3-region
-    - us-east-1
-    # Uncomment this if you use a non-AWS S3-compatible service.
-    # - --s3-endpoint
-    # - https://minio.example.com
-    # Uncomment this to enable logging to Kafka.
-    # - --log-kafka
-    # - net.univalent.blueboat-log.default:0@kafka:9092
-    # Uncomment this to enable geoip information in the `x-blueboat-client-country`,
-    # `x-blueboat-client-city`, `x-blueboat-client-subdivision-1` and
-    # `x-blueboat-client-subdivision-2` request headers.
-    # - --mmdb-city
-    # - /opt/blueboat/mmdb/GeoLite2-City.mmdb
-    # Uncomment this to enable automatic Wikipedia IP blocklist query in the
-    # `x-blueboat-client-wpbl` request header.
-    # The database is generated with https://github.com/losfair/wpblsync.
-    # - --wpbl-db
-    # - /opt/blueboat/wpbl/wpbl.db
-    environment:
-      RUST_LOG: info
-      AWS_ACCESS_KEY_ID: your_s3_access_key_id
-      AWS_SECRET_ACCESS_KEY: your_s3_secret_access_key
-      # Uncomment this to enable text rendering in canvas.
-      # SMRAPP_BLUEBOAT_FONT_DIR: /opt/blueboat/fonts
-```
-
-### Set up a reverse proxy
-
-Blueboat loads the application's metadata from the S3 key specified in the `X-Blueboat-Metadata` header. This information should be provided by a reverse proxy such as Nginx or Caddy.
-
-I run my Blueboat instances behind [Caddy](https://caddyserver.com/). An example config looks like:
+An example Caddy config looks like:
 
 ```
 hello.blueboat.example.com {
@@ -147,78 +95,10 @@ hello.blueboat.example.com {
 }
 ```
 
-### Deploy bbcp
+### Automatic deployments
 
-[bbcp](https://github.com/losfair/bbcp) is the service that manages application deployment on Blueboat, and is itself a Blueboat application. We need to manually bootstrap it:
+`b6t`'s readme describes a simple way to manually deploy apps, but if you need an automatic multi-tenant deployment service, you can deploy the [bbcp](https://github.com/losfair/bbcp) app (which itself runs on Blueboat) and use the [bbcli](https://github.com/losfair/bbcli) tool.
 
-1. Install [s3cmd](https://github.com/s3tools/s3cmd) and [zx](https://github.com/google/zx).
+## License
 
-2. Set up configuration:
-
-```bash
-git clone https://github.com/losfair/bbcp
-mkdir bbcp-config
-cd bbcp-config
-cat > env.json << EOF
-{
-  "s3AccessKeyId": "your_s3_access_key_id",
-  "s3SecretAccessKey": "your_s3_secret_access_key",
-  "s3Region": "us-east-1",
-  "s3Bucket": "your-bucket.example.com",
-  "s3Prefix": "managed/",
-  "ghClientId": "your-github-client-id",
-  "ghClientSecret": "your-github-client-secret"
-}
-EOF
-cat > mysql.json << EOF
-{
-  "db": {
-    "url": "mysql://user:password@mysql-server/database"
-  }
-}
-EOF
-cat > s3.config << EOF
-access_key = your_s3_access_key_id
-secret_key = your_s3_secret_access_key
-use_https = True
-check_ssl_certificate = True
-EOF
-cat > run_deploy.sh << EOF
-#!/bin/bash
-
-set -euo pipefail
-cd "$(dirname $0)"
-cd ../bbcp/
-
-CONFIG_PATH=../bbcp-config S3_BUCKET=your-bucket.example.com ./deploy.sh
-EOF
-chmod +x run_deploy.sh
-./run_deploy.sh
-```
-
-Next, follow the [set up a reverse proxy](#set-up-a-reverse-proxy) section to set up a public endpoint for your bbcp application. And done! You can now use `bbcli` to deploy to your Blueboat instance.
-
-## Architecture
-
-Blueboat before the rewrite ([commit](https://github.com/losfair/blueboat/commit/eba320fd8c4806fc39b764a5a2368a0c6c34d976)) used the same execution model as Cloudflare Workers where multiple applications run in different isolates in a single process. This of course has the benefit of reduced execution overhead, but poses several problems:
-
-- Security
-
-With isolates sharing the same process, if there is a single exploitable memory safety bug in any dependency of the engine, all other tenants' apps running in the same process is compromised.
-
-This requires the engine developers to be extremely conservative when introducing new features and dependencies. Blueboat has built-in support for MySQL, Canvas, APNS push notification and constraint solving with Z3 (all added because I found them useful) and I'm not very confident that there is not a single memory safety vulnerability in all these complex dependencies.
-
-- Operational cost
-
-Cloudflare has their team that operates the Workers platform, while most users who want to self-host their infrastructure don't. So this leaves a long [patch gap](https://developers.cloudflare.com/workers/learning/security-model#v8-bugs-and-the-patch-gap) after a vulnerability is discovered, during which the engine is vulnerable.
-
-For all these reasons I decided to reconsider the execution model. Blueboat after the rewrite uses a tightly-coupled multi-process architecture based on [smr](https://github.com/losfair/smr) where each application runs in its own set of forked processes and isolated with [seccomp](https://man7.org/linux/man-pages/man2/seccomp.2.html). The cold-start overhead is higher than isolates in a shared process (in the tens of milliseconds range), but still far lower than a full container running node.
-
-The APIs as described in [features](#features) are mostly implemented in Blueboat's native code which is shared between forked processes, so there isn't N copies for N application instances - there is only one copy of the native code. This allows Blueboat to follow a monolithic approach without incurring significant overhead, where a lot of features are directly bundled into the engine instead of requiring the user to pull in their own dependencies.
-
-## Web apps built on Blueboat
-
-Blueboat currently powers several services running on `.univalent.net`, `.invariant.cn` and `.palette.cat`. Public ones include:
-
-- [https://id.invariant.cn](https://id.invariant.cn)
-- [https://lambda.app.invariant.cn](https://lambda.app.invariant.cn)
+Currently AGPL-3.0, but see [#56](https://github.com/losfair/blueboat/issues/56).
