@@ -255,6 +255,7 @@ async fn async_main() {
   let opt = Opt::from_args();
 
   let mut syslog_service: Option<LogService> = None;
+  let console_layer = console_subscriber::spawn();
 
   if opt.syslog_kafka != "-" {
     let syslog = LogService::open(&opt.syslog_kafka)
@@ -262,11 +263,15 @@ async fn async_main() {
       .unwrap();
     syslog_service = Some(syslog.clone());
     tracing_subscriber::registry()
+      .with(console_layer)
       .with(syslog.with_filter(tracing_subscriber::filter::LevelFilter::INFO))
       .init();
     tracing::warn!("blueboat starting");
   } else {
-    tracing_subscriber::fmt().init();
+    tracing_subscriber::registry()
+      .with(console_layer)
+      .with(tracing_subscriber::fmt::layer())
+      .init();
     log::info!("Logging to stderr. Please use --syslog-kafka in production.");
   }
 

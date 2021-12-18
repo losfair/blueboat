@@ -39,7 +39,8 @@ serde = { version = "1", features = ["derive"] }
 async-trait = "0.1.51"
 anyhow = "1"
 thiserror = "1"
-tokio = { version = "1.14.0", features = ["full"] }
+tokio = { version = "1.14.0", features = ["full", "tracing"] }
+console-subscriber = "0.1"
 hyper = { version = "0.14", features = ["full"] }
 structopt = "0.3"
 log = "0.4"
