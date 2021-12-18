@@ -249,6 +249,7 @@ pub enum CanvasOp {
     text: String,
     x: f32,
     y: f32,
+    max_width: Option<f32>,
   },
   ClearRect {
     rect: CanvasRect,
@@ -503,11 +504,17 @@ impl<'p, 'q> CommitApplier<'p, 'q> {
         });
         self.cvs.draw_path(&p, &self.fill_paint);
       }
-      V::FillText { text, x, y } => {
+      V::FillText {
+        text,
+        x,
+        y,
+        max_width,
+      } => {
         self.layout.reset(&LayoutSettings {
           horizontal_align: self.text_align,
           x: *x,
           y: *y,
+          max_width: *max_width,
           ..Default::default()
         });
         let fonts = self.ensure_font()?;

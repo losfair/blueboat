@@ -142,20 +142,20 @@ export class Path2DImpl implements Path2D {
       subpath: path._pathBuffer.slice(),
       matrix:
         transform &&
-        transform.a !== undefined &&
-        transform.b !== undefined &&
-        transform.c !== undefined &&
-        transform.d !== undefined &&
-        transform.e !== undefined &&
-        transform.f !== undefined
+          transform.a !== undefined &&
+          transform.b !== undefined &&
+          transform.c !== undefined &&
+          transform.d !== undefined &&
+          transform.e !== undefined &&
+          transform.f !== undefined
           ? {
-              a: transform.a,
-              b: transform.b,
-              c: transform.c,
-              d: transform.d,
-              e: transform.e,
-              f: transform.f,
-            }
+            a: transform.a,
+            b: transform.b,
+            c: transform.c,
+            d: transform.d,
+            e: transform.e,
+            f: transform.f,
+          }
           : null,
     });
   }
@@ -499,6 +499,15 @@ export class CanvasRenderingContext2DImpl {
       x,
       y,
       text,
+    });
+  }
+  fillText2(text: string, x: number, y: number, opts?: { maxWidth?: number }) {
+    this.impl.log.push({
+      op: "FillText",
+      x,
+      y,
+      text,
+      max_width: opts?.maxWidth,
     });
   }
 
