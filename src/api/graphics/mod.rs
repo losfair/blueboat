@@ -4,6 +4,7 @@ mod font_util;
 pub mod fonts;
 pub mod layout;
 pub mod svg;
+pub mod text;
 
 use anyhow::Result;
 use fontdue::{

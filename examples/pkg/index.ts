@@ -76,11 +76,11 @@ Router.get("/constraints", req => {
   const combined = new Graphics.Layout.Box.Combined(solver, [boxA, boxB]);
   combined.horizontallyAlign("middle");
   const model = solver.solve();
-  if(typeof model == "string") {
+  if (typeof model == "string") {
     return new Response(model);
   }
 
-  const output: {component: string, metrics: DrawingMetrics}[] = [];
+  const output: { component: string, metrics: DrawingMetrics }[] = [];
   Graphics.Layout.draw(model, (component, metrics) => {
     output.push({
       component,
@@ -112,7 +112,7 @@ Router.get("/yaml/stringify", req => {
 })
 
 Router.get("/never", req => {
-  while(true);
+  while (true);
 });
 
 Router.use("/", async (req, next) => {
@@ -160,3 +160,18 @@ Router.get("/random_uuid", () => new Response((<any>crypto).randomUUID()));
 
 Router.get("/web/", App.serveStaticFiles("/web/", "static"));
 Router.setDebugPath("/debug");
+
+Router.get("/measure_text", req => {
+  const u = new URL(req.url);
+  const text = u.searchParams.get("text") || "";
+  const width = parseFloat(u.searchParams.get("width") || "0");
+  const m = Graphics.Text.measureSimple(text, {
+    maxWidth: width,
+    font: "20px roboto, sans-serif",
+  });
+  return new Response(JSON.stringify(m, null, 2), {
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+});

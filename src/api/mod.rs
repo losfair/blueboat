@@ -76,6 +76,7 @@ pub static API: phf::Map<&'static str, ApiHandler> = phf_map! {
   "graphics_canvas_encode" => graphics::codec::api_graphics_canvas_encode,
   "graphics_canvas_draw" => graphics::draw::api_graphics_canvas_draw,
   "graphics_layout_solve" => graphics::layout::api_graphics_layout_solve,
+  "graphics_text_measure" => graphics::text::api_graphics_text_measure,
   "tera_render" => tera::api_tera_render,
   "jtd_load_schema" => validation::jtd::api_jtd_load_schema,
   "jtd_validate" => validation::jtd::api_jtd_validate,

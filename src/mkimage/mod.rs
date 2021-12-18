@@ -14,8 +14,11 @@ use crate::{
       S3UploadPartRequest,
     },
     graphics::{
-      codec::CanvasEncodeConfig, draw::CanvasDrawConfig, svg::CanvasRenderSvgConfig, CanvasConfig,
-      CanvasOp,
+      codec::CanvasEncodeConfig,
+      draw::CanvasDrawConfig,
+      svg::CanvasRenderSvgConfig,
+      text::{GraphicsTextMeasureOutput, GraphicsTextMeasureSettings},
+      CanvasConfig, CanvasOp,
     },
     text::markdown::TextMarkdownRenderOpts,
   },
@@ -165,6 +168,8 @@ fn print_schema() {
     s3_list_objects_v2_request: S3ListObjectsV2Request,
     s3_list_objects_v2_output: S3ListObjectsV2Output,
     s3_presign_options: S3PresignOptions,
+    graphics_text_measure_settings: GraphicsTextMeasureSettings,
+    graphics_text_measure_output: GraphicsTextMeasureOutput,
   }
 
   let schema = schema_for!(Root);
