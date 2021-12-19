@@ -31,7 +31,7 @@ export class Namespace {
     }, callback));
   }
 
-  async compareAndSetMany(requests: CompareAndSetManyRequestKey[]): Promise<{ ok: boolean }> {
+  async compareAndSetMany(requests: CompareAndSetManyRequestKey[]): Promise<boolean> {
     return await wrapNativeAsync(callback => __blueboat_host_invoke("kv_compare_and_set_many", {
       namespace: this.name,
       keys: requests,
