@@ -19,6 +19,15 @@ pub struct GraphicsTextMeasureSettings {
 pub struct GraphicsTextMeasureOutput {
   height: f32,
   lines: u32,
+  glyphs: Vec<GraphicsTextMeasureGlyph>,
+}
+
+#[derive(Serialize, JsonSchema, Clone)]
+pub struct GraphicsTextMeasureGlyph {
+  x: f32,
+  y: f32,
+  width: usize,
+  height: usize,
 }
 
 pub fn api_graphics_text_measure(
@@ -55,6 +64,16 @@ pub fn api_graphics_text_measure(
   let out = GraphicsTextMeasureOutput {
     height: layout.height(),
     lines: layout.lines() as u32,
+    glyphs: layout
+      .glyphs()
+      .iter()
+      .map(|x| GraphicsTextMeasureGlyph {
+        x: x.x,
+        y: x.y,
+        width: x.width,
+        height: x.height,
+      })
+      .collect(),
   };
   retval.set(v8_serialize(scope, &out)?);
 
