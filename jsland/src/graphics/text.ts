@@ -5,7 +5,7 @@ export interface MeasureOpts {
   maxWidth: number;
 }
 
-export function measureSimple(text: string, opts: MeasureOpts): { height: number, lines: number } {
+export function measureSimple(text: string, opts: MeasureOpts): GraphicsTextMeasureOutput {
   const settings: GraphicsTextMeasureSettings = {
     text,
     font: opts.font,
