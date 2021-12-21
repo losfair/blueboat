@@ -16,7 +16,7 @@ use v8;
 
 use super::util::{v8_deref_typed_array_assuming_noalias, v8_deserialize, v8_error, v8_serialize};
 
-const MAX_KEYS_PER_OP: usize = 20;
+const MAX_KEYS_PER_OP: usize = 1000;
 const MAX_KEY_SIZE: usize = 4096;
 const MAX_VALUE_SIZE: usize = 80000;
 
