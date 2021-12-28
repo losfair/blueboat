@@ -1,6 +1,7 @@
 {
   "ns1": {
     "shard": "r1",
-    "prefix": "pkg"
+    "prefix": "pkg",
+    "raw": true
   }
 }

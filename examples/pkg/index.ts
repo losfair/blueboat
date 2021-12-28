@@ -143,6 +143,23 @@ Router.get("/kv/set", async req => {
   return new Response(JSON.stringify({ ok: true }));
 });
 
+Router.get("/kv/vs", async req => {
+  const ns = new KV.Namespace("ns1");
+  const vs = await ns.run<string>(`
+const t = createPrimaryTransaction();
+const prefix = new Uint8Array(stringToArrayBuffer("\\x02pkg\\x00\\x02seqlog\\x00\\x32"));
+const pos = new Uint8Array(new Uint32Array([prefix.length]).buffer);
+const key = new Uint8Array(prefix.length + 10 + pos.length);
+key.set(prefix);
+key.set(pos, prefix.length + 10);
+t.SetVersionstampedKey(key.buffer, data.value);
+output = base64Encode(t.Commit().Wait().Versionstamp);
+  `.trim(), {
+    value: "test"
+  });
+  return new Response(JSON.stringify({ vs: Codec.hexencode(Codec.b64decode(vs)) }));
+});
+
 
 Router.get("/kv/list", async req => {
   const ns = new KV.Namespace("ns1");
