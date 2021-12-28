@@ -14,7 +14,9 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use v8;
 
-use super::util::{v8_deref_typed_array_assuming_noalias, v8_deserialize, v8_error, v8_serialize};
+use super::util::{
+  mk_v8_string, v8_deref_typed_array_assuming_noalias, v8_deserialize, v8_error, v8_serialize,
+};
 
 const MAX_KEYS_PER_OP: usize = 1000;
 const MAX_KEY_SIZE: usize = 4096;
@@ -206,13 +208,13 @@ impl RchReqBody for KvPrefixDeleteRequest {
 struct KvRunRequest {
   namespace: String,
   script: String,
-  data: serde_json::Value,
+  data: String,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct KvRunResponse {
-  data: serde_json::Value,
+  data: String,
 }
 
 #[async_trait::async_trait]
@@ -230,7 +232,7 @@ impl RchReqBody for KvRunRequest {
     let shard = mds
       .get_shard_session(&ns.shard)
       .ok_or_else(|| anyhow::anyhow!("shard not found"))?;
-    let data: serde_json::Value = shard.run(&self.script, &self.data).await?;
+    let data = shard.run_raw(&self.script, self.data).await?;
     Ok(Box::new(KvRunResponse { data }))
   }
 }
@@ -414,10 +416,7 @@ pub fn api_kv_run<'a, 'b, 'c>(
     scope,
     args,
     "kv_run",
-    |scope, rsp| {
-      let out = v8_serialize(scope, &rsp.data)?;
-      Ok(out)
-    },
+    |scope, rsp| Ok(mk_v8_string(scope, &rsp.data)?.into()),
     |_, req| Ok(req),
   )
 }

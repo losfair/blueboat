@@ -8,7 +8,7 @@ use anyhow::Result;
 use erased_serde::Serialize as ErasedSerialize;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use smr::ipc_channel::ipc::{IpcReceiver, IpcSender};
+use smr::ipc_channel::ipc::{IpcError, IpcReceiver, IpcSender};
 use tokio::sync::{oneshot, Semaphore};
 
 #[derive(Serialize, Deserialize)]
@@ -113,7 +113,15 @@ pub fn create_reliable_channel(md: Arc<Metadata>) -> ReliableChannelSeed {
       loop {
         let req = match req_rx.recv() {
           Ok(req) => req,
-          Err(_) => break,
+          Err(e) => {
+            match e {
+              IpcError::Disconnected => {}
+              e => {
+                tracing::error!(error = ?e, apppath = %md.path, appversion = %md.version, "failed to receive RC request from worker");
+              }
+            }
+            break;
+          },
         };
         let sem = concurrency.clone().acquire_owned().await.unwrap();
         let rsp_tx = rsp_tx.clone();

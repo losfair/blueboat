@@ -82,4 +82,19 @@ export class Namespace {
       set: "delete",
     }]);
   }
+
+  rawRun(script: string, data: string): Promise<string> {
+    return wrapNativeAsync((callback) =>
+      (<any>globalThis).__blueboat_host_invoke("kv_run", {
+        namespace: this.name,
+        script,
+        data,
+      }, callback)
+    );
+  }
+
+  async run<T>(script: string, data: unknown): Promise<T> {
+    const out = await this.rawRun(script, JSON.stringify(data));
+    return JSON.parse(out);
+  }
 }

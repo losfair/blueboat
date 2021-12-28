@@ -261,21 +261,17 @@ impl RawMdsHandle {
     }
   }
 
-  pub async fn run<R: for<'a> Deserialize<'a>>(
-    &self,
-    script: &str,
-    data: &impl Serialize,
-  ) -> Result<R> {
+  pub async fn run_raw(&self, script: &str, data: String) -> Result<String> {
     let (res_tx, res_rx) = oneshot::channel();
     let req = proto::Request {
       lane: 0, // to be rewritten
       program: script.to_string(),
-      data: serde_json::to_string(data)?,
+      data,
     };
     self.req_tx.send_async((req, res_tx)).await?;
     let res = res_rx.await??;
     match res.body {
-      Some(proto::response::Body::Output(s)) => Ok(serde_json::from_str(&s)?),
+      Some(proto::response::Body::Output(s)) => Ok(s),
       Some(proto::response::Body::Error(s)) => {
         if s.retryable {
           Err(anyhow::Error::from(RetryableMdsError {
@@ -290,6 +286,15 @@ impl RawMdsHandle {
       }
       None => anyhow::bail!("response does not contain a body"),
     }
+  }
+
+  pub async fn run<R: for<'a> Deserialize<'a>>(
+    &self,
+    script: &str,
+    data: &impl Serialize,
+  ) -> Result<R> {
+    let out = self.run_raw(script, serde_json::to_string(data)?).await?;
+    Ok(serde_json::from_str(&out)?)
   }
 
   pub async fn get_many<S: AsRef<str>>(
