@@ -201,6 +201,40 @@ impl RchReqBody for KvPrefixDeleteRequest {
   }
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KvRunRequest {
+  namespace: String,
+  script: String,
+  data: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KvRunResponse {
+  data: serde_json::Value,
+}
+
+#[async_trait::async_trait]
+#[typetag::serde]
+impl RchReqBody for KvRunRequest {
+  async fn handle(self: Box<Self>, md: Arc<Metadata>) -> Result<Box<dyn erased_serde::Serialize>> {
+    let mds = get_mds()?;
+    let ns = md
+      .kv_namespaces
+      .get(&self.namespace)
+      .ok_or_else(|| anyhow::anyhow!("namespace not found"))?;
+    if !ns.raw {
+      anyhow::bail!("raw access not enabled on this namespace");
+    }
+    let shard = mds
+      .get_shard_session(&ns.shard)
+      .ok_or_else(|| anyhow::anyhow!("shard not found"))?;
+    let data: serde_json::Value = shard.run(&self.script, &self.data).await?;
+    Ok(Box::new(KvRunResponse { data }))
+  }
+}
+
 fn api_kv_generic<
   'a,
   'b,
@@ -368,5 +402,22 @@ pub fn api_kv_prefix_delete<'a, 'b, 'c>(
       }
       Ok(req)
     },
+  )
+}
+
+pub fn api_kv_run<'a, 'b, 'c>(
+  scope: &mut v8::HandleScope<'a>,
+  args: v8::FunctionCallbackArguments<'b>,
+  _retval: v8::ReturnValue<'c>,
+) -> Result<()> {
+  api_kv_generic::<KvRunRequest, _, KvRunResponse, _, _>(
+    scope,
+    args,
+    "kv_run",
+    |scope, rsp| {
+      let out = v8_serialize(scope, &rsp.data)?;
+      Ok(out)
+    },
+    |_, req| Ok(req),
   )
 }

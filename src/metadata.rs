@@ -28,6 +28,9 @@ pub struct Metadata {
 pub struct KvNamespaceMetadata {
   pub shard: String,
   pub prefix: String,
+
+  #[serde(default)]
+  pub raw: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
