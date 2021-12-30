@@ -48,6 +48,7 @@ pub enum TriStateSet<T> {
   Delete,
   Preserve,
   Value(T),
+  WithVersionstampedKey { value: T },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +58,12 @@ pub struct PrefixListOptions {
   pub want_value: bool,
   pub limit: u32,
   pub cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompareAndSetResult {
+  pub versionstamp: Option<String>,
 }
 
 pub struct RawMds {
@@ -364,17 +371,24 @@ impl RawMdsHandle {
   pub async fn compare_and_set_many<S: AsRef<str>, I: AsRef<[u8]>, V: AsRef<[u8]>>(
     &self,
     paths: impl IntoIterator<Item = (S, TriStateCheck<I>, TriStateSet<V>)>,
-  ) -> Result<bool> {
+  ) -> Result<Option<CompareAndSetResult>> {
     let paths = paths
       .into_iter()
       .map(|(k, c, s)| Ok((encode_path(k.as_ref())?, c, s)))
       .collect::<Result<Vec<_>>>()?;
     let checks: Vec<(&str, Option<String>)> = paths
       .iter()
-      .filter_map(|(path, check, _)| match check {
-        TriStateCheck::Value(x) => Some((path.as_str(), Some(base64::encode(x.as_ref())))),
-        TriStateCheck::Absent => Some((path.as_str(), None)),
-        TriStateCheck::Any => None,
+      .filter_map(|(path, check, set)| {
+        // The key will be appended with a unique versionstamp so we assume no conflict will ever happen.
+        if matches!(set, TriStateSet::WithVersionstampedKey { .. }) {
+          None
+        } else {
+          match check {
+            TriStateCheck::Value(x) => Some((path.as_str(), Some(base64::encode(x.as_ref())))),
+            TriStateCheck::Absent => Some((path.as_str(), None)),
+            TriStateCheck::Any => None,
+          }
+        }
       })
       .collect();
     let sets: Vec<(&str, Option<String>)> = paths
@@ -383,13 +397,23 @@ impl RawMdsHandle {
         TriStateSet::Value(x) => Some((path.as_str(), Some(base64::encode(x.as_ref())))),
         TriStateSet::Delete => Some((path.as_str(), None)),
         TriStateSet::Preserve => None,
+        TriStateSet::WithVersionstampedKey { .. } => None,
+      })
+      .collect();
+    let versionstamped_sets: Vec<(&str, Option<String>)> = paths
+      .iter()
+      .filter_map(|(path, _, value)| match value {
+        TriStateSet::WithVersionstampedKey { value } => {
+          Some((path.as_str(), Some(base64::encode(value.as_ref()))))
+        }
+        _ => None,
       })
       .collect();
     for _ in 0..5 {
-      let committed: bool = match self
+      let result: Option<CompareAndSetResult> = match self
         .run(
           include_str!("../../mds_ts/output/compare_and_set_many.js"),
-          &serde_json::json!({ "checks": &checks, "sets": &sets }),
+          &serde_json::json!({ "checks": &checks, "sets": &sets, "versionstamped_sets": &versionstamped_sets }),
         )
         .await
       {
@@ -403,7 +427,7 @@ impl RawMdsHandle {
           return Err(e);
         }
       };
-      return Ok(committed);
+      return Ok(result);
     }
     anyhow::bail!("mds compare_and_set_many: too many retries")
   }

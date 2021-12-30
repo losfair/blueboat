@@ -88,6 +88,7 @@ pub static API: phf::Map<&'static str, ApiHandler> = phf_map! {
   "external_s3_list_objects_v2" => external::s3::api_external_s3_list_objects_v2,
   "kv_get_many" => kv::api_kv_get_many,
   "kv_compare_and_set_many" => kv::api_kv_compare_and_set_many,
+  "kv_compare_and_set_many_1" => kv::api_kv_compare_and_set_many_1,
   "kv_prefix_list" => kv::api_kv_prefix_list,
   "kv_prefix_delete" => kv::api_kv_prefix_delete,
   "kv_run" => kv::api_kv_run,

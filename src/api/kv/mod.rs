@@ -4,7 +4,7 @@ use crate::{
   exec::Executor,
   mds::{
     get_mds,
-    raw::{PrefixListOptions, TriStateCheck, TriStateSet},
+    raw::{CompareAndSetResult, PrefixListOptions, TriStateCheck, TriStateSet},
   },
   metadata::Metadata,
   reliable_channel::RchReqBody,
@@ -75,6 +75,7 @@ pub struct KvCompareAndSetManyRequestKey<T> {
 #[derive(Serialize, Deserialize)]
 struct KvCompareAndSetManyResponse {
   ok: bool,
+  committed: Option<CompareAndSetResult>,
 }
 
 #[async_trait::async_trait]
@@ -89,7 +90,7 @@ impl RchReqBody for KvCompareAndSetManyRequest<Vec<u8>> {
     let shard = mds
       .get_shard_session(&ns.shard)
       .ok_or_else(|| anyhow::anyhow!("shard not found"))?;
-    let ok = shard
+    let committed = shard
       .compare_and_set_many(
         self
           .keys
@@ -97,7 +98,8 @@ impl RchReqBody for KvCompareAndSetManyRequest<Vec<u8>> {
           .map(|k| (format!("{}/{}", ns.prefix, k.key.as_str()), k.check, k.set)),
       )
       .await?;
-    Ok(Box::new(KvCompareAndSetManyResponse { ok }))
+    let ok = committed.is_some();
+    Ok(Box::new(KvCompareAndSetManyResponse { ok, committed }))
   }
 }
 
@@ -127,6 +129,9 @@ impl<'s> KvCompareAndSetManyRequest<serde_v8::Value<'s>> {
               TriStateSet::Value(x) => TriStateSet::Value(uint8array_to_vec(x)?),
               TriStateSet::Delete => TriStateSet::Delete,
               TriStateSet::Preserve => TriStateSet::Preserve,
+              TriStateSet::WithVersionstampedKey { value } => TriStateSet::WithVersionstampedKey {
+                value: uint8array_to_vec(value)?,
+              },
             },
           })
         })
@@ -327,8 +332,49 @@ pub fn api_kv_compare_and_set_many<'a, 'b, 'c>(
   >(
     scope,
     args,
-    "kv_compare_and_set_many<",
+    "kv_compare_and_set_many",
     |scope, rsp| Ok(v8::Boolean::new(scope, rsp.ok).into()),
+    |scope, req| {
+      if req.keys.len() > MAX_KEYS_PER_OP {
+        anyhow::bail!("too many keys");
+      }
+      let req = req.encode(scope)?;
+      for k in &req.keys {
+        if k.key.as_bytes().len() > MAX_KEY_SIZE {
+          anyhow::bail!("key too large");
+        }
+        if let TriStateCheck::Value(x) = &k.check {
+          if x.len() > MAX_VALUE_SIZE {
+            anyhow::bail!("TriStateCheck: value too large");
+          }
+        }
+        if let TriStateSet::Value(x) = &k.set {
+          if x.len() > MAX_VALUE_SIZE {
+            anyhow::bail!("TriStateSet: value too large");
+          }
+        }
+      }
+      Ok(req)
+    },
+  )
+}
+
+pub fn api_kv_compare_and_set_many_1<'a, 'b, 'c>(
+  scope: &mut v8::HandleScope<'a>,
+  args: v8::FunctionCallbackArguments<'b>,
+  _retval: v8::ReturnValue<'c>,
+) -> Result<()> {
+  api_kv_generic::<
+    KvCompareAndSetManyRequest<serde_v8::Value>,
+    KvCompareAndSetManyRequest<Vec<u8>>,
+    KvCompareAndSetManyResponse,
+    _,
+    _,
+  >(
+    scope,
+    args,
+    "kv_compare_and_set_many_1",
+    |scope, rsp| Ok(v8_serialize(scope, &rsp.committed)?),
     |scope, req| {
       if req.keys.len() > MAX_KEYS_PER_OP {
         anyhow::bail!("too many keys");

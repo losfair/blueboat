@@ -14,7 +14,15 @@ export interface PrefixListOptions {
 }
 
 export type TriStateCheck = "absent" | "any" | { value: Uint8Array }
-export type TriStateSet = "delete" | "preserve" | { value: Uint8Array }
+export type TriStateSet = "delete" | "preserve" | { value: Uint8Array } | {
+  withVersionstampedKey: {
+    value: Uint8Array,
+  },
+}
+
+export interface CommitResult {
+  versionstamp: string | null;
+}
 
 export class Namespace {
   private name: string;
@@ -33,6 +41,13 @@ export class Namespace {
 
   async compareAndSetMany(requests: CompareAndSetManyRequestKey[]): Promise<boolean> {
     return await wrapNativeAsync(callback => __blueboat_host_invoke("kv_compare_and_set_many", {
+      namespace: this.name,
+      keys: requests,
+    }, callback));
+  }
+
+  async compareAndSetMany1(requests: CompareAndSetManyRequestKey[]): Promise<CommitResult | null> {
+    return await wrapNativeAsync(callback => __blueboat_host_invoke("kv_compare_and_set_many_1", {
       namespace: this.name,
       keys: requests,
     }, callback));

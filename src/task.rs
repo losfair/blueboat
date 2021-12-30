@@ -300,7 +300,7 @@ async fn preemptive_task_acceptor_worker<T: for<'x> Deserialize<'x> + Send + 'st
         .await
       {
         Ok(x) => {
-          if x {
+          if x.is_some() {
             tracing::warn!(%identity, %channel, "channel lock acquired");
             match channel_worker(&identity, *channel, props, &mut lock_json, &mut tx).await {
               Ok(()) => {}
@@ -316,7 +316,7 @@ async fn preemptive_task_acceptor_worker<T: for<'x> Deserialize<'x> + Send + 'st
               )])
               .await
             {
-              Ok(true) => {
+              Ok(Some(_)) => {
                 log::info!("released lock for channel {}", channel);
               }
               e => {
@@ -426,13 +426,14 @@ async fn renew_once(channel: &str, old_config: &[u8], lock_json: &mut Vec<u8>) -
     .unwrap()
     .as_millis() as u64;
   let new_lock_json = serde_json::to_vec(&lock).unwrap();
-  if !sess
+  if sess
     .compare_and_set_many([(
       &format!("{}/{}/lock", region_scheduler_prefix, channel),
       TriStateCheck::Value(lock_json.as_slice()),
       TriStateSet::Value(&new_lock_json),
     )])
     .await?
+    .is_none()
   {
     log::warn!("failed to renew lock for channel {}", channel);
     return Ok(false);
