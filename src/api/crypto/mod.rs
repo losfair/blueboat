@@ -1,13 +1,14 @@
-pub mod curve25519;
-pub mod jwt;
 pub mod aead;
+pub mod curve25519;
+pub mod hmac;
+pub mod jwt;
 
 use anyhow::Result;
+use md5::{Digest, Md5};
 use rand::Rng;
 use std::convert::TryFrom;
 use thiserror::Error;
 use v8;
-use md5::{Md5, Digest};
 
 use crate::{
   api::util::v8_deref_typed_array_assuming_noalias, v8util::create_uint8array_from_bytes,
@@ -74,5 +75,19 @@ pub fn api_crypto_random_uuid(
   let uuid = uuid::Uuid::new_v4();
   let uuid = v8::String::new(scope, &uuid.to_string()).unwrap();
   retval.set(uuid.into());
+  Ok(())
+}
+
+pub fn api_crypto_constant_time_eq(
+  scope: &mut v8::HandleScope,
+  args: v8::FunctionCallbackArguments,
+  mut retval: v8::ReturnValue,
+) -> Result<()> {
+  let a = v8::Local::<v8::TypedArray>::try_from(args.get(1))?;
+  let b = v8::Local::<v8::TypedArray>::try_from(args.get(2))?;
+  let a = unsafe { v8_deref_typed_array_assuming_noalias(scope, a) };
+  let b = unsafe { v8_deref_typed_array_assuming_noalias(scope, b) };
+  let eq = ring::constant_time::verify_slices_are_equal(&a, &b).is_ok();
+  retval.set(v8::Boolean::new(scope, eq).into());
   Ok(())
 }

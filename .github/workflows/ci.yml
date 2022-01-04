@@ -41,6 +41,8 @@ jobs:
         run: cd jsland && pnpm i
       - name: Build
         run: |
+          # aes-gcm-siv hardware acceleration
+          export RUSTFLAGS="-Ctarget-cpu=haswell -Ctarget-feature=+aes,+sse2,+sse4.1,+ssse3"
           BLUEBOAT_DEB=1 ./build.sh
           deb_file="$(find ./target/debian/ -type f)"
           cp ${deb_file} ./docker/blueboat.deb

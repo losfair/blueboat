@@ -2,9 +2,6 @@
 
 set -eo pipefail
 
-# aes-gcm-siv hardware acceleration
-export RUSTFLAGS="-Ctarget-cpu=haswell -Ctarget-feature=+aes,+sse2,+sse4.1,+ssse3"
-
 if [ "$DEBUG_MODE" = "1" ]; then
   echo "[*] Building debug mode binary."
   release_arg=""

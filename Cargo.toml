@@ -83,7 +83,7 @@ usvg = "0.18"
 ed25519-dalek = "1.0.1"
 x25519-dalek = "1.2.0"
 curve25519-dalek = "3.2.0"
-sha2 = "0.9.8"
+sha2 = "0.10.0"
 rusoto_core = "0.47"
 rusoto_s3 = { version = "0.47" }
 maxminddb = { version = "0.21.0", features = ["mmap"] }
@@ -118,6 +118,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 hostname = "0.3"
 md-5 = "0.10.0"
 aes-gcm-siv = "0.10.3"
+hmac = "0.12.0"
 
 [build-dependencies]
 prost-build = "0.9"
