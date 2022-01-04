@@ -191,3 +191,40 @@ Router.get("/measure_text", req => {
     },
   });
 });
+
+Router.get("/crypto/aes128-gcm-siv-encrypt", async req => {
+  const u = new URL(req.url);
+  const text = u.searchParams.get("text") || "";
+  const key = Codec.hexdecode(u.searchParams.get("key") || "");
+  const nonce = Codec.hexdecode(u.searchParams.get("nonce") || "");
+  const ciphertext = Codec.hexencode(NativeCrypto.AEAD.aes128GcmSivEncrypt({
+    key,
+    data: new TextEncoder().encode(text),
+    nonce,
+  }));
+  return new Response(JSON.stringify({ ciphertext }));
+});
+
+Router.get("/crypto/aes128-gcm-siv-decrypt", async req => {
+  const u = new URL(req.url);
+  const ciphertext = Codec.hexdecode(u.searchParams.get("ciphertext") || "");
+  const key = Codec.hexdecode(u.searchParams.get("key") || "");
+  const nonce = Codec.hexdecode(u.searchParams.get("nonce") || "");
+  const text = new TextDecoder().decode(NativeCrypto.AEAD.aes128GcmSivDecrypt({
+    key,
+    data: ciphertext,
+    nonce,
+  }));
+  return new Response(JSON.stringify({ text }));
+})
+
+Router.get("/crypto/hmac-sha256", async req => {
+  const u = new URL(req.url);
+  const text = u.searchParams.get("text") || "";
+  const key = Codec.hexdecode(u.searchParams.get("key") || "");
+  const mac = NativeCrypto.HMAC.hmacSha256({
+    key,
+    data: new TextEncoder().encode(text),
+  });
+  return new Response(JSON.stringify({ mac: Codec.hexencode(mac) }));
+});
