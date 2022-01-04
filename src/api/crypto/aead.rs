@@ -10,6 +10,7 @@ use crate::api::util::{v8_deref_typed_array_assuming_noalias, v8_deserialize, Ty
 use crate::v8util::create_uint8array_from_bytes;
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AesGcmSivParams<K, N, Buf> {
   key: K,
   nonce: N,
