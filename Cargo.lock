@@ -395,7 +395,7 @@ dependencies = [
 
 [[package]]
 name = "blueboat"
-version = "0.2.9"
+version = "0.2.10"
 dependencies = [
  "a2",
  "aes-gcm-siv",
