@@ -116,6 +116,8 @@ blake3 = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 hostname = "0.3"
+md-5 = "0.10.0"
+aes-gcm-siv = "0.10.3"
 
 [build-dependencies]
 prost-build = "0.9"

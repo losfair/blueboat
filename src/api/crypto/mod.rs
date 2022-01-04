@@ -1,11 +1,13 @@
 pub mod curve25519;
 pub mod jwt;
+pub mod aead;
 
 use anyhow::Result;
 use rand::Rng;
 use std::convert::TryFrom;
 use thiserror::Error;
 use v8;
+use md5::{Md5, Digest};
 
 use crate::{
   api::util::v8_deref_typed_array_assuming_noalias, v8util::create_uint8array_from_bytes,
@@ -32,6 +34,13 @@ pub fn api_crypto_digest(
     "blake3" => {
       let output = blake3::hash(&data);
       retval.set(create_uint8array_from_bytes(scope, output.as_bytes()).into());
+      return Ok(());
+    }
+    "md5" => {
+      let mut hasher = Md5::new();
+      hasher.update(&data[..]);
+      let output = hasher.finalize();
+      retval.set(create_uint8array_from_bytes(scope, &output[..]).into());
       return Ok(());
     }
     _ => return Err(InvalidAlg.into()),
