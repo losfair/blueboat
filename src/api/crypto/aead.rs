@@ -1,5 +1,5 @@
 use aes_gcm_siv::aead::consts::{U12, U16};
-use aes_gcm_siv::aead::generic_array::GenericArray;
+use aes_gcm_siv::aead::generic_array::{ArrayLength, GenericArray};
 use aes_gcm_siv::aead::{Aead, NewAead, Payload};
 use aes_gcm_siv::{Aes128GcmSiv, Key, Nonce};
 use anyhow::Result;
@@ -18,17 +18,31 @@ pub struct AesGcmSivParams<K, N, Buf> {
   associated_data: Option<Buf>,
 }
 
+trait TryFromSlice: Sized {
+  fn try_from_slice(slice: &[u8]) -> Result<Self>;
+}
+
+impl<N: ArrayLength<u8>> TryFromSlice for GenericArray<u8, N> {
+  fn try_from_slice(slice: &[u8]) -> Result<Self> {
+    if slice.len() != N::to_usize() {
+      return Err(anyhow::anyhow!("invalid slice length"));
+    }
+    Ok(Self::clone_from_slice(slice))
+  }
+}
+
 impl<'a, 'b, 'c> AesGcmSivParams<serde_v8::Value<'a>, serde_v8::Value<'b>, serde_v8::Value<'c>> {
   fn interpret<'t>(
     &self,
     scope: &mut v8::HandleScope<'t>,
   ) -> Result<AesGcmSivParams<GenericArray<u8, U16>, GenericArray<u8, U12>, TypedArrayView>> {
     let key: v8::Local<v8::TypedArray> = v8::Local::<v8::TypedArray>::try_from(self.key.v8_value)?;
-    let key = *Key::from_slice(&unsafe { v8_deref_typed_array_assuming_noalias(scope, key) }[..]);
+    let key =
+      Key::try_from_slice(&unsafe { v8_deref_typed_array_assuming_noalias(scope, key) }[..])?;
     let nonce: v8::Local<v8::TypedArray> =
       v8::Local::<v8::TypedArray>::try_from(self.nonce.v8_value)?;
     let nonce =
-      *Nonce::from_slice(&unsafe { v8_deref_typed_array_assuming_noalias(scope, nonce) }[..]);
+      Nonce::try_from_slice(&unsafe { v8_deref_typed_array_assuming_noalias(scope, nonce) }[..])?;
 
     // XXX: `data` and `associated_data` may be aliased - though we are using them immutably here, can something go wrong?
     let data: v8::Local<v8::TypedArray> =
