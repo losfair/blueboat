@@ -61,50 +61,69 @@ use uuid::Uuid;
   about = "The monolithic runtime for modern web backends."
 )]
 struct Opt {
+  /// Listen address.
   #[structopt(short, long)]
   listen: SocketAddr,
 
+  /// S3 bucket for storing apps' code and metadata.
   #[structopt(long)]
   s3_bucket: String,
 
+  /// S3 region for storing apps' code and metadata.
   #[structopt(long)]
   s3_region: String,
 
+  /// S3-compatible endpoint for storing apps' code and metadata. Leave this default if using AWS S3.
   #[structopt(long, default_value = "-")]
   s3_endpoint: String,
 
+  /// High watermark of available memory. Currently unused.
   #[structopt(long, default_value = "524288")]
   mem_high_watermark_kb: u64,
 
+  /// Critical watermark of available memory. The scheduler will begin killing workers after this threshold is reached.
   #[structopt(long, default_value = "131072")]
   mem_critical_watermark_kb: u64,
 
+  /// Obsolete option. No effect.
   #[structopt(long, default_value = "-")]
   db: String,
 
+  /// Kafka cluster(s) for writing apps' logs. Looks like "com.example.blueboat.applog:0@kafka.core.svc.cluster.local:9092"
   #[structopt(long, default_value = "-")]
   log_kafka: String,
 
+  /// Kafka cluster(s) for writing Blueboat's own logs. Looks like "com.example.blueboat.syslog:0@kafka.core.svc.cluster.local:9092"
   #[structopt(long, default_value = "-")]
   syslog_kafka: String,
 
+  /// Path to Maxmind GeoIP2 database.
   #[structopt(long, default_value = "-")]
   mmdb_city: String,
 
+  /// Path to the Wikipedia Blocklist database.
   #[structopt(long, default_value = "-")]
   wpbl_db: String,
 
+  /// Metadata service bootstrap URL. Usually looks like "wss://mds.example.com/bootstrap-shard".
   #[structopt(long, default_value = "-")]
   mds: String,
 
+  /// The name of the nearest metadata service region.
   #[structopt(long, default_value = "-")]
   mds_local_region: String,
 
+  /// Whether this instance should listen to and process background tasks.
   #[structopt(long)]
   accept_background_tasks: bool,
 
+  /// Enable Tokio console for monitoring. Do not enable this in production as there seems to be memory leak.
   #[structopt(long)]
   enable_tokio_console: bool,
+
+  /// Enable HTTP fastpath. Let Blueboat deal with domain-based routing, and eliminate the need for a reverse proxy.
+  #[structopt(long)]
+  enable_http_fastpath: bool,
 }
 
 struct CacheEntry {
