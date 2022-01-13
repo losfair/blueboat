@@ -1,7 +1,7 @@
 use std::convert::Infallible;
 use std::net::IpAddr;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use std::{net::SocketAddr, sync::Arc, time::Instant};
 
@@ -121,7 +121,7 @@ struct Opt {
   #[structopt(long)]
   enable_tokio_console: bool,
 
-  /// Enable HTTP fastpath. Let Blueboat deal with domain-based routing, and eliminate the need for a reverse proxy.
+  /// (not yet implemented) Enable HTTP fastpath. Let Blueboat deal with domain-based routing, and eliminate the need for a reverse proxy.
   #[structopt(long)]
   enable_http_fastpath: bool,
 }
@@ -152,6 +152,7 @@ static WPBL_DB: OnceCell<Option<WpblDb>> = OnceCell::const_new();
 
 static LP_DISPATCH_FAIL_COUNT: AtomicU64 = AtomicU64::new(0);
 static LP_BG_ISSUE_FAIL_COUNT: AtomicU64 = AtomicU64::new(0);
+static HTTP_FAST_PATH: AtomicBool = AtomicBool::new(false);
 
 const MIN_GAP_KB: u64 = 65536;
 const WORKER_IDLE_TTL_SECS: u64 = 400;
@@ -377,7 +378,7 @@ async fn async_main() {
   };
   WPBL_DB.set(wpbl_db).unwrap_or_else(|_| unreachable!());
 
-  let mds = if opt.mds != "" {
+  let mds = if opt.mds != "" && opt.mds != "-" {
     let mds_key = std::env::var("MDS_KEY").ok();
     match mds_key {
       Some(key) => {
@@ -424,7 +425,19 @@ async fn async_main() {
   } else {
     None
   };
+  let has_mds = mds.is_some();
   MDS.set(mds).unwrap_or_else(|_| unreachable!());
+
+  if opt.enable_http_fastpath {
+    if !has_mds {
+      log::error!("HTTP fastpath requires MDS");
+      std::process::exit(1);
+    }
+    log::warn!("HTTP fastpath enabled. Routing will be managed by Blueboat.");
+    HTTP_FAST_PATH.store(true, Ordering::Relaxed);
+
+    panic!("http fastpath is not yet implemented");
+  }
 
   // Monitor memory pressure
   std::thread::spawn(|| {
