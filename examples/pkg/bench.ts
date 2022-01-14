@@ -1,3 +1,5 @@
+import { KeyInfo } from "../../jsland/dist/src/native_crypto/jwt";
+
 Router.get("/bench/nop", async req => {
   const n = 100000;
 
@@ -75,3 +77,41 @@ Router.get("/bench/json", async req => {
   }
   return new Response("???");
 });
+
+Router.get("/bench/jwt_encode", async req => {
+  const n = 100000;
+  const jwtKey: KeyInfo = {
+    type: "base64Secret",
+    data: Codec.b64encode(crypto.getRandomValues(new Uint8Array(32))),
+  };
+  let start = Date.now();
+  for (let i = 0; i < n; i++) {
+    NativeCrypto.JWT.encode({ alg: "HS256" }, {
+      exp: Math.floor(Date.now() / 1000) + 60,
+      hello: "world"
+    }, jwtKey);
+  }
+  let dur = Date.now() - start;
+  return new Response(`${dur}ms\n`);
+})
+
+Router.get("/bench/jwt_decode", async req => {
+  const n = 100000;
+  const jwtKey: KeyInfo = {
+    type: "base64Secret",
+    data: Codec.b64encode(crypto.getRandomValues(new Uint8Array(32))),
+  };
+  const enc = NativeCrypto.JWT.encode({ alg: "HS256" }, {
+    exp: Math.floor(Date.now() / 1000) + 60,
+    hello: "world"
+  }, jwtKey);
+  let start = Date.now();
+  for (let i = 0; i < n; i++) {
+    NativeCrypto.JWT.decode(enc, jwtKey, {
+      leeway: 60,
+      algorithms: ["HS256"],
+    });
+  }
+  let dur = Date.now() - start;
+  return new Response(`${dur}ms\n`);
+})
