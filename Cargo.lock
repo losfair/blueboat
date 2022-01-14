@@ -1600,6 +1600,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "heck"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2540771e65fc8cb83cd6e8a237f70c319bd5c29f78ed1084ba5d50eeac86f7f9"
+
+[[package]]
 name = "hermit-abi"
 version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3062,7 +3068,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62941722fb675d463659e49c4f3fe1fe792ff24fe5bbaa9c08cd3b98a1c354f5"
 dependencies = [
  "bytes",
- "heck",
+ "heck 0.3.3",
  "itertools",
  "lazy_static 1.4.0",
  "log",
@@ -3981,15 +3987,15 @@ checksum = "533494a8f9b724d33625ab53c6c4800f7cc445895924a8ef649222dcb76e938b"
 
 [[package]]
 name = "skia-bindings"
-version = "0.45.1"
+version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1843915b06ac574590586a47489b68722feb1d8f787d5b964b576a9f34f9a78f"
+checksum = "b6ec5a9aa5469d56bf3eb3268194196867765fddd978301e5503f2ce8cdd1900"
 dependencies = [
  "bindgen 0.59.1",
  "cc",
  "clang-sys",
  "flate2",
- "heck",
+ "heck 0.4.0",
  "lazy_static 1.4.0",
  "regex",
  "serde_json",
@@ -4000,9 +4006,9 @@ dependencies = [
 
 [[package]]
 name = "skia-safe"
-version = "0.45.1"
+version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b64952fe65a4bb1df4b720f30102d3c2a345b7423f9ea448171a16ba610a05b"
+checksum = "6d9408344ab39441d23a3af9e4519dfb6c02dca7ac776751605541bce25c307c"
 dependencies = [
  "bitflags",
  "lazy_static 1.4.0",
@@ -4195,7 +4201,7 @@ version = "0.4.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "134d838a2c9943ac3125cf6df165eda53493451b719f3255b2a26b85f772d0ba"
 dependencies = [
- "heck",
+ "heck 0.3.3",
  "proc-macro-error",
  "proc-macro2",
  "quote",
@@ -4214,7 +4220,7 @@ version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d06aaeeee809dbc59eb4556183dd927df67db1540de5be8d3ec0b6636358a5ec"
 dependencies = [
- "heck",
+ "heck 0.3.3",
  "proc-macro2",
  "quote",
  "syn",
