@@ -3,3 +3,4 @@ rustflags = ["--cfg", "tokio_unstable"]
 
 [env]
 V8_FROM_SOURCE = "1"
+FORCE_SKIA_BUILD = "1"
