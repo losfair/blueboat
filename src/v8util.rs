@@ -94,15 +94,58 @@ impl Deref for GenericStringView {
   }
 }
 
+pub struct GenericBytesView {
+  inner: GenericBytesViewInner,
+}
+
+enum GenericBytesViewInner {
+  Owned(Vec<u8>),
+  View(TypedArrayView),
+}
+
+impl Deref for GenericBytesView {
+  type Target = [u8];
+  fn deref(&self) -> &[u8] {
+    match &self.inner {
+      GenericBytesViewInner::Owned(s) => s,
+      GenericBytesViewInner::View(v) => &v[..],
+    }
+  }
+}
+
 pub trait LocalValueExt<'s> {
   fn read_string<'t>(self, scope: &mut v8::HandleScope<'t>) -> Result<String>;
   unsafe fn read_string_assume_noalias<'t>(
     self,
     scope: &mut v8::HandleScope<'t>,
   ) -> Result<GenericStringView>;
+  unsafe fn read_bytes_assume_noalias<'t>(
+    self,
+    scope: &mut v8::HandleScope<'t>,
+  ) -> Result<GenericBytesView>;
 }
 
 impl<'s> LocalValueExt<'s> for v8::Local<'s, v8::Value> {
+  unsafe fn read_bytes_assume_noalias<'t>(
+    self,
+    scope: &mut v8::HandleScope<'t>,
+  ) -> Result<GenericBytesView> {
+    if let Ok(x) = v8::Local::<v8::TypedArray>::try_from(self) {
+      let arr = v8_deref_typed_array_assuming_noalias(scope, x);
+      Ok(GenericBytesView {
+        inner: GenericBytesViewInner::View(arr),
+      })
+    } else if let Ok(x) = v8::Local::<v8::String>::try_from(self) {
+      Ok(GenericBytesView {
+        inner: GenericBytesViewInner::Owned(x.to_rust_string_lossy(scope).into_bytes()),
+      })
+    } else {
+      Err(anyhow::anyhow!(
+        "this value cannot be interpreted as a byte array"
+      ))
+    }
+  }
+
   unsafe fn read_string_assume_noalias<'t>(
     self,
     scope: &mut v8::HandleScope<'t>,

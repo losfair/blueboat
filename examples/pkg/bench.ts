@@ -78,6 +78,138 @@ Router.get("/bench/json", async req => {
   return new Response("???");
 });
 
+Router.get("/bench/textcodec", async req => {
+  const naiveHex1 = (x: Uint8Array) => [...x]
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  // https://stackoverflow.com/a/55200387
+  let naiveHex2: (x: Uint8Array) => string;
+  {
+    const byteToHex: string[] = [];
+
+    for (let n = 0; n <= 0xff; ++n) {
+      const hexOctet = n.toString(16).padStart(2, "0");
+      byteToHex.push(hexOctet);
+    }
+
+    function hex(buff: Uint8Array) {
+      const hexOctets: string[] = new Array(buff.length); // new Array(buff.length) is even faster (preallocates necessary array size), then use hexOctets[i] instead of .push()
+
+      for (let i = 0; i < buff.length; ++i)
+        hexOctets[i] = byteToHex[buff[i]];
+
+      return hexOctets.join("");
+    }
+    naiveHex2 = hex;
+  }
+
+  const n = 5000;
+  const dataSize = 5000;
+  let start = Date.now();
+  {
+    const buf = crypto.getRandomValues(new Uint8Array(dataSize));
+    for (let i = 0; i < n; i++) {
+      Codec.hexencode(buf);
+    }
+  }
+  let dur1a = Date.now() - start;
+
+  start = Date.now();
+  {
+    const buf = crypto.getRandomValues(new Uint8Array(dataSize));
+    for (let i = 0; i < n; i++) {
+      Codec.hexencodeToUint8Array(buf);
+    }
+  }
+  let dur1b = Date.now() - start;
+
+  start = Date.now();
+  {
+    const buf = crypto.getRandomValues(new Uint8Array(dataSize));
+    for (let i = 0; i < n; i++) {
+      naiveHex1(buf);
+    }
+  }
+  let dur1_naive1 = Date.now() - start;
+
+  start = Date.now();
+  {
+    const buf = crypto.getRandomValues(new Uint8Array(dataSize));
+    for (let i = 0; i < n; i++) {
+      naiveHex2(buf);
+    }
+  }
+  let dur1_naive2 = Date.now() - start;
+
+  start = Date.now();
+  {
+    const buf = Codec.hexencode(crypto.getRandomValues(new Uint8Array(dataSize)));
+    for (let i = 0; i < n; i++) {
+      Codec.hexdecode(buf);
+    }
+  }
+  let dur2a = Date.now() - start;
+
+  start = Date.now();
+  {
+    const buf = new TextEncoder().encode(Codec.hexencode(crypto.getRandomValues(new Uint8Array(dataSize))));
+    for (let i = 0; i < n; i++) {
+      Codec.hexdecode(buf);
+    }
+  }
+  let dur2b = Date.now() - start;
+
+  start = Date.now();
+  {
+    const buf = crypto.getRandomValues(new Uint8Array(dataSize));
+    for (let i = 0; i < n; i++) {
+      Codec.b64encode(buf);
+    }
+  }
+  let dur3a = Date.now() - start;
+
+  start = Date.now();
+  {
+    const buf = crypto.getRandomValues(new Uint8Array(dataSize));
+    for (let i = 0; i < n; i++) {
+      Codec.b64encodeToUint8Array(buf);
+    }
+  }
+  let dur3b = Date.now() - start;
+
+  start = Date.now();
+  {
+    const buf = Codec.b64encode(crypto.getRandomValues(new Uint8Array(dataSize)));
+    for (let i = 0; i < n; i++) {
+      Codec.b64decode(buf);
+    }
+  }
+  let dur4a = Date.now() - start;
+
+  start = Date.now();
+  {
+    const buf = new TextEncoder().encode(Codec.b64encode(crypto.getRandomValues(new Uint8Array(dataSize))));
+    for (let i = 0; i < n; i++) {
+      Codec.b64decode(buf);
+    }
+  }
+  let dur4b = Date.now() - start;
+
+  return new Response(JSON.stringify({
+    dur1a,
+    dur1b,
+    dur1_naive1,
+    dur1_naive2,
+    dur2a,
+    dur2b,
+    dur3a,
+    dur3b,
+    dur4a,
+    dur4b,
+  }));
+})
+
 Router.get("/bench/jwt_encode", async req => {
   const n = 100000;
   const jwtKey: KeyInfo = {
