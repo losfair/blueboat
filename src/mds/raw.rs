@@ -274,6 +274,7 @@ impl RawMdsHandle {
       lane: 0, // to be rewritten
       program: script.to_string(),
       data,
+      fastpath_batch: vec![],
     };
     self.req_tx.send_async((req, res_tx)).await?;
     let res = res_rx.await??;

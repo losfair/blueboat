@@ -17,12 +17,14 @@ message Login {
 message LoginResponse {
   bool ok = 1;
   string region = 2;
+  string error = 3;
 }
 
 message Request {
   uint32 lane = 1;
   string program = 2;
   string data = 3;
+  repeated FastpathRequest fastpath_batch = 4;
 }
 
 message Response {
@@ -31,6 +33,43 @@ message Response {
     ErrorResponse error = 2;
     string output = 3;
   }
+  repeated FastpathResponse fastpath_batch = 4;
+}
+
+message FastpathRequest {
+  enum Op {
+    INVALID = 0;
+    COMMIT_TXN = 1;
+    ABORT_TXN = 2;
+    OPEN_TXN = 3;
+    GET = 4;
+    SET = 5;
+    DELETE = 6;
+    LIST = 7;
+  }
+
+  Op op = 1;
+  uint64 txn_id = 2;
+  bool is_primary = 3;
+  repeated KeyValuePair kvp = 4;
+  FastpathListOptions list_options = 5;
+}
+
+message FastpathListOptions {
+  uint32 limit = 1;
+  bool reverse = 2;
+  bool want_value = 3;
+}
+
+message FastpathResponse {
+  uint64 txn_id = 1;
+  ErrorResponse error = 2;
+  repeated KeyValuePair kvp = 3;
+}
+
+message KeyValuePair {
+  bytes key = 1;
+  bytes value = 2;
 }
 
 message StoreInfo {
@@ -53,6 +92,11 @@ message ClusterRegion {
   string config = 2;
 }
 
-message RoleList {
+message UserRoleList {
   repeated string roles = 1;
+}
+
+message StoreRoleList {
+  repeated string roles = 1;
+  repeated string readonly_roles = 2;
 }
