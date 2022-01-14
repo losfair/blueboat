@@ -247,3 +247,47 @@ Router.get("/bench/jwt_decode", async req => {
   let dur = Date.now() - start;
   return new Response(`${dur}ms\n`);
 })
+
+Router.get("/bench/aes_aead", async req => {
+  const n = 50000;
+  const dataSize = 10;
+  let startTime = Date.now();
+  {
+    const key = crypto.getRandomValues(new Uint8Array(16));
+    const nonce = crypto.getRandomValues(new Uint8Array(12));
+    const data = crypto.getRandomValues(new Uint8Array(dataSize));
+    for (let i = 0; i < n; i++) {
+      NativeCrypto.AEAD.aes128GcmSivEncrypt({
+        key,
+        data,
+        nonce,
+      });
+    }
+  }
+  const dur1 = Date.now() - startTime;
+
+  startTime = Date.now();
+  {
+    const key = crypto.getRandomValues(new Uint8Array(16));
+    const nonce = crypto.getRandomValues(new Uint8Array(12));
+    const data = crypto.getRandomValues(new Uint8Array(dataSize));
+    const enc = NativeCrypto.AEAD.aes128GcmSivEncrypt({
+      key,
+      data,
+      nonce,
+    });
+    for (let i = 0; i < n; i++) {
+      NativeCrypto.AEAD.aes128GcmSivDecrypt({
+        key,
+        nonce,
+        data: enc,
+      })
+    }
+  }
+  const dur2 = Date.now() - startTime;
+
+  return new Response(JSON.stringify({
+    dur1,
+    dur2,
+  }))
+});

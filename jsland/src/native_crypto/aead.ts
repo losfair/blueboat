@@ -6,9 +6,9 @@ export interface AesGcmSivParams {
 }
 
 export function aes128GcmSivEncrypt(params: AesGcmSivParams): Uint8Array {
-  return <Uint8Array>__blueboat_host_invoke("crypto_aead_aes128_gcm_siv_encrypt", params);
+  return <Uint8Array>__blueboat_host_invoke("crypto_aead_aes128_gcm_siv_encrypt", params.key, params.nonce, params.data, params.associatedData);
 }
 
 export function aes128GcmSivDecrypt(params: AesGcmSivParams): Uint8Array {
-  return <Uint8Array>__blueboat_host_invoke("crypto_aead_aes128_gcm_siv_decrypt", params);
+  return <Uint8Array>__blueboat_host_invoke("crypto_aead_aes128_gcm_siv_decrypt", params.key, params.nonce, params.data, params.associatedData);
 }
