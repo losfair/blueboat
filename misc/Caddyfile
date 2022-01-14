@@ -1,7 +1,0 @@
-(blueboat) {
-  reverse_proxy 127.0.0.1:2290 {
-    header_up X-Blueboat-Metadata "{args.0}"
-    header_up X-Blueboat-Client-Ip "{remote_host}"
-    header_up -X-Blueboat-Request-Id
-  }
-}
