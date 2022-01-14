@@ -6,6 +6,7 @@ import "./crypto.ts";
 import "./validation.ts";
 import { Solver } from "../../jsland/dist/src/graphics/layout_solver.js";
 import { DrawingMetrics } from "../../jsland/dist/src/graphics/layout_draw.js";
+import "./bench.ts";
 
 class BgEntry extends Background.BackgroundEntryBase {
   constructor() {

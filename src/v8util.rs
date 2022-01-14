@@ -2,10 +2,14 @@ use std::cell::Cell;
 
 use anyhow::Result;
 use std::convert::TryFrom;
+use std::ops::Deref;
 use thiserror::Error;
 use v8;
 
-use crate::ctx::BlueboatInitData;
+use crate::{
+  api::util::{v8_deref_typed_array_assuming_noalias, TypedArrayView},
+  ctx::BlueboatInitData,
+};
 
 pub trait FunctionCallbackArgumentsExt<'s> {
   fn load_function_at(&self, i: i32) -> Result<v8::Local<'s, v8::Function>>;
@@ -68,14 +72,72 @@ impl<'s> ObjectExt<'s> for v8::Object {
   }
 }
 
+pub struct GenericStringView {
+  inner: GenericStringViewInner,
+}
+
+enum GenericStringViewInner {
+  Owned(String),
+  View(TypedArrayView),
+}
+
+impl Deref for GenericStringView {
+  type Target = str;
+  fn deref(&self) -> &str {
+    match &self.inner {
+      GenericStringViewInner::Owned(s) => s,
+      GenericStringViewInner::View(v) => {
+        let v: &[u8] = &v[..];
+        unsafe { std::str::from_utf8_unchecked(v) }
+      }
+    }
+  }
+}
+
 pub trait LocalValueExt<'s> {
   fn read_string<'t>(self, scope: &mut v8::HandleScope<'t>) -> Result<String>;
+  unsafe fn read_string_assume_noalias<'t>(
+    self,
+    scope: &mut v8::HandleScope<'t>,
+  ) -> Result<GenericStringView>;
 }
 
 impl<'s> LocalValueExt<'s> for v8::Local<'s, v8::Value> {
+  unsafe fn read_string_assume_noalias<'t>(
+    self,
+    scope: &mut v8::HandleScope<'t>,
+  ) -> Result<GenericStringView> {
+    if let Ok(x) = v8::Local::<v8::String>::try_from(self) {
+      Ok(GenericStringView {
+        inner: GenericStringViewInner::Owned(x.to_rust_string_lossy(scope)),
+      })
+    } else if let Ok(x) = v8::Local::<v8::TypedArray>::try_from(self) {
+      let arr = v8_deref_typed_array_assuming_noalias(scope, x);
+      std::str::from_utf8(&arr[..])?;
+      Ok(GenericStringView {
+        inner: GenericStringViewInner::View(arr),
+      })
+    } else {
+      Err(anyhow::anyhow!(
+        "this value cannot be interpreted as a string"
+      ))
+    }
+  }
+
   fn read_string<'t>(self, scope: &mut v8::HandleScope<'t>) -> Result<String> {
-    let s = v8::Local::<v8::String>::try_from(self)?;
-    Ok(s.to_rust_string_lossy(scope))
+    unsafe {
+      self.read_string_assume_noalias(scope).map(|x| match x {
+        GenericStringView {
+          inner: GenericStringViewInner::Owned(s),
+        } => s,
+        GenericStringView {
+          inner: GenericStringViewInner::View(v),
+        } => {
+          let v: &[u8] = &v[..];
+          std::str::from_utf8_unchecked(v).to_string()
+        }
+      })
+    }
   }
 }
 

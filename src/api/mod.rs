@@ -41,6 +41,7 @@ pub type ApiHandler = fn(
 ) -> Result<()>;
 
 pub static API: phf::Map<&'static str, ApiHandler> = phf_map! {
+  "nop" => api_nop,
   "sleep" => api_sleep,
   "complete" => api_complete,
   "schedule_at_most_once" => api_schedule_at_most_once,
@@ -88,6 +89,8 @@ pub static API: phf::Map<&'static str, ApiHandler> = phf_map! {
   "text_markdown_render" => text::markdown::api_text_markdown_render,
   "text_yaml_parse" => text::yaml::api_text_yaml_parse,
   "text_yaml_stringify" => text::yaml::api_text_yaml_stringify,
+  "text_json_parse" => text::json::api_text_json_parse,
+  "text_json_to_uint8array" => text::json::api_text_json_to_uint8array,
   "external_s3_sign" => external::s3::api_external_s3_sign,
   "external_s3_list_objects_v2" => external::s3::api_external_s3_list_objects_v2,
   "kv_get_many" => kv::api_kv_get_many,
@@ -105,6 +108,14 @@ struct TypeMismatch;
 #[derive(Error, Debug)]
 #[error("serialization error")]
 struct SerializationError;
+
+fn api_nop(
+  _scope: &mut v8::HandleScope,
+  _args: v8::FunctionCallbackArguments,
+  _retval: v8::ReturnValue,
+) -> Result<()> {
+  Ok(())
+}
 
 fn api_sleep(
   scope: &mut v8::HandleScope,

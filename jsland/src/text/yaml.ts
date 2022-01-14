@@ -1,4 +1,4 @@
-export function parse(x: string): unknown {
+export function parse(x: string | Uint8Array): unknown {
   return __blueboat_host_invoke("text_yaml_parse", x);
 }
 
