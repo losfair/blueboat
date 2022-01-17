@@ -63,8 +63,37 @@ jobs:
           deb_file="$(find ./target/debian/ -type f)"
           cp ${deb_file} ./docker/blueboat.deb
           ls -lash ./docker
-      - name: Build Docker image
-        uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
+      - name: Build Docker image for testing
+        uses: docker/build-push-action@v2
+        with:
+          context: ./docker
+          load: true
+          tags: losfair/blueboat:test
+      - name: Smoke test
+        run: |
+          set -e
+          mkdir test-workspace
+          cd test-workspace
+          wget https://dl.min.io/server/minio/release/linux-amd64/minio
+          chmod +x minio
+          mkdir test-data
+          ./minio server --address 0.0.0.0:1932 ./test-data &
+          docker run --rm -p 127.0.0.1:3000:3000 --name blueboat --entrypoint /usr/bin/blueboat_server \
+            -e AWS_ACCESS_KEY_ID="minioadmin" \
+            -e AWS_SECRET_ACCESS_KEY="minioadmin" \
+            -e RUST_LOG=info \
+            losfair/blueboat:test \
+            -l "0.0.0.0:3000" \
+            --s3-bucket "apps" --s3-region "us-east-1" \
+            --s3-endpoint "http://172.17.0.1:1932" &
+          sleep 5
+          mkdir -p ./test-data/minio/apps/hello
+          echo 'Router.get("/", () => new Response("Hello from blueboat"))' | sudo tee ./index.js
+          tar -cvf ./test-data/minio/apps/hello/1.tar ./index.js
+          echo '{"version":"1","package":"hello/1.tar","env":{}}' | tee ./test-data/minio/apps/hello/metadata.json
+          curl -H "X-Blueboat-Metadata: hello/metadata.json" http://localhost:3000 | grep "Hello from blueboat"
+      - name: Build Docker image for release
+        uses: docker/build-push-action@v2
         with:
           context: ./docker
           push: ${{ startsWith(github.ref, 'refs/tags/') }}

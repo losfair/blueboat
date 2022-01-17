@@ -302,9 +302,8 @@ async fn async_main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
     } else {
-      tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+      // So that `RUST_LOG` is not ignored.
+      tracing_subscriber::fmt::init();
     }
     log::info!("Logging to stderr. Please use --syslog-kafka in production.");
   }
