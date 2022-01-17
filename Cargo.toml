@@ -86,6 +86,7 @@ curve25519-dalek = "3.2.0"
 sha2 = "0.10.0"
 rusoto_core = "0.47"
 rusoto_s3 = { version = "0.47" }
+rusoto_signature = "0.47"
 maxminddb = { version = "0.21.0", features = ["mmap"] }
 memmap2 = { version = "0.3.0" }
 tera = "1.15.0"

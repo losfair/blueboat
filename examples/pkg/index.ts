@@ -229,3 +229,20 @@ Router.get("/crypto/hmac-sha256", async req => {
   });
   return new Response(JSON.stringify({ mac: Codec.hexencode(mac) }));
 });
+
+Router.get("/external/aws/sign", async req => {
+  const url = ExternalService.AWS.sign({
+    key: "test",
+    secret: "test",
+  }, {
+    service: "s3",
+    region: {
+      name: "us-east-1",
+    },
+    method: "GET",
+    path: "/bucket/object",
+    headers: {},
+    expiresInMillis: 60000,
+  });
+  return new Response(`${url}\n`);
+});

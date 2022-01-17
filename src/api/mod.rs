@@ -95,6 +95,7 @@ pub static API: phf::Map<&'static str, ApiHandler> = phf_map! {
   "text_json_to_uint8array" => text::json::api_text_json_to_uint8array,
   "external_s3_sign" => external::s3::api_external_s3_sign,
   "external_s3_list_objects_v2" => external::s3::api_external_s3_list_objects_v2,
+  "external_aws_sign" => external::aws::api_external_aws_sign,
   "kv_get_many" => kv::api_kv_get_many,
   "kv_compare_and_set_many" => kv::api_kv_compare_and_set_many,
   "kv_compare_and_set_many_1" => kv::api_kv_compare_and_set_many_1,

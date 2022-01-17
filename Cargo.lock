@@ -457,6 +457,7 @@ dependencies = [
  "rmp-serde",
  "rusoto_core",
  "rusoto_s3",
+ "rusoto_signature",
  "rusqlite",
  "schemars",
  "serde",

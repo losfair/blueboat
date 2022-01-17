@@ -8,6 +8,38 @@ import {
 } from "../../native_schema";
 import { wrapNativeAsync } from "../../util";
 
+export interface JsAwsCredentials {
+  key: string;
+  secret: string;
+}
+
+export interface AwsSignaturePayload {
+  method: string;
+  service: string;
+  region: AwsRegion;
+  path: string;
+  headers: { [k: string]: string };
+  expiresInMillis: number;
+}
+
+export interface AwsRegion {
+  name: string;
+  endpoint?: string | null | undefined;
+}
+
+export function sign(
+  creds: JsAwsCredentials,
+  payload: AwsSignaturePayload,
+): string {
+  return <string>(
+    __blueboat_host_invoke(
+      "external_aws_sign",
+      creds,
+      payload,
+    )
+  );
+}
+
 export function getPresignedUrl(
   region: S3Region,
   credentials: S3Credentials,
