@@ -77,7 +77,7 @@ jobs:
           wget https://dl.min.io/server/minio/release/linux-amd64/minio
           chmod +x minio
           mkdir test-data
-          ./minio server --address 0.0.0.0:1932 ./test-data &
+          ./minio server --address 0.0.0.0:1932 ./test-data/minio &
           docker run --rm -p 127.0.0.1:3000:3000 --name blueboat --entrypoint /usr/bin/blueboat_server \
             -e AWS_ACCESS_KEY_ID="minioadmin" \
             -e AWS_SECRET_ACCESS_KEY="minioadmin" \
