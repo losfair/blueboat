@@ -1,6 +1,6 @@
 {
   "name": "blueboat-types",
-  "version": "0.2.11-alpha.1",
+  "version": "0.2.13-alpha.1",
   "description": "Blueboat jsland types.",
   "main": "src/index.d.ts",
   "scripts": {
