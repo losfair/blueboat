@@ -249,6 +249,25 @@ Router.get("/external/aws/sign", async req => {
   return new Response(`${JSON.stringify(out, null, 2)}\n`);
 });
 
+Router.get("/external/aws/sign_with_body", async req => {
+  const out = ExternalService.AWS.sign({
+    key: "test",
+    secret: "test",
+  }, {
+    service: "s3",
+    region: {
+      name: "us-east-1",
+    },
+    method: "GET",
+    path: "/bucket/object",
+    headers: {
+      "content-type": ["application/json"],
+    },
+    body: "test",
+  });
+  return new Response(`${JSON.stringify(out, null, 2)}\n`);
+});
+
 Router.get("/external/aws/presigned_url", async req => {
   const url = ExternalService.AWS.sign({
     key: "test",

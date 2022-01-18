@@ -11,7 +11,10 @@ use anyhow::Result;
 use rusoto_signature::SignedRequest;
 use v8;
 
-use crate::api::util::{mk_v8_string, v8_deserialize, v8_serialize};
+use crate::{
+  api::util::{mk_v8_string, v8_deserialize, v8_serialize},
+  v8util::LocalValueExt,
+};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -22,7 +25,7 @@ pub struct JsAwsCredentials {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AwsSignaturePayload {
+pub struct AwsSignaturePayload<'a> {
   method: String,
   service: String,
   region: AwsRegion,
@@ -35,6 +38,8 @@ pub struct AwsSignaturePayload {
 
   #[serde(default)]
   presigned_url: bool,
+
+  body: Option<serde_v8::Value<'a>>,
 }
 
 #[derive(Deserialize)]
@@ -88,9 +93,14 @@ pub fn api_external_aws_sign(
     );
     retval.set(mk_v8_string(scope, &url)?.into());
   } else {
-    // Get rid of Content-Length header and payload signing
-    let fake_stream = ByteStream::new(futures::stream::empty());
-    req.set_payload_stream(fake_stream);
+    if let Some(body) = &payload.body {
+      let body = unsafe { body.v8_value.read_bytes_assume_noalias(scope)? };
+      req.set_payload(Some(body.to_vec()));
+    } else {
+      // Get rid of Content-Length header and payload signing
+      let fake_stream = ByteStream::new(futures::stream::empty());
+      req.set_payload_stream(fake_stream);
+    }
 
     req.sign(&creds);
 

@@ -23,6 +23,7 @@ export interface AwsSignaturePayloadBase {
 
 export interface AwsSignaturePayload extends AwsSignaturePayloadBase {
   presignedUrl?: false;
+  body?: string | Uint8Array | null | undefined;
 }
 
 export interface AwsSignaturePayloadPresignedUrl extends AwsSignaturePayloadBase {
