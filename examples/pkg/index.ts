@@ -231,6 +231,25 @@ Router.get("/crypto/hmac-sha256", async req => {
 });
 
 Router.get("/external/aws/sign", async req => {
+  const out = ExternalService.AWS.sign({
+    key: "test",
+    secret: "test",
+  }, {
+    service: "s3",
+    region: {
+      name: "us-east-1",
+    },
+    method: "GET",
+    path: "/bucket/object",
+    headers: {
+      "content-length": ["42"],
+      "content-type": ["application/json"],
+    },
+  });
+  return new Response(`${JSON.stringify(out, null, 2)}\n`);
+});
+
+Router.get("/external/aws/presigned_url", async req => {
   const url = ExternalService.AWS.sign({
     key: "test",
     secret: "test",
@@ -242,6 +261,7 @@ Router.get("/external/aws/sign", async req => {
     method: "GET",
     path: "/bucket/object",
     headers: {},
+    presignedUrl: true,
     expiresInMillis: 60000,
   });
   return new Response(`${url}\n`);

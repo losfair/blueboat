@@ -13,25 +13,40 @@ export interface JsAwsCredentials {
   secret: string;
 }
 
-export interface AwsSignaturePayload {
+export interface AwsSignaturePayloadBase {
   method: string;
   service: string;
   region: AwsRegion;
   path: string;
-  headers: { [k: string]: string };
-  expiresInMillis: number;
+  headers: Record<string, string[]>;
 }
+
+export interface AwsSignaturePayload extends AwsSignaturePayloadBase {
+  presignedUrl?: false;
+}
+
+export interface AwsSignaturePayloadPresignedUrl extends AwsSignaturePayloadBase {
+  expiresInMillis: number;
+  presignedUrl: true;
+}
+
+export interface AwsSignatureOutput {
+  headers: Record<string, string[]>,
+  url: string,
+}
+
+export type SigningOutput<T> = T extends AwsSignaturePayloadPresignedUrl ? string : T extends AwsSignaturePayload ? AwsSignatureOutput : never;
 
 export interface AwsRegion {
   name: string;
   endpoint?: string | null | undefined;
 }
 
-export function sign(
+export function sign<T extends AwsSignaturePayload | AwsSignaturePayloadPresignedUrl>(
   creds: JsAwsCredentials,
-  payload: AwsSignaturePayload,
-): string {
-  return <string>(
+  payload: T,
+): SigningOutput<T> {
+  return <SigningOutput<T>>(
     __blueboat_host_invoke(
       "external_aws_sign",
       creds,
