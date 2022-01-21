@@ -1,6 +1,6 @@
 [package]
 name = "blueboat"
-version = "0.2.13-alpha.3"
+version = "0.2.13-alpha.4"
 edition = "2021"
 authors = ["Heyang Zhou <heyang.zhou@icloud.com>"]
 description = "The monolithic runtime for modern web backends."
