@@ -1,19 +1,18 @@
 import { JTDSchemaType } from "ajv/dist/core";
+import { HostObject } from "../host_object";
 export { JTDSchemaType } from "ajv/dist/core";
 
-const NativeKey = Symbol("native_key");
-
-export class JTDStaticSchema<T> {
-  [NativeKey]: symbol;
+export class JTDStaticSchema<T> extends HostObject {
   lastError: string | undefined;
 
   constructor(schema: JTDSchemaType<T>) {
-    this[NativeKey] = <symbol>__blueboat_host_invoke("jtd_load_schema", schema);
+    const sym = <symbol>__blueboat_host_invoke("jtd_load_schema", schema);
+    super(sym);
   }
 
   validate(input: unknown): input is T {
     this.lastError = <string>(
-      __blueboat_host_invoke("jtd_validate", this[NativeKey], input)
+      __blueboat_host_invoke("jtd_validate", this.hostSymbol, input)
     );
     return this.lastError === undefined;
   }

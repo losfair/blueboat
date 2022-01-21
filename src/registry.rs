@@ -65,4 +65,8 @@ impl SymbolRegistry {
     let sym = self.symbols.borrow().get(k).ok_or(NotRegistered)?.clone();
     Ok(sym.downcast().map_err(|_| TypeMismatch)?)
   }
+
+  pub fn remove<'s>(&self, k: v8::Local<'s, v8::Symbol>) {
+    self.symbols.borrow_mut().remove(&*k);
+  }
 }

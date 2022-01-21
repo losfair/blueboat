@@ -22,6 +22,7 @@ import * as backgroundMod from "./background/index";
 import { appBackgroundEntry } from "./background/impl";
 import * as textMod from "./text/index";
 import * as kvMod from "./kv";
+import { HostObject as HostObject_ } from "./host_object"
 
 const lateRoot = {
   App: appMod,
@@ -36,6 +37,7 @@ const lateRoot = {
   Background: backgroundMod,
   TextUtil: textMod,
   KV: kvMod,
+  HostObject: HostObject_,
   setTimeout,
   clearTimeout,
   setInterval,
@@ -188,4 +190,5 @@ declare global {
   const Background: typeof backgroundMod;
   const TextUtil: typeof textMod;
   const KV: typeof kvMod;
+  const HostObject: typeof HostObject_;
 }

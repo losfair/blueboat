@@ -5,6 +5,7 @@ pub mod dataset;
 pub mod external;
 mod fetch;
 pub mod graphics;
+pub mod host_object;
 pub mod kv;
 mod mysql;
 pub mod task;
@@ -102,6 +103,7 @@ pub static API: phf::Map<&'static str, ApiHandler> = phf_map! {
   "kv_prefix_list" => kv::api_kv_prefix_list,
   "kv_prefix_delete" => kv::api_kv_prefix_delete,
   "kv_run" => kv::api_kv_run,
+  "host_object_remove" => host_object::api_host_object_remove,
 };
 
 #[derive(Error, Debug)]

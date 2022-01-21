@@ -30,3 +30,18 @@ Router.post("/validate", async req => {
     },
   });
 })
+
+Router.get("/validate/dynschema", async req => {
+  const validator = new Validation.JTD.JTDStaticSchema(schema_TestData);
+  if(!validator.validate({})) {
+    return new Response(validator.lastError!, {
+      status: 400,
+    });
+  }
+
+  return new Response(JSON.stringify({}), {
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+})
