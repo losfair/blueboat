@@ -233,6 +233,9 @@ impl Executor {
       me.ctx.reset_v8_context(scope);
       return None;
     } else {
+      // Pump V8 message loop to run finalization routines.
+      // https://github.com/denoland/deno/pull/11221
+      while v8::Platform::pump_message_loop(&v8::V8::get_current_platform(), scope, false) {}
       if let Some(x) = exc {
         log::error!(
           "app {}: uncaught exception: {}",
