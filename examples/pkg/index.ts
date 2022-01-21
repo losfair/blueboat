@@ -285,3 +285,18 @@ Router.get("/external/aws/presigned_url", async req => {
   });
   return new Response(`${url}\n`);
 });
+
+Router.get("/compress/zstd_roundtrip", async req => {
+  const text = new TextEncoder().encode(Array(1000).fill("hello world").join("\n"));
+  const origHash = NativeCrypto.digest("blake3", text);
+  const compressed = Compress.Zstd.blockCompress(text);
+  const decompressed = Compress.Zstd.blockDecompress(compressed, new Uint8Array(text.length + 42));
+  const newHash = NativeCrypto.digest("blake3", decompressed);
+  if (!NativeCrypto.constantTimeEq(origHash, newHash)) {
+    throw new Error("hash mismatch");
+  }
+  return new Response(JSON.stringify({
+    "ok": true,
+    "compressedSize": compressed.length,
+  }) + "\n");
+})

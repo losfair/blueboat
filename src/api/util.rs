@@ -1,6 +1,9 @@
 use lazy_static::lazy_static;
 use std::{
+  collections::HashSet,
+  ffi::c_void,
   ops::{Deref, DerefMut},
+  ptr::NonNull,
   sync::atomic::{AtomicI32, Ordering},
 };
 
@@ -97,6 +100,57 @@ impl DerefMut for TypedArrayView {
   fn deref_mut(&mut self) -> &mut Self::Target {
     self.slice
   }
+}
+
+pub fn ensure_typed_arrays_have_distinct_backing_stores<'s, 't>(
+  scope: &mut v8::HandleScope<'s>,
+  values: &[v8::Local<'t, v8::TypedArray>],
+) -> Result<()> {
+  if typed_arrays_have_shared_backing_stores(scope, values) {
+    anyhow::bail!("the provided typed arrays have shared backing stores");
+  }
+
+  Ok(())
+}
+
+pub fn typed_arrays_have_shared_backing_stores<'s, 't>(
+  scope: &mut v8::HandleScope<'s>,
+  values: &[v8::Local<'t, v8::TypedArray>],
+) -> bool {
+  let mut backing_store_pointers: HashSet<NonNull<c_void>> = HashSet::new();
+  for &v in values {
+    let buffer = match v.buffer(scope) {
+      Some(x) => x,
+      None => continue,
+    };
+
+    let store = buffer.get_backing_store();
+    let ptr = store.data();
+    let ptr = match ptr {
+      Some(x) => x,
+      None => continue,
+    };
+    if backing_store_pointers.contains(&ptr) {
+      return true;
+    }
+    backing_store_pointers.insert(ptr);
+  }
+  false
+}
+
+pub fn truncate_typed_array_to_uint8array<'s, 't>(
+  scope: &mut v8::HandleScope<'s>,
+  value: v8::Local<'t, v8::TypedArray>,
+  new_byte_length: usize,
+) -> Result<v8::Local<'s, v8::Uint8Array>> {
+  let view_offset = value.byte_offset();
+  let view_length = value.byte_length();
+  let buffer = value
+    .buffer(scope)
+    .unwrap_or_else(|| v8::ArrayBuffer::new(scope, 0));
+  let arr = v8::Uint8Array::new(scope, buffer, view_offset, new_byte_length.min(view_length))
+    .ok_or_else(|| anyhow::anyhow!("failed to construct uint8array"))?;
+  Ok(arr)
 }
 
 pub unsafe fn v8_deref_typed_array_assuming_noalias<'s, 't>(

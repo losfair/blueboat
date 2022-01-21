@@ -23,6 +23,7 @@ import { appBackgroundEntry } from "./background/impl";
 import * as textMod from "./text/index";
 import * as kvMod from "./kv";
 import { HostObject as HostObject_ } from "./host_object"
+import * as compressMod from "./compress/index";
 
 const lateRoot = {
   App: appMod,
@@ -37,6 +38,7 @@ const lateRoot = {
   Background: backgroundMod,
   TextUtil: textMod,
   KV: kvMod,
+  Compress: compressMod,
   HostObject: HostObject_,
   setTimeout,
   clearTimeout,
@@ -124,7 +126,7 @@ async function realAppEntry(req: BlueboatRequest, body: ArrayBuffer) {
 
       let traceUrl: URL | null = null;
       const analyticsUrl: string | undefined = (<any>globalThis).__blueboat_env_analytics_url;
-      if(typeof analyticsUrl === "string") {
+      if (typeof analyticsUrl === "string") {
         traceUrl = new URL(analyticsUrl);
         traceUrl.searchParams.set("id", reqId);
         traceUrl.searchParams.set("t", "" + reqTime);
@@ -191,4 +193,5 @@ declare global {
   const TextUtil: typeof textMod;
   const KV: typeof kvMod;
   const HostObject: typeof HostObject_;
+  const Compress: typeof compressMod;
 }

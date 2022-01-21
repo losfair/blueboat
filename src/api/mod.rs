@@ -1,5 +1,6 @@
 pub mod apns;
 pub mod codec;
+pub mod compress;
 mod crypto;
 pub mod dataset;
 pub mod external;
@@ -104,6 +105,8 @@ pub static API: phf::Map<&'static str, ApiHandler> = phf_map! {
   "kv_prefix_delete" => kv::api_kv_prefix_delete,
   "kv_run" => kv::api_kv_run,
   "host_object_remove" => host_object::api_host_object_remove,
+  "compress_zstd_block_compress" => compress::zstd::api_compress_zstd_block_compress,
+  "compress_zstd_block_decompress" => compress::zstd::api_compress_zstd_block_decompress,
 };
 
 #[derive(Error, Debug)]
