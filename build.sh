@@ -36,6 +36,11 @@ cd ..
 echo "[*] Generating jsland snapshot."
 RUST_LOG=debug ./target/$target_subdir/blueboat_mkimage -i ./jsland/dist/bundle.js -o jsland.snapshot
 
+if [ "$SKIP_FINAL_BUILD" = "1" ]; then
+  echo "[*] Final build skipped."
+  exit 0
+fi
+
 echo "[*] Running final build."
 cargo build $release_arg
 
