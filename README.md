@@ -65,4 +65,4 @@ hello.blueboat.example.com {
 
 ## License
 
-Currently AGPL-3.0, but see [#56](https://github.com/losfair/blueboat/issues/56).
+Apache-2.0
