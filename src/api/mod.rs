@@ -15,6 +15,9 @@ pub mod text;
 pub mod util;
 pub mod validation;
 
+#[cfg(test)]
+mod testutil;
+
 use std::time::Duration;
 
 use anyhow::Result;

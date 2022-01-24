@@ -185,10 +185,10 @@ impl<'s> LocalValueExt<'s> for v8::Local<'s, v8::Value> {
 }
 
 pub trait IsolateInitDataExt {
-  fn get_init_data(&self) -> &'static BlueboatInitData;
+  fn get_init_data(&self) -> Option<&'static BlueboatInitData>;
 }
 impl IsolateInitDataExt for v8::Isolate {
-  fn get_init_data(&self) -> &'static BlueboatInitData {
-    self.get_slot().copied().expect("missing init data slot")
+  fn get_init_data(&self) -> Option<&'static BlueboatInitData> {
+    self.get_slot().copied()
   }
 }

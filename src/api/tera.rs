@@ -17,3 +17,16 @@ pub fn api_tera_render(
   retval.set(mk_v8_string(scope, &output)?.into());
   Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+  use crate::api::testutil::ApiTester;
+
+  #[test]
+  fn test_tera_render() {
+    let mut tester = ApiTester::new();
+    let out: String =
+      tester.run_script(r#"Template.render('hello {{ name }}', { name: 'world' });"#);
+    assert_eq!(out.as_str(), "hello world");
+  }
+}

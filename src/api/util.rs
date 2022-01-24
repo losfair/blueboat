@@ -271,8 +271,7 @@ pub fn write_applog(isolate: &mut v8::Isolate, message: String) {
       e.allocate_logseq(),
       e.ctx.lp_tx,
     );
-  } else {
-    let init_data = *isolate.get_slot::<&'static BlueboatInitData>().unwrap();
+  } else if let Some(&init_data) = isolate.get_slot::<&'static BlueboatInitData>() {
     write_applog2(
       message,
       &init_data.key,
@@ -280,6 +279,8 @@ pub fn write_applog(isolate: &mut v8::Isolate, message: String) {
       INIT_LOGSEQ.fetch_add(1, Ordering::Relaxed),
       &init_data.lp_tx,
     )
+  } else {
+    log::warn!("applog: {}", message);
   }
 }
 

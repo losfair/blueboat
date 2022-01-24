@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, time::Duration};
+use std::{borrow::Cow, cell::RefCell, collections::HashMap, time::Duration};
 
 use crate::{
   api::{
@@ -252,7 +252,10 @@ fn native_invoke_entry_impl<'s>(
   args: v8::FunctionCallbackArguments,
   retval: v8::ReturnValue,
 ) -> Result<()> {
-  let package_key = &scope.get_init_data().key;
+  let package_key = scope
+    .get_init_data()
+    .map(|x| Cow::Borrowed(&x.key))
+    .unwrap_or_else(|| Cow::Owned(PackageKey::unknown()));
   let request_id = Executor::try_current()
     .and_then(|x| x.upgrade())
     .map(|x| x.request_id.clone())

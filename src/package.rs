@@ -20,6 +20,15 @@ pub struct PackageKey {
   pub version: String,
 }
 
+impl PackageKey {
+  pub fn unknown() -> Self {
+    Self {
+      path: "?".to_string(),
+      version: "?".to_string(),
+    }
+  }
+}
+
 impl Display for PackageKey {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}[{}]", self.path, self.version)

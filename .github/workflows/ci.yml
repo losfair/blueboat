@@ -63,6 +63,8 @@ jobs:
           deb_file="$(find ./target/debian/ -type f)"
           cp ${deb_file} ./docker/blueboat.deb
           ls -lash ./docker
+      - name: Unit test
+        run: cargo test --release --lib
       - name: Build Docker image for testing
         uses: docker/build-push-action@v2
         with:
