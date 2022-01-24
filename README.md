@@ -26,53 +26,17 @@ Router.get("/yaml", req => {
 
 ## Features
 
-Supported and planned features:
+- Batteries-included standard library.
 
-- Standard JavaScript features supported by V8
-- A subset of the Web platform API
-  - [x] `fetch()`, `Request` and `Response` objects
-  - [x] `TextEncoder`, `TextDecoder`
-  - [ ] Timers
-    - [x] `setTimeout`, `clearTimeout`
-    - [ ] `setInterval`, `clearInterval`
-  - [x] `URL`, `URLSearchParams`
-  - [x] `crypto.getRandomValues`
-  - [x] `crypto.randomUUID`
-  - [ ] `crypto.subtle`
-  - [ ] `console`
-    - [x] `console.log()`
-    - [x] `console.warn()`
-    - [x] `console.error()`
-- Request router
-  - [x] The `Router` object
-- Cryptography extensions
-  - [x] Ed25519 and X25519: `NativeCrypto.Ed25519`, `NativeCrypto.X25519`
-  - [x] JWT signing and verification: `NativeCrypto.JWT`
-  - [x] Hashing: `NativeCrypto.digest`
-- Graphics API
-  - [x] Canvas (`Graphics.Canvas`)
-  - [x] Layout constraint solver based on Z3 (`Graphics.Layout`)
-- Template API
-  - [x] [Tera](https://github.com/Keats/tera) template rendering: `Template.render()`
-- Encoding and decoding
-  - [x] `Codec.hexencode()`, `Codec.hexdecode()`
-  - [x] `Codec.b64encode()`, `Codec.b64decode()`
-- Embedded datasets
-  - [x] MIME type guessing: `Dataset.Mime.guessByExt()`
-- Background tasks
-  - [x] `Background.atMostOnce()`
-  - [x] `Background.atLeastOnce()`
-  - [x] `Background.delayed()`
-- Data validation
-  - [x] JSON Type Definition validation: `Validation.JTD`
-- Text utilities
-  - [x] YAML serialization and deserialization: `TextUtil.Yaml.parse()`, `TextUtil.Yaml.stringify()`
-  - [x] Markdown rendering: `TextUtil.Markdown.renderToHtml()`
-- Native API to external services
-  - [x] MySQL client
-  - [x] Apple Push Notification Service (APNS) client
+Blueboat exposes a wide range of "standard library" features including data validation, encoding, cryptography, graphics and background tasks, aside from the regular Web platform API - see [this tracking issue](https://github.com/losfair/blueboat/issues/65) for details.
 
-The entire API definition is published as the [blueboat-types](https://www.npmjs.com/package/blueboat-types) package.
+- Designed for multi-app and multi-tenant environments.
+
+Blueboat handles the routing of incoming HTTP requests, automatically scales apps up and down based on load, and securely isolates apps from different tenants using [seccomp](https://man7.org/linux/man-pages/man2/seccomp.2.html).
+
+- Native support for stateful apps.
+
+Apps have native access to a strongly-consistent distributed key-value database based on [FoundationDB](https://github.com/apple/foundationdb).
 
 ## Deploy your own Blueboat instance
 
