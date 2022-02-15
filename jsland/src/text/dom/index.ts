@@ -4,16 +4,48 @@ export interface HtmlParseOptions {
   fragment?: boolean,
 }
 
-export class GenericDOM extends HostObject {
+export type FilterExpr = {
+  type: "and",
+  left: FilterExpr,
+  right: FilterExpr,
+} | {
+  type: "or",
+  left: FilterExpr,
+  right: FilterExpr,
+} | {
+  type: "tag",
+  tag: string,
+} | {
+  type: "hasClass",
+  className: string,
+} | {
+  type: "text",
+} | {
+  type: "true",
+} | {
+  type: "false",
+};
+
+export class DOMNode extends HostObject {
   protected constructor(raw: symbol) {
     super(raw);
   }
+
+  queryWithFilter(filter: FilterExpr, callback: (node: this) => boolean) {
+    __blueboat_host_invoke("text_dom_query_with_filter", this.hostSymbol, filter, (sym: symbol) => {
+      const node: this = new (this.constructor as any)(sym);
+      return callback(node);
+    });
+  }
 }
 
-export class HtmlDOM extends GenericDOM {
-  constructor(text: string | Uint8Array, opts?: HtmlParseOptions) {
+export class HTMLDOMNode extends DOMNode {
+  private constructor(raw: symbol) {
+    super(raw);
+  }
+  static parse(text: string | Uint8Array, opts?: HtmlParseOptions): HTMLDOMNode {
     const sym = <symbol>__blueboat_host_invoke("text_dom_html_parse", text, opts);
-    super(sym);
+    return new HTMLDOMNode(sym);
   }
 
   serialize(): Uint8Array {
@@ -21,10 +53,13 @@ export class HtmlDOM extends GenericDOM {
   }
 }
 
-export class XmlDOM extends GenericDOM {
-  constructor(text: string | Uint8Array) {
+export class XMLDOMNode extends DOMNode {
+  private constructor(raw: symbol) {
+    super(raw);
+  }
+  static parse(text: string | Uint8Array): XMLDOMNode {
     const sym = <symbol>__blueboat_host_invoke("text_dom_xml_parse", text);
-    super(sym);
+    return new XMLDOMNode(sym);
   }
 
   serialize(): Uint8Array {

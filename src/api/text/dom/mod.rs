@@ -1,8 +1,10 @@
+pub mod query;
+
 use std::rc::Rc;
 
 use anyhow::Result;
 use html5ever::tendril::TendrilSink;
-use markup5ever_rcdom::{RcDom, SerializableHandle};
+use markup5ever_rcdom::{Handle, RcDom, SerializableHandle};
 use serde::Deserialize;
 use v8;
 
@@ -13,7 +15,8 @@ use crate::{
 };
 
 pub struct Dom {
-  rcd: RcDom,
+  pub root: Handle,
+  pub node: Handle,
 }
 
 #[derive(Deserialize, Default)]
@@ -55,7 +58,10 @@ pub fn api_dom_html_parse(
   .from_utf8()
   .read_from(&mut text.as_bytes())
   .map_err(|e| anyhow::Error::from(e).context("failed to parse html document"))?;
-  let value = Dom { rcd };
+  let value = Dom {
+    root: rcd.document.clone(),
+    node: rcd.document.clone(),
+  };
   let sym = SymbolRegistry::current(scope).put_new(scope, Rc::new(value));
   retval.set(sym.into());
   Ok(())
@@ -76,7 +82,10 @@ pub fn api_dom_xml_parse(
   .from_utf8()
   .read_from(&mut text.as_bytes())
   .map_err(|e| anyhow::Error::from(e).context("failed to parse xml document"))?;
-  let value = Dom { rcd };
+  let value = Dom {
+    root: rcd.document.clone(),
+    node: rcd.document.clone(),
+  };
   let sym = SymbolRegistry::current(scope).put_new(scope, Rc::new(value));
   retval.set(sym.into());
   Ok(())
@@ -91,7 +100,7 @@ pub fn api_dom_html_serialize(
   let mut bytes: Vec<u8> = vec![];
   html5ever::serialize::serialize(
     &mut bytes,
-    &SerializableHandle::from(dom.rcd.document.clone()),
+    &SerializableHandle::from(dom.node.clone()),
     html5ever::serialize::SerializeOpts {
       // prevent panic
       create_missing_parent: true,
@@ -112,7 +121,7 @@ pub fn api_dom_xml_serialize(
   let mut bytes: Vec<u8> = vec![];
   xml5ever::serialize::serialize(
     &mut bytes,
-    &SerializableHandle::from(dom.rcd.document.clone()),
+    &SerializableHandle::from(dom.node.clone()),
     xml5ever::serialize::SerializeOpts::default(),
   )
   .map_err(|e| anyhow::Error::from(e).context("xml serialization failed"))?;
@@ -130,7 +139,7 @@ mod tests {
     let out: String = tester.run_script(
       r#"
 {
-  let dom = new TextUtil.DOM.HtmlDOM("<!DOCTYPE html><html><body></body></html>");
+  let dom = TextUtil.DOM.HTMLDOMNode.parse("<!DOCTYPE html><html><body></body></html>");
   new TextDecoder().decode(dom.serialize());
 }
     "#,
@@ -142,7 +151,7 @@ mod tests {
     let out: String = tester.run_script(
       r#"
 {
-  let dom = new TextUtil.DOM.HtmlDOM("<p>hello</p>", { fragment: true });
+  let dom = TextUtil.DOM.HTMLDOMNode.parse("<p>hello</p>", { fragment: true });
   new TextDecoder().decode(dom.serialize());
 }
     "#,
@@ -156,7 +165,7 @@ mod tests {
     let out: String = tester.run_script(
       r#"
 {
-  let dom = new TextUtil.DOM.XmlDOM(`
+  let dom = TextUtil.DOM.XMLDOMNode.parse(`
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel><title>A</title></channel>

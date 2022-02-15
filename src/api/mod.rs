@@ -114,6 +114,7 @@ pub static API: phf::Map<&'static str, ApiHandler> = phf_map! {
   "text_dom_html_serialize" => text::dom::api_dom_html_serialize,
   "text_dom_xml_parse" => text::dom::api_dom_xml_parse,
   "text_dom_xml_serialize" => text::dom::api_dom_xml_serialize,
+  "text_dom_query_with_filter" => text::dom::query::api_dom_query_with_filter,
 };
 
 #[derive(Error, Debug)]
