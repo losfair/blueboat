@@ -395,7 +395,7 @@ dependencies = [
 
 [[package]]
 name = "blueboat"
-version = "0.2.13-alpha.4"
+version = "0.2.14-alpha.1"
 dependencies = [
  "a2",
  "aes-gcm-siv",
@@ -423,12 +423,15 @@ dependencies = [
  "hex",
  "hmac 0.12.0",
  "hostname",
+ "html5ever",
  "hyper",
  "itertools",
  "jsonwebtoken",
  "jtd",
  "lazy_static 1.4.0",
  "log",
+ "markup5ever",
+ "markup5ever_rcdom",
  "maxminddb",
  "md-5 0.10.0",
  "memmap",
@@ -486,6 +489,7 @@ dependencies = [
  "uuid",
  "v8",
  "x25519-dalek",
+ "xml5ever",
  "z3",
  "zstd",
 ]
@@ -5389,9 +5393,9 @@ checksum = "d2d7d3948613f75c98fd9328cfdcc45acc4d360655289d0a7d4ec931392200a3"
 
 [[package]]
 name = "xml5ever"
-version = "0.16.1"
+version = "0.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b1b52e6e8614d4a58b8e70cf51ec0cc21b256ad8206708bcff8139b5bbd6a59"
+checksum = "9234163818fd8e2418fcde330655e757900d4236acd8cc70fef345ef91f6d865"
 dependencies = [
  "log",
  "mac",

@@ -110,6 +110,10 @@ pub static API: phf::Map<&'static str, ApiHandler> = phf_map! {
   "host_object_remove" => host_object::api_host_object_remove,
   "compress_zstd_block_compress" => compress::zstd::api_compress_zstd_block_compress,
   "compress_zstd_block_decompress" => compress::zstd::api_compress_zstd_block_decompress,
+  "text_dom_html_parse" => text::dom::api_dom_html_parse,
+  "text_dom_html_serialize" => text::dom::api_dom_html_serialize,
+  "text_dom_xml_parse" => text::dom::api_dom_xml_parse,
+  "text_dom_xml_serialize" => text::dom::api_dom_xml_serialize,
 };
 
 #[derive(Error, Debug)]
