@@ -1,2 +1,2 @@
-pub mod s3;
 pub mod aws;
+pub mod s3;

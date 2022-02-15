@@ -88,9 +88,7 @@ pub fn api_crypto_jwt_decode(
   args: v8::FunctionCallbackArguments,
   mut retval: v8::ReturnValue,
 ) -> Result<()> {
-  let token = unsafe {
-    args.get(1).read_string_assume_noalias(scope)?
-  };
+  let token = unsafe { args.get(1).read_string_assume_noalias(scope)? };
   let key: KeyInfo = v8_deserialize(scope, args.get(2))?;
   let validation: Validation = v8_deserialize(scope, args.get(3))?;
   let key = match key._type {

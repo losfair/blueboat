@@ -395,7 +395,7 @@ dependencies = [
 
 [[package]]
 name = "blueboat"
-version = "0.2.13-alpha.4"
+version = "0.2.14-alpha.1"
 dependencies = [
  "a2",
  "aes-gcm-siv",
@@ -423,12 +423,15 @@ dependencies = [
  "hex",
  "hmac 0.12.0",
  "hostname",
+ "html5ever",
  "hyper",
  "itertools",
  "jsonwebtoken",
  "jtd",
  "lazy_static 1.4.0",
  "log",
+ "markup5ever",
+ "markup5ever_rcdom",
  "maxminddb",
  "md-5 0.10.0",
  "memmap",
@@ -467,6 +470,7 @@ dependencies = [
  "sha2 0.10.0",
  "skia-safe",
  "smr",
+ "string_cache",
  "structopt",
  "syscallz",
  "sysinfo",
@@ -486,6 +490,7 @@ dependencies = [
  "uuid",
  "v8",
  "x25519-dalek",
+ "xml5ever",
  "z3",
  "zstd",
 ]
@@ -4169,13 +4174,14 @@ checksum = "213701ba3370744dcd1a12960caa4843b3d68b4d1c0a5d575e0d65b2ee9d16c0"
 
 [[package]]
 name = "string_cache"
-version = "0.8.1"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ddb1139b5353f96e429e1a5e19fbaf663bddedaa06d1dbd49f82e352601209a"
+checksum = "33994d0838dc2d152d17a62adf608a869b5e846b65b389af7f3dbc1de45c5b26"
 dependencies = [
  "lazy_static 1.4.0",
  "new_debug_unreachable",
- "phf_shared 0.8.0",
+ "parking_lot",
+ "phf_shared 0.10.0",
  "precomputed-hash",
  "serde",
 ]
@@ -5389,9 +5395,9 @@ checksum = "d2d7d3948613f75c98fd9328cfdcc45acc4d360655289d0a7d4ec931392200a3"
 
 [[package]]
 name = "xml5ever"
-version = "0.16.1"
+version = "0.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b1b52e6e8614d4a58b8e70cf51ec0cc21b256ad8206708bcff8139b5bbd6a59"
+checksum = "9234163818fd8e2418fcde330655e757900d4236acd8cc70fef345ef91f6d865"
 dependencies = [
  "log",
  "mac",

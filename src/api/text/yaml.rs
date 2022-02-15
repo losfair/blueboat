@@ -11,9 +11,7 @@ pub fn api_text_yaml_parse(
   args: v8::FunctionCallbackArguments,
   mut retval: v8::ReturnValue,
 ) -> Result<()> {
-  let text = unsafe {
-    args.get(1).read_string_assume_noalias(scope)?
-  };
+  let text = unsafe { args.get(1).read_string_assume_noalias(scope)? };
   let value: serde_json::Value = serde_yaml::from_str(&text)?;
   retval.set(v8_serialize(scope, &value)?);
   Ok(())
