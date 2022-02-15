@@ -26,6 +26,22 @@ export type FilterExpr = {
   type: "false",
 };
 
+export type JsNodeData = {
+  type: "text",
+  text: string,
+} | {
+  type: "element",
+  name: string,
+  attrs: JsElemAttr[],
+} | {
+  type: "other",
+}
+
+export type JsElemAttr = {
+  name: string,
+  value: string,
+}
+
 export class DOMNode extends HostObject {
   protected constructor(raw: symbol) {
     super(raw);
@@ -36,6 +52,18 @@ export class DOMNode extends HostObject {
       const node: this = new (this.constructor as any)(sym);
       return callback(node);
     });
+  }
+
+  get(): JsNodeData {
+    return <JsNodeData>__blueboat_host_invoke("text_dom_get", this.hostSymbol);
+  }
+
+  update(data: JsNodeData) {
+    __blueboat_host_invoke("text_dom_update", this.hostSymbol, data);
+  }
+
+  remove(): boolean {
+    return <boolean>__blueboat_host_invoke("text_dom_remove", this.hostSymbol);
   }
 }
 

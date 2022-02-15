@@ -1,4 +1,5 @@
 pub mod query;
+pub mod repr;
 
 use std::rc::Rc;
 

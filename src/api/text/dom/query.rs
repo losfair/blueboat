@@ -120,12 +120,13 @@ fn walk(
     }
   }
 
+  // Don't hold ownership on the borrow guard - the callback should be able to reference the parent
   let children = match node.children.try_borrow() {
-    Ok(x) => x,
+    Ok(x) => (*x).clone(),
     Err(_) => return true,
   };
 
-  for child in &*children {
+  for child in &children {
     if !walk(scope, expr, callback, root, child) {
       return false;
     }
