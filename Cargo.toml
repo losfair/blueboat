@@ -125,6 +125,7 @@ markup5ever_rcdom = "0.1.0"
 html5ever = "0.25.1"
 markup5ever = "0.10.1"
 xml5ever = "0.16.2"
+string_cache = "0.8.3"
 
 [build-dependencies]
 prost-build = "0.9"
