@@ -157,7 +157,7 @@ mod tests {
     let out: String = tester.run_script(
       r#"
 {
-  let dom = TextUtil.DOM.HTMLDOMNode.parse('<div><p class="a">A<span class="a"></span></p></div>', { fragment: true });
+  let dom = TextUtil.DOM.HTML.parse('<div><p class="a">A<span class="a"></span></p></div>', { fragment: true });
   dom.queryWithFilter({type: "hasClass", className: "a"}, elem => {
     const props = elem.get();
     props.attrs.push({name: "data-test", value: "42"});
@@ -177,7 +177,7 @@ mod tests {
     let out: String = tester.run_script(
       r#"
 {
-  let dom = TextUtil.DOM.HTMLDOMNode.parse('<div><p class="a">A<span class="a"></span></p><p class="b">something else</p></div>', { fragment: true });
+  let dom = TextUtil.DOM.HTML.parse('<div><p class="a">A<span class="a"></span></p><p class="b">something else</p></div>', { fragment: true });
   dom.queryWithFilter({type: "hasClass", className: "a"}, elem => {
     elem.remove();
     return true;

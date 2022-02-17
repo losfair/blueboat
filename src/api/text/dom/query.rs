@@ -157,7 +157,7 @@ mod tests {
       r#"
 {
   let data = { count1: 0, count2: 0, count3: 0, count4: 0, count5: 0, count6: 0 };
-  let dom = TextUtil.DOM.HTMLDOMNode.parse('<div><p class="a">A<span class="a"></span></p><p class="b">B</p></div>');
+  let dom = TextUtil.DOM.HTML.parse('<div><p class="a">A<span class="a"></span></p><p class="b">B</p></div>');
   dom.queryWithFilter({type: "hasClass", className: "a"}, () => { data.count1++; return true; });
   dom.queryWithFilter({type: "hasClass", className: "a"}, () => { data.count2++; return false; });
   dom.queryWithFilter({type: "hasClass", className: "b"}, () => { data.count3++; return true; });

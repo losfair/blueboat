@@ -42,7 +42,7 @@ export type JsElemAttr = {
   value: string,
 }
 
-export class DOMNode extends HostObject {
+export class Node extends HostObject {
   protected constructor(raw: symbol) {
     super(raw);
   }
@@ -67,13 +67,13 @@ export class DOMNode extends HostObject {
   }
 }
 
-export class HTMLDOMNode extends DOMNode {
+export class HTML extends Node {
   private constructor(raw: symbol) {
     super(raw);
   }
-  static parse(text: string | Uint8Array, opts?: HtmlParseOptions): HTMLDOMNode {
+  static parse(text: string | Uint8Array, opts?: HtmlParseOptions): HTML {
     const sym = <symbol>__blueboat_host_invoke("text_dom_html_parse", text, opts);
-    return new HTMLDOMNode(sym);
+    return new HTML(sym);
   }
 
   serialize(): Uint8Array {
@@ -81,13 +81,13 @@ export class HTMLDOMNode extends DOMNode {
   }
 }
 
-export class XMLDOMNode extends DOMNode {
+export class XML extends Node {
   private constructor(raw: symbol) {
     super(raw);
   }
-  static parse(text: string | Uint8Array): XMLDOMNode {
+  static parse(text: string | Uint8Array): XML {
     const sym = <symbol>__blueboat_host_invoke("text_dom_xml_parse", text);
-    return new XMLDOMNode(sym);
+    return new XML(sym);
   }
 
   serialize(): Uint8Array {

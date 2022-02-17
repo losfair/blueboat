@@ -140,7 +140,7 @@ mod tests {
     let out: String = tester.run_script(
       r#"
 {
-  let dom = TextUtil.DOM.HTMLDOMNode.parse("<!DOCTYPE html><html><body></body></html>");
+  let dom = TextUtil.DOM.HTML.parse("<!DOCTYPE html><html><body></body></html>");
   new TextDecoder().decode(dom.serialize());
 }
     "#,
@@ -152,7 +152,7 @@ mod tests {
     let out: String = tester.run_script(
       r#"
 {
-  let dom = TextUtil.DOM.HTMLDOMNode.parse("<p>hello</p>", { fragment: true });
+  let dom = TextUtil.DOM.HTML.parse("<p>hello</p>", { fragment: true });
   new TextDecoder().decode(dom.serialize());
 }
     "#,
@@ -166,7 +166,7 @@ mod tests {
     let out: String = tester.run_script(
       r#"
 {
-  let dom = TextUtil.DOM.XMLDOMNode.parse(`
+  let dom = TextUtil.DOM.XML.parse(`
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel><title>A</title></channel>
