@@ -40,6 +40,12 @@ Apps have native access to a strongly-consistent distributed key-value database 
 
 ## Deploy your own Blueboat instance
 
+### Production
+
+See [this link](https://windi.app/people/zhy/page/f25c522955c04e59b5771954f8702c14?note=2022-02-10-3bad19f28b25) for a guide on production deployment.
+
+### Single-machine / testing
+
 Blueboat depends on various external services such as [FoundationDB](https://www.foundationdb.org/) and [Kafka](https://kafka.apache.org/) to operate reliably as a distributed system, but you don't need all these services to run Blueboat on a single machine. Just pull [b6t](https://github.com/losfair/b6t) - this contains all necessary dependencies to get Blueboat up and running.
 
 After starting `b6t` you need to set up a reverse proxy such as Nginx or [Caddy](https://caddyserver.com/) to accept external traffic. Blueboat loads the application's metadata from the S3 key specified in the `X-Blueboat-Metadata` header, and this information should be provided by the reverse proxy.
