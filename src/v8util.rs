@@ -7,7 +7,9 @@ use thiserror::Error;
 use v8;
 
 use crate::{
-  api::util::{v8_deref_typed_array_assuming_noalias, TypedArrayView},
+  api::util::{
+    v8_deref_arraybuffer_assuming_noalias, v8_deref_typed_array_assuming_noalias, TypedArrayView,
+  },
   ctx::BlueboatInitData,
 };
 
@@ -94,6 +96,18 @@ impl Deref for GenericStringView {
   }
 }
 
+impl From<GenericStringView> for String {
+  fn from(v: GenericStringView) -> Self {
+    match v.inner {
+      GenericStringViewInner::Owned(s) => s,
+      GenericStringViewInner::View(v) => {
+        let v: &[u8] = &v[..];
+        unsafe { std::str::from_utf8_unchecked(v) }.to_string()
+      }
+    }
+  }
+}
+
 pub struct GenericBytesView {
   inner: GenericBytesViewInner,
 }
@@ -156,6 +170,12 @@ impl<'s> LocalValueExt<'s> for v8::Local<'s, v8::Value> {
       })
     } else if let Ok(x) = v8::Local::<v8::TypedArray>::try_from(self) {
       let arr = v8_deref_typed_array_assuming_noalias(scope, x);
+      std::str::from_utf8(&arr[..])?;
+      Ok(GenericStringView {
+        inner: GenericStringViewInner::View(arr),
+      })
+    } else if let Ok(x) = v8::Local::<v8::ArrayBuffer>::try_from(self) {
+      let arr = v8_deref_arraybuffer_assuming_noalias(x);
       std::str::from_utf8(&arr[..])?;
       Ok(GenericStringView {
         inner: GenericStringViewInner::View(arr),

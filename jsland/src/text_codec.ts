@@ -6,7 +6,7 @@ export class TextEncoder {
 }
 
 export class TextDecoder {
-  decode(s?: Uint8Array): string {
+  decode(s?: Uint8Array | ArrayBuffer): string {
     if(!s) return "";
     return <string>__blueboat_host_invoke("decode", s);
   }

@@ -12,6 +12,7 @@ mod mysql;
 pub mod task;
 pub mod tera;
 pub mod text;
+pub mod text_codec;
 pub mod util;
 pub mod validation;
 
@@ -34,7 +35,7 @@ use crate::{
   ipc::{BlueboatIpcRes, BlueboatResponse},
   lpch::{BackgroundEntry, LowPriorityMsg},
   objserde::serialize_v8_value,
-  v8util::{create_arraybuffer_from_bytes, FunctionCallbackArgumentsExt},
+  v8util::FunctionCallbackArgumentsExt,
 };
 
 use self::util::{v8_deserialize, write_applog};
@@ -52,8 +53,8 @@ pub static API: phf::Map<&'static str, ApiHandler> = phf_map! {
   "schedule_at_most_once" => api_schedule_at_most_once,
   "schedule_at_least_once" => task::api_schedule_at_least_once,
   "schedule_delayed" => task::api_schedule_delayed,
-  "encode" => api_encode,
-  "decode" => api_decode,
+  "encode" => text_codec::api_encode,
+  "decode" => text_codec::api_decode,
   "fetch" => fetch::api_fetch,
   "log" => api_log,
   "crypto_digest" => crypto::api_crypto_digest,
@@ -222,33 +223,6 @@ fn api_complete(
       body: body_bytes,
     },
   );
-  Ok(())
-}
-
-fn api_encode(
-  scope: &mut v8::HandleScope,
-  args: v8::FunctionCallbackArguments,
-  mut retval: v8::ReturnValue,
-) -> Result<()> {
-  let s = v8::Local::<v8::String>::try_from(args.get(1))?
-    .to_rust_string_lossy(scope)
-    .into_bytes();
-  let buf = create_arraybuffer_from_bytes(scope, &s);
-  let view = v8::Uint8Array::new(scope, buf, 0, s.len()).unwrap();
-  retval.set(view.into());
-  Ok(())
-}
-
-fn api_decode(
-  scope: &mut v8::HandleScope,
-  args: v8::FunctionCallbackArguments,
-  mut retval: v8::ReturnValue,
-) -> Result<()> {
-  let s = v8::Local::<v8::Uint8Array>::try_from(args.get(1))?;
-  let mut buf = vec![0u8; s.byte_length()];
-  s.copy_contents(&mut buf);
-  let s = String::from_utf8_lossy(&buf);
-  retval.set(v8::String::new(scope, &s).unwrap().into());
   Ok(())
 }
 

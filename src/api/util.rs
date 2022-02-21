@@ -180,6 +180,20 @@ pub unsafe fn v8_deref_typed_array_assuming_noalias<'s, 't>(
   }
 }
 
+pub unsafe fn v8_deref_arraybuffer_assuming_noalias<'t>(
+  buf: v8::Local<'t, v8::ArrayBuffer>,
+) -> TypedArrayView {
+  let store = buf.get_backing_store();
+  let view = store
+    .data()
+    .map(|x| std::slice::from_raw_parts_mut(x.as_ptr() as *mut u8, store.byte_length()))
+    .unwrap_or(&mut []);
+  TypedArrayView {
+    _store: Some(store),
+    slice: view,
+  }
+}
+
 pub struct ArrayBufferBuilder<'s> {
   buf: v8::Local<'s, v8::ArrayBuffer>,
   _store: v8::SharedRef<v8::BackingStore>,
