@@ -119,6 +119,11 @@ jobs:
         uses: Swatinem/rust-cache@v1
       - name: Install system dependencies
         run: sudo apt install -y libseccomp-dev cmake
+      - name: Install mold
+        run: |
+          curl -sSL -o mold.tar.gz https://github.com/rui314/mold/releases/download/v1.1.1/mold-1.1.1-x86_64-linux.tar.gz
+          gzip -d < mold.tar.gz | tar x
+          sudo cp ./mold-1.1.1-x86_64-linux/bin/mold /usr/local/bin/
       - name: Install Node
         uses: actions/setup-node@v2
         with:
