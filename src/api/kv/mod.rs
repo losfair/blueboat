@@ -303,17 +303,16 @@ impl RchReqBody for KvPrefixListRequest {
     let key_value_pairs = range
       .iter()
       .filter_map(|x| {
-        cluster.unpack_user_key(&ns.prefix, x.key()).map(|key| {
-          let value = x.value();
-          (
-            key
-              .strip_prefix(&self.prefix)
-              .expect("inconsistency: strip_prefix")
-              .trim_start_matches('/')
-              .to_string(),
-            value.to_vec(),
-          )
-        })
+        cluster
+          .unpack_user_key(&ns.prefix, x.key())
+          .and_then(|key| {
+            let value = x.value();
+            if let Some(key) = key.strip_prefix(&self.prefix) {
+              Some((key.trim_start_matches('/').to_string(), value.to_vec()))
+            } else {
+              None
+            }
+          })
       })
       .collect::<Vec<_>>();
     Ok(Box::new(KvPrefixListResponse { key_value_pairs }))
