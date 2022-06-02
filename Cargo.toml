@@ -126,13 +126,8 @@ html5ever = "0.25.1"
 markup5ever = "0.10.1"
 xml5ever = "0.16.2"
 string_cache = "0.8.3"
+foundationdb = "0.6"
+indexmap = "1.8.2"
 
 [build-dependencies]
 prost-build = "0.9"
-
-[patch.crates-io]
-# cexpr v0.5.0 depends on nom v6.1.1 which depends on bitvec v0.19.4 which depends on funty v1.2.0.
-# This breaks the build: https://github.com/bitvecto-rs/bitvec/issues/132
-# This commit contains the fix (by bumping nom to v7) but keeps the `0.5` version number so it's what
-# we want for now.
-cexpr = { git = "https://github.com/jethrogb/rust-cexpr", rev = "8ba98bb79df7333681fd91cac1f7662850af7453" }

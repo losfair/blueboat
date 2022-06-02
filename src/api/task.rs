@@ -1,14 +1,12 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
-use rdkafka::producer::FutureRecord;
 use serde::{Deserialize, Serialize};
 use v8;
 
 use crate::{
-  exec::Executor, lpch::BackgroundEntry, metadata::Metadata, objserde::serialize_v8_value,
-  package::PackageKey, reliable_channel::RchReqBody, task::get_channel_refresher,
-  v8util::FunctionCallbackArgumentsExt,
+  exec::Executor, metadata::Metadata, objserde::serialize_v8_value,
+  reliable_channel::RchReqBody, v8util::FunctionCallbackArgumentsExt,
 };
 
 use super::util::{v8_deserialize, v8_error, v8_serialize};
@@ -34,32 +32,7 @@ struct ScheduleAtLeastOnceOpts {
 #[typetag::serde]
 impl RchReqBody for ScheduleAtLeastOnceRequest {
   async fn handle(self: Box<Self>, md: Arc<Metadata>) -> Result<Box<dyn erased_serde::Serialize>> {
-    let entry = BackgroundEntry {
-      app: PackageKey {
-        path: md.path.clone(),
-        version: md.version.clone(),
-      },
-      request_id: self.request_id,
-      wire_bytes: self.wire_bytes,
-      same_version: self.same_version,
-    };
-    let entry = rmp_serde::to_vec(&entry)?;
-    let ch = get_channel_refresher().get_random()?;
-    ch.kafka_producer
-      .send(
-        FutureRecord {
-          topic: &ch.config.topic,
-          partition: None,
-          payload: Some(&entry[..]),
-          key: None::<&[u8]>,
-          timestamp: None,
-          headers: None,
-        },
-        rdkafka::util::Timeout::After(Duration::from_millis(5000)),
-      )
-      .await
-      .map_err(|(e, _)| anyhow::anyhow!("kafka produce failed: {}", e))?;
-    Ok(Box::new(ScheduleAtLeastOnceResponse {}))
+    anyhow::bail!("at-least-once tasks not implemented");
   }
 }
 
@@ -88,21 +61,7 @@ struct ScheduleDelayedResponse {
 #[typetag::serde]
 impl RchReqBody for ScheduleDelayedRequest {
   async fn handle(self: Box<Self>, md: Arc<Metadata>) -> Result<Box<dyn erased_serde::Serialize>> {
-    let entry = BackgroundEntry {
-      app: PackageKey {
-        path: md.path.clone(),
-        version: md.version.clone(),
-      },
-      request_id: self.request_id,
-      wire_bytes: self.wire_bytes,
-      same_version: self.same_version,
-    };
-    let ch = get_channel_refresher().get_random()?;
-    let id = ch
-      .add_delayed_task(self.ts_secs, entry)
-      .await
-      .map_err(|e| anyhow::anyhow!("delayed task scheduling failed: {}", e))?;
-    Ok(Box::new(ScheduleDelayedResponse { id }))
+    anyhow::bail!("delayed tasks not implemented");
   }
 }
 
