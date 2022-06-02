@@ -77,7 +77,7 @@ jobs:
           set -e
           mkdir test-workspace
           cd test-workspace
-          wget https://dl.min.io/server/minio/release/linux-amd64/minio
+          curl -L --output minio https://dl.min.io/server/minio/release/linux-amd64/archive/minio.RELEASE.2022-02-01T18-00-14Z
           chmod +x minio
           mkdir test-data
           ./minio server --address 0.0.0.0:1932 ./test-data/minio &
