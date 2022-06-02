@@ -72,12 +72,6 @@ dependencies = [
 
 [[package]]
 name = "ahash"
-version = "0.4.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "739f4a8db6605981345c5654f3a85b056ce52f37a39d34da03f25bf2151ea16e"
-
-[[package]]
-name = "ahash"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43bb833f0bf979d8475d38fbf09ed3b8a55e1885fe93ad3f93239fc6a4f17b98"
@@ -497,7 +491,7 @@ dependencies = [
  "tokio-tungstenite",
  "tracing",
  "tracing-subscriber",
- "ttf-parser",
+ "ttf-parser 0.12.3",
  "typetag",
  "usvg",
  "uuid",
@@ -1211,17 +1205,17 @@ checksum = "1d66551cc28351f0bc6a73da86459ee7765caaad03ce284f2dc36472dbf539cd"
 dependencies = [
  "log",
  "memmap2",
- "ttf-parser",
+ "ttf-parser 0.12.3",
 ]
 
 [[package]]
 name = "fontdue"
-version = "0.5.2"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c75712fff1702bac51b7eaa5a5ca9f9853b8055ef5906088a32f4fe196595a1d"
+checksum = "6a62391ecb864cf12ed06b2af4eda2e609b97657950d6a8f06841b17726ab253"
 dependencies = [
- "hashbrown 0.9.1",
- "ttf-parser",
+ "hashbrown",
+ "ttf-parser 0.15.0",
 ]
 
 [[package]]
@@ -1624,20 +1618,11 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7afe4a420e3fe79967a00898cc1f4db7c8a49a9333a29f8a4bd76a253d5cd04"
-dependencies = [
- "ahash 0.4.7",
-]
-
-[[package]]
-name = "hashbrown"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab5ef0d4909ef3724cc8cce6ccc8572c5c817592e9285f5464f8e86f8bd3726e"
 dependencies = [
- "ahash 0.7.4",
+ "ahash",
 ]
 
 [[package]]
@@ -1646,7 +1631,7 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7249a3129cbc1ffccd74857f81464a323a152173cdb134e0fd81bc803b29facf"
 dependencies = [
- "hashbrown 0.11.2",
+ "hashbrown",
 ]
 
 [[package]]
@@ -1892,7 +1877,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6012d540c5baa3589337a98ce73408de9b5a25ec9fc2c6fd6be8f0d39e0ca5a"
 dependencies = [
  "autocfg",
- "hashbrown 0.11.2",
+ "hashbrown",
 ]
 
 [[package]]
@@ -2141,7 +2126,7 @@ version = "0.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ea2d928b485416e8908cff2d97d621db22b27f7b3b6729e438bcf42c671ba91"
 dependencies = [
- "hashbrown 0.11.2",
+ "hashbrown",
 ]
 
 [[package]]
@@ -3718,7 +3703,7 @@ dependencies = [
  "bitflags",
  "bytemuck",
  "smallvec",
- "ttf-parser",
+ "ttf-parser 0.12.3",
  "unicode-bidi-mirroring",
  "unicode-ccc",
  "unicode-general-category",
@@ -4855,6 +4840,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ae2f58a822f08abdaf668897e96a5656fe72f5a9ce66422423e8849384872e6"
 
 [[package]]
+name = "ttf-parser"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c74c96594835e10fa545e2a51e8709f30b173a092bfd6036ef2cec53376244f3"
+
+[[package]]
 name = "tungstenite"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5138,7 +5129,7 @@ dependencies = [
  "simplecss",
  "siphasher",
  "svgtypes",
- "ttf-parser",
+ "ttf-parser 0.12.3",
  "unicode-bidi",
  "unicode-script",
  "unicode-vo",
