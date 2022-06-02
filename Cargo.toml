@@ -127,6 +127,7 @@ markup5ever = "0.10.1"
 xml5ever = "0.16.2"
 string_cache = "0.8.3"
 foundationdb = "0.6"
+indexmap = "1.8.2"
 
 [build-dependencies]
 prost-build = "0.9"

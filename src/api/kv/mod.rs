@@ -2,25 +2,57 @@ use std::sync::Arc;
 
 use crate::{
   exec::Executor,
-  mds::{
-    get_mds,
-    raw::{CompareAndSetResult, PrefixListOptions, TriStateCheck, TriStateSet},
-  },
+  mds::get_mds,
   metadata::Metadata,
   reliable_channel::RchReqBody,
   v8util::{create_uint8array_from_bytes, FunctionCallbackArgumentsExt},
 };
 use anyhow::Result;
+use foundationdb::{
+  options::{MutationType, StreamingMode},
+  RangeOption,
+};
+use futures::{stream::FuturesOrdered, TryStreamExt};
 use serde::{Deserialize, Serialize};
 use v8;
 
-use super::util::{
-  mk_v8_string, v8_deref_typed_array_assuming_noalias, v8_deserialize, v8_error, v8_serialize,
-};
+use super::util::{v8_deref_typed_array_assuming_noalias, v8_deserialize, v8_error, v8_serialize};
 
 const MAX_KEYS_PER_OP: usize = 1000;
 const MAX_KEY_SIZE: usize = 4096;
 const MAX_VALUE_SIZE: usize = 80000;
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub enum TriStateCheck<T> {
+  Absent,
+  Any,
+  Value(T),
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[serde(rename_all = "camelCase")]
+pub enum TriStateSet<T> {
+  Delete,
+  Preserve,
+  Value(T),
+  WithVersionstampedKey { value: T },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrefixListOptions {
+  pub reverse: bool,
+  pub want_value: bool,
+  pub limit: u32,
+  pub cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompareAndSetResult {
+  pub versionstamp: Option<String>,
+}
 
 #[derive(Serialize, Deserialize)]
 struct KvGetManyRequest {
@@ -43,18 +75,22 @@ impl RchReqBody for KvGetManyRequest {
       .kv_namespaces
       .get(&self.namespace)
       .ok_or_else(|| anyhow::anyhow!("namespace not found"))?;
-    let shard = mds
-      .get_shard_session(&ns.shard)
+    let cluster = mds
+      .fdb
+      .get(&ns.shard)
       .ok_or_else(|| anyhow::anyhow!("shard not found"))?;
-    let values = shard
-      .get_many(
-        self
-          .keys
-          .iter()
-          .map(|k| format!("{}/{}", ns.prefix, k.as_str())),
-        self.primary,
-      )
+    let txn = cluster.db.create_trx()?;
+    let values = self
+      .keys
+      .iter()
+      .map(|key| txn.get(&cluster.pack_user_key(&ns.prefix, key), false))
+      .collect::<FuturesOrdered<_>>()
+      .try_collect::<Vec<_>>()
       .await?;
+    let values = values
+      .iter()
+      .map(|x| x.as_ref().map(|x| x.to_vec()))
+      .collect::<Vec<_>>();
     Ok(Box::new(KvGetManyResponse { values }))
   }
 }
@@ -87,19 +123,89 @@ impl RchReqBody for KvCompareAndSetManyRequest<Vec<u8>> {
       .kv_namespaces
       .get(&self.namespace)
       .ok_or_else(|| anyhow::anyhow!("namespace not found"))?;
-    let shard = mds
-      .get_shard_session(&ns.shard)
+    let cluster = mds
+      .fdb
+      .get(&ns.shard)
       .ok_or_else(|| anyhow::anyhow!("shard not found"))?;
-    let committed = shard
-      .compare_and_set_many(
-        self
-          .keys
-          .into_iter()
-          .map(|k| (format!("{}/{}", ns.prefix, k.key.as_str()), k.check, k.set)),
-      )
-      .await?;
-    let ok = committed.is_some();
-    Ok(Box::new(KvCompareAndSetManyResponse { ok, committed }))
+    let mut txn = cluster.db.create_trx()?;
+
+    loop {
+      let mut has_versionstamp = false;
+      for req in &self.keys {
+        let key = cluster.pack_user_key(&ns.prefix, &req.key);
+        if req.check != TriStateCheck::Any {
+          let current_value = txn.get(&key, false).await?;
+          match &req.check {
+            TriStateCheck::Any => unreachable!(),
+            TriStateCheck::Absent => {
+              if current_value.is_some() {
+                return Ok(Box::new(KvCompareAndSetManyResponse {
+                  ok: false,
+                  committed: None,
+                }));
+              }
+            }
+            TriStateCheck::Value(x) => {
+              if current_value.is_none() || &current_value.as_ref().unwrap()[..] != x.as_slice() {
+                return Ok(Box::new(KvCompareAndSetManyResponse {
+                  ok: false,
+                  committed: None,
+                }));
+              }
+            }
+          }
+        }
+        match &req.set {
+          TriStateSet::Preserve => {}
+          TriStateSet::Delete => {
+            txn.clear(&key);
+          }
+          TriStateSet::Value(x) => {
+            txn.set(&key, x.as_slice());
+          }
+          TriStateSet::WithVersionstampedKey { value } => {
+            let target_key = key
+              .iter()
+              .copied()
+              .chain((key.len() as u32).to_le_bytes())
+              .collect::<Vec<u8>>();
+            txn.atomic_op(
+              &target_key,
+              value.as_slice(),
+              MutationType::SetVersionstampedKey,
+            );
+            has_versionstamp = true;
+          }
+        }
+      }
+
+      let versionstamp_fut = if has_versionstamp {
+        Some(txn.get_versionstamp())
+      } else {
+        None
+      };
+      let commit_output = txn.commit().await;
+      match commit_output {
+        Ok(_) => {
+          let mut ret = KvCompareAndSetManyResponse {
+            ok: true,
+            committed: Some(CompareAndSetResult { versionstamp: None }),
+          };
+          if let Some(fut) = versionstamp_fut {
+            let versionstamp = fut
+              .await
+              .map_err(|e| anyhow::Error::from(e).context("failed to get versionstamp"))?;
+            ret.committed.as_mut().unwrap().versionstamp = Some(base64::encode(&versionstamp[..]));
+          }
+          return Ok(Box::new(ret));
+        }
+        Err(e) => {
+          txn = e.on_error().await.map_err(|e| {
+            anyhow::Error::from(e).context("KvCompareAndSetManyRequest commit failed")
+          })?;
+        }
+      }
+    }
   }
 }
 
@@ -164,81 +270,45 @@ impl RchReqBody for KvPrefixListRequest {
       .kv_namespaces
       .get(&self.namespace)
       .ok_or_else(|| anyhow::anyhow!("namespace not found"))?;
-    let shard = mds
-      .get_shard_session(&ns.shard)
+    let cluster = mds
+      .fdb
+      .get(&ns.shard)
       .ok_or_else(|| anyhow::anyhow!("shard not found"))?;
-    let key_value_pairs = shard
-      .prefix_list(
-        format!("{}/{}", ns.prefix, self.prefix),
-        self.opts,
-        self.primary,
-      )
-      .await?;
-    Ok(Box::new(KvPrefixListResponse { key_value_pairs }))
-  }
-}
+    let txn = cluster.db.create_trx()?;
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct KvPrefixDeleteRequest {
-  namespace: String,
-  prefix: String,
-}
+    let mut range_start = cluster.pack_user_key(&ns.prefix, &self.prefix);
+    let mut range_end = range_start
+      .iter()
+      .copied()
+      .chain(std::iter::once(0xffu8))
+      .collect::<Vec<u8>>();
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct KvPrefixDeleteResponse {}
-
-#[async_trait::async_trait]
-#[typetag::serde]
-impl RchReqBody for KvPrefixDeleteRequest {
-  async fn handle(self: Box<Self>, md: Arc<Metadata>) -> Result<Box<dyn erased_serde::Serialize>> {
-    let mds = get_mds()?;
-    let ns = md
-      .kv_namespaces
-      .get(&self.namespace)
-      .ok_or_else(|| anyhow::anyhow!("namespace not found"))?;
-    let shard = mds
-      .get_shard_session(&ns.shard)
-      .ok_or_else(|| anyhow::anyhow!("shard not found"))?;
-    shard
-      .prefix_delete(format!("{}/{}", ns.prefix, self.prefix))
-      .await?;
-    Ok(Box::new(KvPrefixDeleteResponse {}))
-  }
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct KvRunRequest {
-  namespace: String,
-  script: String,
-  data: String,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct KvRunResponse {
-  data: String,
-}
-
-#[async_trait::async_trait]
-#[typetag::serde]
-impl RchReqBody for KvRunRequest {
-  async fn handle(self: Box<Self>, md: Arc<Metadata>) -> Result<Box<dyn erased_serde::Serialize>> {
-    let mds = get_mds()?;
-    let ns = md
-      .kv_namespaces
-      .get(&self.namespace)
-      .ok_or_else(|| anyhow::anyhow!("namespace not found"))?;
-    if !ns.raw {
-      anyhow::bail!("raw access not enabled on this namespace");
+    if let Some(cursor) = self.opts.cursor {
+      let mut full_cursor =
+        cluster.pack_user_key(&ns.prefix, &format!("{}/{}", self.prefix, cursor));
+      if self.opts.reverse {
+        range_end = full_cursor;
+      } else {
+        full_cursor.push(0); // exclusive range
+        range_start = full_cursor;
+      }
     }
-    let shard = mds
-      .get_shard_session(&ns.shard)
-      .ok_or_else(|| anyhow::anyhow!("shard not found"))?;
-    let data = shard.run_raw(&self.script, self.data).await?;
-    Ok(Box::new(KvRunResponse { data }))
+
+    let mut opt = RangeOption::from(range_start..range_end);
+    opt.reverse = self.opts.reverse;
+    opt.mode = StreamingMode::WantAll;
+    opt.limit = Some(self.opts.limit as usize);
+    let range = txn.get_range(&opt, 0, false).await?;
+    let key_value_pairs = range
+      .iter()
+      .filter_map(|x| {
+        cluster.unpack_user_key(&ns.prefix, x.key()).map(|key| {
+          let value = x.value();
+          (key, value.to_vec())
+        })
+      })
+      .collect::<Vec<_>>();
+    Ok(Box::new(KvPrefixListResponse { key_value_pairs }))
   }
 }
 
@@ -431,38 +501,5 @@ pub fn api_kv_prefix_list<'a, 'b, 'c>(
       }
       Ok(req)
     },
-  )
-}
-
-pub fn api_kv_prefix_delete<'a, 'b, 'c>(
-  scope: &mut v8::HandleScope<'a>,
-  args: v8::FunctionCallbackArguments<'b>,
-  _retval: v8::ReturnValue<'c>,
-) -> Result<()> {
-  api_kv_generic::<KvPrefixDeleteRequest, _, KvPrefixDeleteResponse, _, _>(
-    scope,
-    args,
-    "kv_prefix_delete",
-    |scope, _| Ok(v8::undefined(scope).into()),
-    |_, req| {
-      if req.prefix.as_bytes().len() > MAX_KEY_SIZE {
-        anyhow::bail!("prefix too large");
-      }
-      Ok(req)
-    },
-  )
-}
-
-pub fn api_kv_run<'a, 'b, 'c>(
-  scope: &mut v8::HandleScope<'a>,
-  args: v8::FunctionCallbackArguments<'b>,
-  _retval: v8::ReturnValue<'c>,
-) -> Result<()> {
-  api_kv_generic::<KvRunRequest, _, KvRunResponse, _, _>(
-    scope,
-    args,
-    "kv_run",
-    |scope, rsp| Ok(mk_v8_string(scope, &rsp.data)?.into()),
-    |_, req| Ok(req),
   )
 }

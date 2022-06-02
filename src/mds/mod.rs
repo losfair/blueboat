@@ -1,39 +1,68 @@
 use std::sync::Arc;
 
-use parking_lot::Mutex;
+use anyhow::Result;
+use indexmap::IndexMap;
 use tokio::sync::OnceCell;
 
-use crate::backoff::random_backoff;
+use self::config_v2::{MdsClusterConfig, MdsConfig};
+use foundationdb::Database;
 
-use self::{raw::RawMdsHandle, service::MdsServiceState};
-use anyhow::Result;
+pub mod config_v2;
 
-pub mod config;
-pub mod keycodec;
-pub mod raw;
-pub mod service;
+pub static MDS: OnceCell<Option<MdsService>> = OnceCell::const_new();
 
-pub static MDS: OnceCell<Option<Arc<Mutex<Arc<MdsServiceState>>>>> = OnceCell::const_new();
+#[derive(Clone)]
+pub struct MdsService {
+  pub fdb: Arc<IndexMap<String, MdsCluster>>,
+}
 
-pub fn get_mds() -> Result<Arc<MdsServiceState>> {
+pub struct MdsCluster {
+  pub db: Database,
+  pub config: MdsClusterConfig,
+}
+
+impl MdsCluster {
+  pub fn pack_user_key(&self, ns_prefix: &str, path: &str) -> Vec<u8> {
+    let path = std::iter::once(self.config.prefix.as_str())
+      .chain(ns_prefix.split('/').filter(|x| !x.is_empty()))
+      .chain(path.split('/').filter(|x| !x.is_empty()))
+      .collect::<Vec<_>>();
+    foundationdb::tuple::pack(&path)
+  }
+  pub fn unpack_user_key(&self, ns_prefix: &str, key: &[u8]) -> Option<String> {
+    let prefix_to_strip = foundationdb::tuple::pack(
+      &std::iter::once(self.config.prefix.as_str())
+        .chain(ns_prefix.split('/').filter(|x| !x.is_empty()))
+        .collect::<Vec<_>>(),
+    );
+    let key = key.strip_prefix(prefix_to_strip.as_slice())?;
+    let segs: Vec<String> = foundationdb::tuple::unpack(key).ok()?;
+    Some(segs.join("/"))
+  }
+}
+
+impl MdsService {
+  pub fn open(config: &MdsConfig) -> Result<Self> {
+    let mut fdb: IndexMap<String, MdsCluster> = IndexMap::new();
+    for (k, cluster_config) in &config.clusters {
+      let inst = Database::new(Some(cluster_config.path.as_str()))
+        .map_err(|e| anyhow::Error::from(e).context(format!("failed to open cluster '{}'", k)))?;
+      fdb.insert(
+        k.clone(),
+        MdsCluster {
+          db: inst,
+          config: cluster_config.clone(),
+        },
+      );
+    }
+    Ok(Self { fdb: Arc::new(fdb) })
+  }
+}
+
+pub fn get_mds() -> Result<MdsService> {
   MDS
     .get()
     .expect("mds not initialized")
-    .as_ref()
-    .map(|x| (*x.lock()).clone())
+    .clone()
     .ok_or_else(|| anyhow::anyhow!("mds not available"))
-}
-
-pub async fn get_shard_session_with_infinite_retry_assuming_mds_exists(name: &str) -> RawMdsHandle {
-  loop {
-    let mds = get_mds().unwrap();
-    let handle = mds.get_shard_session(name);
-    match handle {
-      Some(x) => return x.clone(),
-      None => {
-        random_backoff().await;
-        continue;
-      }
-    }
-  }
 }

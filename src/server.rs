@@ -15,13 +15,10 @@ use crate::headers::{
 use crate::ipc::{BlueboatIpcReqV, BlueboatIpcRes};
 use crate::logsvc::LogService;
 use crate::lpch::{BackgroundEntry, LowPriorityMsg};
-use crate::mds::service::MdsServiceState;
-use crate::mds::MDS;
+use crate::mds::config_v2::MdsConfig;
+use crate::mds::{MdsService, MDS};
 use crate::pm::pm_handle;
 use crate::reliable_channel::create_reliable_channel;
-use crate::task::{
-  spawn_preemptive_task_acceptor, ChannelRefresher, TaskCompletion, CHANNEL_REFRESHER,
-};
 use crate::wpbl::WpblDb;
 use crate::{
   ctx::BlueboatInitData,
@@ -378,49 +375,13 @@ async fn async_main() {
   WPBL_DB.set(wpbl_db).unwrap_or_else(|_| unreachable!());
 
   let mds = if opt.mds != "" && opt.mds != "-" {
-    let mds_key = std::env::var("MDS_KEY").ok();
-    match mds_key {
-      Some(key) => {
-        let key = base64::decode(&key)
-          .map_err(|_| anyhow::anyhow!("MDS_KEY is not valid base64"))
-          .and_then(|key| {
-            ed25519_dalek::SecretKey::from_bytes(&key).map_err(|e| {
-              anyhow::Error::from(e).context("MDS_KEY is not a valid ed25519 secret key")
-            })
-          });
-        match key {
-          Ok(secret) => {
-            let public = ed25519_dalek::PublicKey::from(&secret);
-            tracing::warn!(public = %hex::encode(&public.as_bytes()), local_region = %opt.mds_local_region, "mds info");
-            let keypair = Arc::new(ed25519_dalek::Keypair { secret, public });
-            loop {
-              match MdsServiceState::bootstrap(&opt.mds, &opt.mds_local_region, keypair.clone())
-                .await
-              {
-                Ok(mds) => {
-                  tracing::warn!(server = %opt.mds, "mds bootstrap ok");
-                  let mds = Arc::new(Mutex::new(Arc::new(mds)));
-                  MdsServiceState::start_refresh_task(mds.clone());
-                  break Some(mds);
-                }
-                Err(e) => {
-                  tracing::warn!(server = %opt.mds, error = %e, "mds bootstrap failed");
-                  std::thread::sleep(std::time::Duration::from_secs(5));
-                }
-              }
-            }
-          }
-          Err(e) => {
-            log::error!("mds key decode failed ({}): {}", opt.mds, e);
-            None
-          }
-        }
-      }
-      None => {
-        log::error!("MDS_KEY not set");
-        None
-      }
-    }
+    let config = MdsConfig::parse(&opt.mds)
+      .map_err(|e| e.context("failed to parse mds config"))
+      .unwrap();
+    let mds = MdsService::open(&config)
+      .map_err(|e| e.context("failed to open mds service"))
+      .unwrap();
+    Some(mds)
   } else {
     None
   };
@@ -482,15 +443,10 @@ async fn async_main() {
     bg_permit: Arc::new(Semaphore::new(500)),
   };
 
-  CHANNEL_REFRESHER
-    .set(ChannelRefresher::init().await)
-    .unwrap_or_else(|_| unreachable!());
-
   spawn_lp_handler(Arc::new(lp_ctx), lp_rx);
 
   if opt.accept_background_tasks {
-    log::warn!("This instance will accept background tasks.");
-    spawn_task_handler();
+    log::warn!("Background tasks not implemented.");
   }
 
   let make_svc = make_service_fn(|_| async move { Ok::<_, hyper::Error>(service_fn(handle)) });
@@ -540,29 +496,6 @@ async fn shutdown_signal() {
       }
     }
   }
-}
-
-fn spawn_task_handler() {
-  let mut task_rx: tokio::sync::mpsc::Receiver<(BackgroundEntry, TaskCompletion)> =
-    match spawn_preemptive_task_acceptor() {
-      Some(x) => x,
-      None => return,
-    };
-  tokio::spawn(async move {
-    let sem = Arc::new(Semaphore::new(50));
-    loop {
-      let (entry, completion) = match task_rx.recv().await {
-        Some(x) => x,
-        None => break,
-      };
-      let permit = sem.clone().acquire_owned().await.unwrap();
-      tokio::spawn(async move {
-        run_background_entry(entry).await;
-        completion.notify();
-        drop(permit);
-      });
-    }
-  });
 }
 
 async fn handle(mut req: Request<Body>) -> Result<Response<Body>, Infallible> {
@@ -981,8 +914,5 @@ async fn print_status() {
     "LP_BG_ISSUE_FAIL_COUNT: {}",
     LP_BG_ISSUE_FAIL_COUNT.load(Ordering::Relaxed)
   );
-  if let Some(Some(x)) = MDS.get() {
-    x.lock().print_status();
-  }
   eprintln!("End of system status.");
 }

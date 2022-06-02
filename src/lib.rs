@@ -22,7 +22,6 @@ mod registry;
 mod reliable_channel;
 mod secure_mode;
 mod server;
-mod task;
 mod v8util;
 mod wpbl;
 

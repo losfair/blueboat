@@ -25,7 +25,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Install system dependencies
-        run: sudo apt install -y libseccomp-dev cmake
+        run: |
+          sudo apt install -y libseccomp-dev cmake
+          curl -L https://github.com/apple/foundationdb/releases/download/6.3.24/foundationdb-clients_6.3.24-1_amd64.deb --output fdb-client.deb
+          sudo dpkg -i fdb-client.deb
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
@@ -113,7 +116,10 @@ jobs:
       - name: Rust Build Cache
         uses: Swatinem/rust-cache@v1
       - name: Install system dependencies
-        run: sudo apt install -y libseccomp-dev cmake
+        run: |
+          sudo apt install -y libseccomp-dev cmake
+          curl -L https://github.com/apple/foundationdb/releases/download/6.3.24/foundationdb-clients_6.3.24-1_amd64.deb --output fdb-client.deb
+          sudo dpkg -i fdb-client.deb
       - name: Install Node
         uses: actions/setup-node@v2
         with:
