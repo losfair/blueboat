@@ -156,11 +156,13 @@ const WORKER_IDLE_TTL_SECS: u64 = 400;
 const CODE_CACHE_SWEEP_INTERVAL_SECS: u64 = WORKER_IDLE_TTL_SECS + 10;
 
 pub fn main() {
+  let network = unsafe { foundationdb::boot() };
   tokio::runtime::Builder::new_multi_thread()
     .enable_all()
     .build()
     .unwrap()
-    .block_on(async_main())
+    .block_on(async_main());
+  drop(network);
 }
 
 pub fn global_scheduler() -> &'static Arc<RwLock<Scheduler<PackageKey, BlueboatIpcReq>>> {

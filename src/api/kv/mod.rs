@@ -167,6 +167,7 @@ impl RchReqBody for KvCompareAndSetManyRequest<Vec<u8>> {
             let target_key = key
               .iter()
               .copied()
+              .chain([0u8; 10])
               .chain((key.len() as u32).to_le_bytes())
               .collect::<Vec<u8>>();
             txn.atomic_op(
