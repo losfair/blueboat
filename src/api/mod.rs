@@ -84,11 +84,19 @@ pub static API: phf::Map<&'static str, ApiHandler> = phf_map! {
   "codec_b64encode_to_uint8array" => codec::api_codec_b64encode_to_uint8array,
   "codec_b64decode" => codec::api_codec_b64decode,
   "codec_multipart_decode" => codec::multipart::api_codec_multipart_decode,
+  #[cfg(feature = "canvas-engine")]
   "graphics_canvas_commit" => graphics::api_graphics_canvas_commit,
+  #[cfg(feature = "canvas-engine")]
   "graphics_canvas_render_svg" => graphics::svg::api_graphics_canvas_render_svg,
+  #[cfg(feature = "canvas-engine")]
   "graphics_canvas_encode" => graphics::codec::api_graphics_canvas_encode,
+  #[cfg(feature = "canvas-engine")]
   "graphics_canvas_draw" => graphics::draw::api_graphics_canvas_draw,
+
+  #[cfg(feature = "layout-engine")]
   "graphics_layout_solve" => graphics::layout::api_graphics_layout_solve,
+
+  #[cfg(feature = "canvas-engine")]
   "graphics_text_measure" => graphics::text::api_graphics_text_measure,
   "tera_render" => tera::api_tera_render,
   "jtd_load_schema" => validation::jtd::api_jtd_load_schema,
