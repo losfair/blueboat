@@ -305,7 +305,14 @@ impl RchReqBody for KvPrefixListRequest {
       .filter_map(|x| {
         cluster.unpack_user_key(&ns.prefix, x.key()).map(|key| {
           let value = x.value();
-          (key, value.to_vec())
+          (
+            key
+              .strip_prefix(&self.prefix)
+              .expect("inconsistency: strip_prefix")
+              .trim_start_matches('/')
+              .to_string(),
+            value.to_vec(),
+          )
         })
       })
       .collect::<Vec<_>>();
