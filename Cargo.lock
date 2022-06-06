@@ -448,7 +448,7 @@ dependencies = [
  "maxminddb",
  "md-5 0.10.0",
  "memmap",
- "memmap2",
+ "memmap2 0.5.4",
  "mime",
  "mime_guess",
  "multer",
@@ -1210,7 +1210,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d66551cc28351f0bc6a73da86459ee7765caaad03ce284f2dc36472dbf539cd"
 dependencies = [
  "log",
- "memmap2",
+ "memmap2 0.3.1",
  "ttf-parser",
 ]
 
@@ -2211,7 +2211,7 @@ checksum = "5a2af4902d7569c441449f2315cb83598917b13275209529103e10c238fcf3db"
 dependencies = [
  "log",
  "memchr",
- "memmap2",
+ "memmap2 0.3.1",
  "serde",
 ]
 
@@ -2262,6 +2262,15 @@ name = "memmap2"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00b6c2ebff6180198788f5db08d7ce3bc1d0b617176678831a7510825973e357"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "memmap2"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5172b50c23043ff43dd53e51392f36519d9b35a8f3a410d30ece5d1aedd58ae"
 dependencies = [
  "libc",
 ]
