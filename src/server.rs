@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use std::{net::SocketAddr, sync::Arc, time::Instant};
 
-use crate::consts::SHUTDOWN_WAIT_DURATION;
 use crate::generational_cache::GenerationalCache;
 use crate::headers::{
   HDR_GLOBAL_PREFIX, HDR_REQ_CLIENT_CITY, HDR_REQ_CLIENT_COUNTRY, HDR_REQ_CLIENT_IP,
@@ -466,9 +465,6 @@ async fn async_main() {
   let bg_shutdown_start = Instant::now();
   std::mem::forget(BACKGROUND_TASK_LOCK.write().await);
   tracing::warn!(duration = ?bg_shutdown_start.elapsed(), "background tasks completed");
-
-  // Wait for background commits to complete
-  tokio::time::sleep(SHUTDOWN_WAIT_DURATION).await;
 
   tracing::warn!("system shutdown");
 
