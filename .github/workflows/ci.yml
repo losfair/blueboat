@@ -136,3 +136,5 @@ jobs:
           cp ./.cargo-ci/config ./.cargo/config
           SKIP_FINAL_BUILD=1 ./build.sh
           cargo test --release --lib
+      - name: Benchmark
+        run: cargo bench --bench api_benchmark

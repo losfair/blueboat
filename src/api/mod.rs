@@ -11,13 +11,11 @@ pub mod kv;
 mod mysql;
 pub mod task;
 pub mod tera;
+pub mod testutil;
 pub mod text;
 pub mod text_codec;
 pub mod util;
 pub mod validation;
-
-#[cfg(test)]
-mod testutil;
 
 use std::time::Duration;
 

@@ -212,3 +212,11 @@ impl IsolateInitDataExt for v8::Isolate {
     self.get_slot().copied()
   }
 }
+
+pub fn set_up_v8_globally() {
+  let flags = concat!(" --turbo_fast_api_calls",);
+  let platform = v8::new_default_platform(1, false).make_shared();
+  v8::V8::initialize_platform(platform);
+  v8::V8::initialize();
+  v8::V8::set_flags_from_string(flags);
+}

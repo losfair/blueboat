@@ -20,7 +20,7 @@ use crate::{
   ctx::{BlueboatCtx, BlueboatInitData},
   exec::Executor,
   objserde::deserialize_v8_value,
-  v8util::{create_arraybuffer_from_bytes, ObjectExt},
+  v8util::{create_arraybuffer_from_bytes, set_up_v8_globally, ObjectExt},
 };
 
 #[derive(Serialize, Deserialize)]
@@ -44,9 +44,7 @@ impl BaseRequest for BlueboatIpcReq {
 #[async_trait::async_trait(?Send)]
 impl Request for BlueboatIpcReq {
   async fn init(init_data: Self::InitData) -> &'static Self::Context {
-    let platform = v8::new_default_platform(1, false).make_shared();
-    v8::V8::initialize_platform(platform);
-    v8::V8::initialize();
+    set_up_v8_globally();
     BlueboatCtx::init(init_data)
   }
 

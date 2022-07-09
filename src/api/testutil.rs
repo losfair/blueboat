@@ -4,6 +4,7 @@ use crate::{
   bootstrap::JSLAND_SNAPSHOT,
   ctx::{native_invoke_entry, NI_ENTRY_KEY},
   registry::SymbolRegistry,
+  v8util::set_up_v8_globally,
 };
 
 use super::util::v8_deserialize;
@@ -16,9 +17,7 @@ pub struct ApiTester {
 fn ensure_init() {
   static ONCE: std::sync::Once = std::sync::Once::new();
   ONCE.call_once(|| {
-    let platform = v8::new_default_platform(0, false).make_shared();
-    v8::V8::initialize_platform(platform);
-    v8::V8::initialize();
+    set_up_v8_globally();
   });
 }
 
