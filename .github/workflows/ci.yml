@@ -85,6 +85,7 @@ jobs:
             -e AWS_ACCESS_KEY_ID="minioadmin" \
             -e AWS_SECRET_ACCESS_KEY="minioadmin" \
             -e RUST_LOG=info \
+            -e SMRAPP_BLUEBOAT_DISABLE_SECCOMP=1 \
             losfair/blueboat:test \
             -l "0.0.0.0:3000" \
             --s3-bucket "apps" --s3-region "us-east-1" \
