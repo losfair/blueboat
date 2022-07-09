@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use v8;
 
 use crate::{
-  exec::Executor, metadata::Metadata, objserde::serialize_v8_value,
-  reliable_channel::RchReqBody, v8util::FunctionCallbackArgumentsExt,
+  exec::Executor, metadata::Metadata, objserde::serialize_v8_value, reliable_channel::RchReqBody,
+  v8util::FunctionCallbackArgumentsExt,
 };
 
 use super::util::{v8_deserialize, v8_error, v8_serialize};
