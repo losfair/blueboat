@@ -153,7 +153,16 @@ impl AppMysql {
           .checked_add(Duration::from_millis(ts as u64))
           .ok_or(CastError("invalid timestamp"))?;
         let dt = PrimitiveDateTime::from(dt);
-        Ok(Value::from(dt))
+        let dt = Value::Date(
+          dt.year() as _,
+          dt.month(),
+          dt.day(),
+          dt.hour(),
+          dt.minute(),
+          dt.second(),
+          dt.microsecond(),
+        );
+        Ok(dt)
       }
       ValueSpec::Int => {
         let x = v8::Local::<v8::Number>::try_from(x)?.value();

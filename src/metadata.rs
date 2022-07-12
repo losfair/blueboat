@@ -36,6 +36,7 @@ pub struct KvNamespaceMetadata {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct MysqlMetadata {
   pub url: String,
+  pub root_certificate: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

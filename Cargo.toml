@@ -31,7 +31,7 @@ panic = "abort"
 incremental = true
 
 [dependencies]
-smr = "0.1.0"
+smr = "0.1.2"
 v8 = "0.45.0"
 serde_v8 = { git = "https://github.com/denoland/deno", rev = "20cbd7f0f8f0e0ff4d6656f2fa7e93e01b8805f0" }
 parking_lot = "0.11.2"
@@ -51,7 +51,7 @@ phf = { version = "0.10", features = ["macros"] }
 sysinfo = "0.20.3"
 reqwest = "0.11.7"
 ring = "0.16.20"
-mysql_async = "0.28.0"
+mysql_async = { git = "https://github.com/losfair/mysql_async", rev = "f976f8683b4db3bef465b00e44e08087ada337a4" }
 flume = "0.10.9"
 time = { version = "0.2", features = ["serde"] }
 uuid = "0.8"

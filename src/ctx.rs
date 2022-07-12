@@ -115,10 +115,23 @@ impl BlueboatCtx {
         .metadata
         .mysql
         .iter()
-        .filter_map(|(k, v)| {
-          mysql_async::Pool::from_url(&v.url)
-            .ok()
-            .map(|x| (k.clone(), AppMysql::new(x)))
+        .filter_map(|(k, v)| match mysql_async::Opts::from_url(&v.url) {
+          Ok(mut opts) => {
+            if let Some(cert) = &v.root_certificate {
+              let mut ssl = opts.ssl_opts().cloned().unwrap_or_default();
+              opts
+                .try_set_ssl_opts(ssl.with_root_cert_data(Some(cert.as_bytes().to_vec())))
+                .ok()
+                .expect("failed to set ssl opts");
+            }
+            let pool = mysql_async::Pool::new(opts);
+            Some((k.clone(), AppMysql::new(pool)))
+          }
+          Err(e) => {
+            write_applog(&mut isolate, format!("mysql initialization failed: {}", e));
+            log::debug!("app {}: failed to initialize mysql: {:?}", app_key, e);
+            None
+          }
         })
         .collect(),
       apns: d
