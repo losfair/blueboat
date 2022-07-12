@@ -7,6 +7,7 @@ use crate::{
   },
   app_mysql::AppMysql,
   bootstrap::{BlueboatBootstrapData, JSLAND_SNAPSHOT},
+  consts::CACERT_PEM,
   exec::Executor,
   lpch::LowPriorityMsg,
   metadata::{ApnsEndpointMetadata, Metadata},
@@ -107,10 +108,27 @@ impl BlueboatCtx {
       .iter()
       .filter_map(|(k, v)| match mysql_async::Opts::from_url(&v.url) {
         Ok(mut opts) => {
+          if opts.socket().is_some() || opts.ssl_opts().and_then(|x| x.root_cert_path()).is_some() {
+            write_applog(
+              &mut isolate,
+              format!("mysql configuration contains disallowed keys"),
+            );
+            log::debug!(
+              "app {}: mysql configuration contains disallowed keys",
+              app_key
+            );
+            return None;
+          }
           if let Some(cert) = &v.root_certificate {
+            let cert = cert.as_str();
+            let cert_data: Cow<[u8]> = if cert == "default" {
+              Cow::Borrowed(CACERT_PEM)
+            } else {
+              Cow::Owned(cert.as_bytes().to_vec())
+            };
             let ssl = opts.ssl_opts().cloned().unwrap_or_default();
             opts
-              .try_set_ssl_opts(ssl.with_root_cert_data(Some(cert.as_bytes().to_vec())))
+              .try_set_ssl_opts(ssl.with_root_cert_data(Some(cert_data)))
               .ok()
               .expect("failed to set ssl opts");
           }
