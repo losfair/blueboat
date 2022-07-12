@@ -45,7 +45,7 @@ pub fn api_mysql_exec(
     .collect::<Option<Vec<ValueSpec>>>()
     .ok_or(BadSpec)?;
   let callback = v8::Global::new(scope, args.load_function_at(5)?);
-  let mut arg_map: HashMap<String, mysql_async::Value> = HashMap::new();
+  let mut arg_map: HashMap<Vec<u8>, mysql_async::Value> = HashMap::new();
   let prop_names = sql_args.get_own_property_names(scope).ok_or(Unknown)?;
   let prop_count = prop_names.length();
   for i in 0..prop_count {
@@ -64,7 +64,7 @@ pub fn api_mysql_exec(
     let v = v.get_index(scope, 1).ok_or(BadQueryParam)?;
     let k = k.to_rust_string_lossy(scope);
     let v = AppMysql::cast_value_from_js(scope, v, spec)?;
-    arg_map.insert(k, v);
+    arg_map.insert(Vec::from(k), v);
   }
   let exec = Executor::try_current_result()?;
   let exec_2 = exec.clone();
@@ -185,7 +185,7 @@ async fn run_mysql(
   e: &Weak<Executor>,
   key: String,
   stmt: String,
-  args: HashMap<String, mysql_async::Value>,
+  args: HashMap<Vec<u8>, mysql_async::Value>,
 ) -> Result<Vec<Vec<mysql_async::Value>>> {
   let mut state = get_mysql_state(e, &key).await?;
   let params = if args.is_empty() {

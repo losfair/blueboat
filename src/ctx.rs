@@ -101,6 +101,30 @@ impl BlueboatCtx {
     }
     init_timeout_watcher.abort();
 
+    let mysql: HashMap<String, AppMysql> = d
+      .metadata
+      .mysql
+      .iter()
+      .filter_map(|(k, v)| match mysql_async::Opts::from_url(&v.url) {
+        Ok(mut opts) => {
+          if let Some(cert) = &v.root_certificate {
+            let ssl = opts.ssl_opts().cloned().unwrap_or_default();
+            opts
+              .try_set_ssl_opts(ssl.with_root_cert_data(Some(cert.as_bytes().to_vec())))
+              .ok()
+              .expect("failed to set ssl opts");
+          }
+          let pool = mysql_async::Pool::new(opts);
+          Some((k.clone(), AppMysql::new(pool)))
+        }
+        Err(e) => {
+          write_applog(&mut isolate, format!("mysql initialization failed: {}", e));
+          log::debug!("app {}: failed to initialize mysql: {:?}", app_key, e);
+          None
+        }
+      })
+      .collect();
+
     let me = Self {
       key: &d.key,
       package,
@@ -111,29 +135,7 @@ impl BlueboatCtx {
       v8_ctx: RefCell::new(v8_ctx),
       context_template,
       http_client: reqwest::Client::new(),
-      mysql: d
-        .metadata
-        .mysql
-        .iter()
-        .filter_map(|(k, v)| match mysql_async::Opts::from_url(&v.url) {
-          Ok(mut opts) => {
-            if let Some(cert) = &v.root_certificate {
-              let mut ssl = opts.ssl_opts().cloned().unwrap_or_default();
-              opts
-                .try_set_ssl_opts(ssl.with_root_cert_data(Some(cert.as_bytes().to_vec())))
-                .ok()
-                .expect("failed to set ssl opts");
-            }
-            let pool = mysql_async::Pool::new(opts);
-            Some((k.clone(), AppMysql::new(pool)))
-          }
-          Err(e) => {
-            write_applog(&mut isolate, format!("mysql initialization failed: {}", e));
-            log::debug!("app {}: failed to initialize mysql: {:?}", app_key, e);
-            None
-          }
-        })
-        .collect(),
+      mysql,
       apns: d
         .metadata
         .apns
