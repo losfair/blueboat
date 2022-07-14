@@ -80,10 +80,6 @@ struct Opt {
   #[structopt(long, default_value = "131072")]
   mem_critical_watermark_kb: u64,
 
-  /// Obsolete option. No effect.
-  #[structopt(long, default_value = "-")]
-  db: String,
-
   /// Kafka cluster(s) for writing apps' logs. Looks like "com.example.blueboat.applog:0@kafka.core.svc.cluster.local:9092"
   #[structopt(long, default_value = "-")]
   log_kafka: String,
@@ -104,10 +100,6 @@ struct Opt {
   #[structopt(long, default_value = "-")]
   mds: String,
 
-  /// The name of the nearest metadata service region.
-  #[structopt(long, default_value = "-")]
-  mds_local_region: String,
-
   /// Path to package cache file. Default is memory.
   #[structopt(long, default_value = "-")]
   package_cache: String,
@@ -127,6 +119,10 @@ struct Opt {
   /// (not yet implemented) Enable HTTP fastpath. Let Blueboat deal with domain-based routing, and eliminate the need for a reverse proxy.
   #[structopt(long)]
   enable_http_fastpath: bool,
+
+  /// Drop the main process to UID 1 (workers are always dropped). Only enable this if Blueboat starts as root.
+  #[structopt(long)]
+  drop_privileges: bool,
 }
 
 struct LpContext {
@@ -300,6 +296,11 @@ async fn async_main() {
       tracing_subscriber::fmt::init();
     }
     log::info!("Logging to stderr. Please use --syslog-kafka in production.");
+  }
+
+  if opt.drop_privileges {
+    nix::unistd::setuid(nix::unistd::Uid::from_raw(1)).expect("failed to drop to uid 1");
+    tracing::warn!("Dropped to uid 1.");
   }
 
   let s3_client = S3Client::new(if opt.s3_endpoint != "-" {
