@@ -4,9 +4,9 @@ version = 3
 
 [[package]]
 name = "a2"
-version = "0.6.1"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83353fadc8b1a27ceaa2bd2acfe2891b7ea40357a143eb44886a9d7805713e87"
+checksum = "9b411d99f057bb20c324c758aeab7a063552511b90458d8109b5a6f2df700a8f"
 dependencies = [
  "base64 0.13.0",
  "erased-serde",
