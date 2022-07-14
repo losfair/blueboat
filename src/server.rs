@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use std::{net::SocketAddr, sync::Arc, time::Instant};
 
-use crate::generational_cache::GenerationalCache;
 use crate::headers::{
   HDR_GLOBAL_PREFIX, HDR_REQ_CLIENT_CITY, HDR_REQ_CLIENT_COUNTRY, HDR_REQ_CLIENT_IP,
   HDR_REQ_CLIENT_SUBDIVISION_PREFIX, HDR_REQ_CLIENT_WPBL, HDR_REQ_METADATA, HDR_REQ_REQUEST_ID,
@@ -38,7 +37,7 @@ use rusoto_core::Region;
 use rusoto_s3::{GetObjectRequest, S3Client, S3};
 use smr::config::{APP_INACTIVE_TIMEOUT_MS, SPRING_CLEANING_INTERVAL_MS};
 use smr::ipc_channel::ipc::IpcSender;
-use smr::{ipc_channel::ipc::IpcSharedMemory, scheduler::Scheduler};
+use smr::scheduler::Scheduler;
 use tracing::Instrument;
 use tracing_subscriber::prelude::*;
 
@@ -109,6 +108,14 @@ struct Opt {
   #[structopt(long, default_value = "-")]
   mds_local_region: String,
 
+  /// Path to package cache file. Default is memory.
+  #[structopt(long, default_value = "-")]
+  package_cache: String,
+
+  /// Max number of entries in metadata cache.
+  #[structopt(long, default_value = "200")]
+  md_cache_size: u64,
+
   /// Whether this instance should listen to and process background tasks.
   #[structopt(long)]
   accept_background_tasks: bool,
@@ -122,23 +129,17 @@ struct Opt {
   enable_http_fastpath: bool,
 }
 
-struct CacheEntry {
-  last_use: Mutex<Instant>,
-  shm: Arc<IpcSharedMemory>,
-}
-
 struct LpContext {
   log_kafka: Option<LogService>,
   bg_permit: Arc<Semaphore>,
 }
 
-type CacheType = GenerationalCache<Arc<PackageKey>, Arc<RwLock<Option<CacheEntry>>>>;
-type MdCacheType = GenerationalCache<Arc<str>, Arc<Metadata>>;
+type MdCacheType = moka::sync::Cache<String, Arc<Metadata>>;
 
 static SCHEDULER: OnceCell<Arc<RwLock<Scheduler<PackageKey, BlueboatIpcReq>>>> =
   OnceCell::const_new();
 static S3: OnceCell<(S3Client, String)> = OnceCell::const_new();
-static CACHE: OnceCell<CacheType> = OnceCell::const_new();
+static CACHE: OnceCell<sqlite_cache::Topic> = OnceCell::const_new();
 static MD_CACHE: OnceCell<MdCacheType> = OnceCell::const_new();
 static MEM_HIGH_WATERMARK_KB: OnceCell<u64> = OnceCell::const_new();
 static MEM_CRITICAL_WATERMARK_KB: OnceCell<u64> = OnceCell::const_new();
@@ -152,7 +153,6 @@ static HTTP_FAST_PATH: AtomicBool = AtomicBool::new(false);
 
 const MIN_GAP_KB: u64 = 65536;
 const WORKER_IDLE_TTL_SECS: u64 = 400;
-const CODE_CACHE_SWEEP_INTERVAL_SECS: u64 = WORKER_IDLE_TTL_SECS + 10;
 
 pub fn main() {
   let network = unsafe { foundationdb::boot() };
@@ -172,7 +172,7 @@ pub fn s3() -> &'static (S3Client, String) {
   S3.get().unwrap()
 }
 
-fn cache() -> &'static CacheType {
+pub fn cache() -> &'static sqlite_cache::Topic {
   CACHE.get().unwrap()
 }
 
@@ -265,11 +265,7 @@ impl MemoryWatermark {
     }
   }
 
-  fn ss_evict(&self) {
-    if matches!(self, MemoryWatermark::Critical) {
-      cache().emergency_evict();
-    }
-  }
+  fn ss_evict(&self) {}
 }
 
 async fn async_main() {
@@ -325,11 +321,19 @@ async fn async_main() {
   let scheduler = Scheduler::<PackageKey, _>::new(pm_handle());
   SCHEDULER.set(scheduler).unwrap_or_else(|_| unreachable!());
 
-  CACHE
-    .set(GenerationalCache::new("code"))
-    .unwrap_or_else(|_| unreachable!());
+  let package_cache = if opt.package_cache == "-" {
+    rusqlite::Connection::open_in_memory().unwrap()
+  } else {
+    rusqlite::Connection::open(&opt.package_cache).expect("failed to open package cache file")
+  };
+  let package_cache = sqlite_cache::Cache::new(Default::default(), package_cache)
+    .expect("failed to initialize package cache")
+    .topic("packages")
+    .expect("failred to initialize package cache topic");
+
+  CACHE.set(package_cache).unwrap_or_else(|_| unreachable!());
   MD_CACHE
-    .set(GenerationalCache::new("md"))
+    .set(moka::sync::Cache::new(opt.md_cache_size))
     .unwrap_or_else(|_| unreachable!());
   MEM_HIGH_WATERMARK_KB
     .set(opt.mem_high_watermark_kb)
@@ -419,8 +423,6 @@ async fn async_main() {
     }
   });
 
-  tokio::spawn(sweep_md_cache());
-  tokio::spawn(sweep_code_cache());
   tokio::spawn(async move {
     let mut sig = tokio::signal::unix::signal(SignalKind::user_defined1()).unwrap();
     log::warn!("SIGUSR1 handler registered. Send SIGUSR1 to process {} and system status will be printed to stderr.", std::process::id());
@@ -606,35 +608,6 @@ async fn handle(mut req: Request<Body>) -> Result<Response<Body>, Infallible> {
   }
 }
 
-async fn sweep_md_cache() -> ! {
-  loop {
-    tokio::time::sleep(Duration::from_secs(30)).await;
-    md_cache()
-      .sweep(|k, orig| async move {
-        match load_md(&*k).await {
-          Ok(x) => Some(x),
-          Err(e) => {
-            log::error!("sweep_md_cache: md {:?} load error: {:?}", k, e);
-            Some(orig)
-          }
-        }
-      })
-      .await;
-  }
-}
-
-async fn sweep_code_cache() -> ! {
-  loop {
-    tokio::time::sleep(Duration::from_secs(CODE_CACHE_SWEEP_INTERVAL_SECS)).await;
-    cache()
-      .sweep(|_, v| async move {
-        // Code cache entries are immutable.
-        Some(v)
-      })
-      .await;
-  }
-}
-
 async fn load_md(path: &str) -> Result<Arc<Metadata>> {
   #[derive(Error, Debug)]
   #[error("metadata error")]
@@ -668,12 +641,13 @@ async fn generic_invoke(
   #[error("version changed")]
   struct VersionChanged;
 
-  let md = md_cache().get(md_path);
+  let md_path = md_path.to_string();
+  let md = md_cache().get(&md_path);
   let md = if let Some(md) = md {
     md
   } else {
-    let md = load_md(md_path).await?;
-    md_cache().insert(Arc::from(md_path), md.clone());
+    let md = load_md(&md_path).await?;
+    md_cache().insert(md_path.to_string(), md.clone());
     md
   };
   if let Some(version_assertion) = version_assertion {
@@ -686,13 +660,11 @@ async fn generic_invoke(
     path: md_path.to_string(),
     version: md.version.clone(),
   };
-  let package = load_package(&pk, &md).await?;
   let pk2 = pk.clone();
   let w = Scheduler::get_worker(global_scheduler(), &pk, move || {
     let rch = create_reliable_channel(md.clone());
     BlueboatInitData {
       key: pk2.clone(),
-      package: (*package).clone(),
       metadata: (*md).clone(),
       lp_tx: LP_TX.get().unwrap().lock().clone(),
       rch: Some(rch),
@@ -744,77 +716,6 @@ async fn raw_handle(mut req: Request<Body>, md_path: &str) -> Result<Response<Bo
     res.headers_mut().insert(HDR_RES_REQUEST_ID, v);
   }
   Ok(res)
-}
-
-async fn load_package(pk: &PackageKey, md: &Metadata) -> Result<Arc<IpcSharedMemory>> {
-  #[derive(Error, Debug)]
-  #[error("package unavailable")]
-  struct Unavailable;
-
-  // Don't attempt to load the same resource from multiple tasks concurrently.
-  let (entry, write_owner) = {
-    let mut cache = cache().lock();
-    if let Some(entry) = cache.get(pk) {
-      (entry.clone(), None)
-    } else {
-      let m = Arc::new(RwLock::new(None));
-      let w = m.clone().try_write_owned().unwrap();
-      cache.insert(Arc::new(pk.clone()), m.clone());
-      (m, Some(w))
-    }
-  };
-
-  let shm = if let Some(mut write_owner) = write_owner {
-    struct Guard<'a>(&'a PackageKey);
-    impl<'a> Drop for Guard<'a> {
-      fn drop(&mut self) {
-        cache().remove(self.0);
-      }
-    }
-
-    // If the future is cancelled or fetch failed, remove the entry from the cache.
-    let g = Guard(&pk);
-
-    let shm = fetch_package(md).await?;
-    *write_owner = Some(CacheEntry {
-      last_use: Mutex::new(Instant::now()),
-      shm: shm.clone(),
-    });
-    std::mem::forget(g);
-    shm
-  } else {
-    let entry = entry.read().await;
-    let entry = entry.as_ref().ok_or_else(|| Unavailable)?;
-    if let Some(mut g) = entry.last_use.try_lock() {
-      *g = Instant::now();
-    }
-    entry.shm.clone()
-  };
-
-  Ok(shm)
-}
-
-async fn fetch_package(md: &Metadata) -> Result<Arc<IpcSharedMemory>> {
-  #[derive(Error, Debug)]
-  #[error("missing package for this metadata")]
-  struct MissingPackage;
-
-  let (s3c, bucket) = s3();
-  let output = s3c
-    .get_object(GetObjectRequest {
-      bucket: bucket.clone(),
-      key: md.package.clone(),
-      ..Default::default()
-    })
-    .await?;
-  let mut body: Vec<u8> = vec![];
-  output
-    .body
-    .ok_or(MissingPackage)?
-    .into_async_read()
-    .read_to_end(&mut body)
-    .await?;
-  Ok(Arc::new(IpcSharedMemory::from_bytes(&body)))
 }
 
 fn spawn_lp_handler(ctx: Arc<LpContext>, rx: smr::ipc_channel::ipc::IpcReceiver<LowPriorityMsg>) {
@@ -900,10 +801,6 @@ async fn do_run_background_entry(entry: BackgroundEntry, request_id: String) {
 }
 async fn print_status() {
   log::warn!("Requested to print system status.");
-  let md_cache_stats = md_cache().stats();
-  eprintln!("[md_cache]\n{}", md_cache_stats);
-  let code_cache_stats = cache().stats();
-  eprintln!("[code_cache]\n{}", code_cache_stats);
   eprintln!(
     "LP_DISPATCH_FAIL_COUNT: {}",
     LP_DISPATCH_FAIL_COUNT.load(Ordering::Relaxed)

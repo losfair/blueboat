@@ -1,4 +1,4 @@
-use std::{borrow::Cow, cell::RefCell, collections::HashMap, time::Duration};
+use std::{borrow::Cow, cell::RefCell, collections::HashMap, sync::Arc, time::Duration};
 
 use crate::{
   api::{
@@ -12,17 +12,15 @@ use crate::{
   lpch::LowPriorityMsg,
   metadata::{ApnsEndpointMetadata, Metadata},
   package::{Package, PackageKey},
+  package_loader::load_package,
   registry::SymbolRegistry,
-  reliable_channel::{ReliableChannel, ReliableChannelSeed},
+  reliable_channel::{RchReqBody, ReliableChannel, ReliableChannelSeed},
   v8util::{IsolateInitDataExt, ObjectExt},
 };
 use anyhow::{bail, Result};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use smr::{
-  ipc_channel::ipc::{IpcSender, IpcSharedMemory},
-  types::InitData,
-};
+use smr::{ipc_channel::ipc::IpcSender, types::InitData};
 use std::convert::TryFrom;
 use thiserror::Error;
 use tokio::runtime::Handle;
@@ -33,7 +31,6 @@ pub const NI_ENTRY_KEY: &str = "__blueboat_host_invoke";
 #[derive(Serialize, Deserialize)]
 pub struct BlueboatInitData {
   pub key: PackageKey,
-  pub package: IpcSharedMemory,
   pub metadata: Metadata,
   pub lp_tx: IpcSender<LowPriorityMsg>,
   pub rch: Option<ReliableChannelSeed>,
@@ -45,9 +42,29 @@ impl InitData for BlueboatInitData {
   }
 }
 
+#[derive(Serialize, Deserialize)]
+struct GetPackageRequest {}
+
+#[derive(Serialize, Deserialize)]
+struct GetPackageResponse {
+  data: Vec<u8>,
+}
+
+#[async_trait::async_trait]
+#[typetag::serde]
+impl RchReqBody for GetPackageRequest {
+  async fn handle(self: Box<Self>, md: Arc<Metadata>) -> Result<Box<dyn erased_serde::Serialize>> {
+    let pk = PackageKey {
+      path: md.path.clone(),
+      version: md.version.clone(),
+    };
+    let data = load_package(&pk, &md).await?;
+    Ok(Box::new(GetPackageResponse { data }))
+  }
+}
+
 pub struct BlueboatCtx {
   pub key: &'static PackageKey,
-  pub package: Package,
   pub metadata: &'static Metadata,
   pub lp_tx: &'static IpcSender<LowPriorityMsg>,
   pub rch: ReliableChannel,
@@ -67,7 +84,6 @@ impl BlueboatCtx {
     let mut isolate = v8::Isolate::new(v8::CreateParams::default().snapshot_blob(JSLAND_SNAPSHOT));
     isolate.set_slot(SymbolRegistry::new());
     isolate.set_slot(d);
-    let package = Package::load(&d.package[..]);
     isolate.set_microtasks_policy(v8::MicrotasksPolicy::Auto);
     let context_template = Self::build_context_template(&mut isolate);
 
@@ -89,7 +105,7 @@ impl BlueboatCtx {
     let v8_ctx;
     {
       let scope = &mut v8::HandleScope::new(&mut isolate);
-      match Self::build_v8_context(scope, &context_template, &package, &d.metadata) {
+      match Self::build_v8_context(&rch, scope, &context_template, &d.metadata) {
         Ok(x) => {
           v8_ctx = x;
         }
@@ -145,7 +161,6 @@ impl BlueboatCtx {
 
     let me = Self {
       key: &d.key,
-      package,
       metadata: &d.metadata,
       lp_tx: &d.lp_tx,
       rch,
@@ -195,15 +210,15 @@ impl BlueboatCtx {
 
   pub fn reset_v8_context<'s>(&self, scope: &mut v8::HandleScope<'s, ()>) {
     SymbolRegistry::current(scope).clear();
-    let ctx = Self::build_v8_context(scope, &self.context_template, &self.package, self.metadata)
+    let ctx = Self::build_v8_context(&self.rch, scope, &self.context_template, self.metadata)
       .expect("reset failed");
     *self.v8_ctx.borrow_mut() = ctx;
   }
 
   fn build_v8_context<'s>(
+    rch: &ReliableChannel,
     scope: &mut v8::HandleScope<'s, ()>,
     template: &v8::Global<v8::ObjectTemplate>,
-    package: &Package,
     md: &Metadata,
   ) -> Result<v8::Global<v8::Context>> {
     #[derive(Error, Debug)]
@@ -214,6 +229,11 @@ impl BlueboatCtx {
     let ctx = v8::Context::new_from_template(scope, template);
     {
       let scope = &mut v8::ContextScope::new(scope, ctx);
+
+      let package_rsp: GetPackageResponse = rch
+        .call_sync_slow(GetPackageRequest {})
+        .map_err(|e| e.context("failed to get package"))?;
+      let package = Package::load(&mut package_rsp.data.as_slice());
 
       // Load package contents.
       let pack = package.pack(scope);

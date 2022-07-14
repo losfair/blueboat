@@ -5,6 +5,7 @@ set -e
 export AWS_ACCESS_KEY_ID="minioadmin"
 export AWS_SECRET_ACCESS_KEY="minioadmin"
 export RUST_LOG=info
+export SMRAPP_BLUEBOAT_DISABLE_SECCOMP=1
 
 ./target/release/blueboat_server \
   -l "0.0.0.0:3000" \

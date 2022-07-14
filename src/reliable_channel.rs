@@ -55,10 +55,7 @@ impl ReliableChannelSeed {
 }
 
 impl ReliableChannel {
-  pub async fn call<T: for<'a> Deserialize<'a>>(
-    &self,
-    req: impl RchReqBody + 'static,
-  ) -> Result<T> {
+  fn prepare_call(&self, req: impl RchReqBody + 'static) -> Result<oneshot::Receiver<RchRsp>> {
     let (tx, rx) = oneshot::channel();
     let id = self
       .inner
@@ -69,8 +66,29 @@ impl ReliableChannel {
       id,
       body: Box::new(req),
     })?;
+    Ok(rx)
+  }
+
+  pub async fn call<T: for<'a> Deserialize<'a>>(
+    &self,
+    req: impl RchReqBody + 'static,
+  ) -> Result<T> {
+    let rx = self.prepare_call(req)?;
     let res = rx
       .await
+      .map_err(|_| anyhow::anyhow!("failed to receive response from reliable channel"))?;
+    let out: Result<T, String> = bincode::deserialize(&res.bincode_body)?;
+    out.map_err(|e| anyhow::anyhow!("reliable channel remote error: {}", e))
+  }
+
+  pub fn call_sync_slow<T: for<'a> Deserialize<'a>>(
+    &self,
+    req: impl RchReqBody + 'static,
+  ) -> Result<T> {
+    let rx = self.prepare_call(req)?;
+    let res = std::thread::spawn(move || rx.blocking_recv())
+      .join()
+      .unwrap_or_else(|_| unreachable!())
       .map_err(|_| anyhow::anyhow!("failed to receive response from reliable channel"))?;
     let out: Result<T, String> = bincode::deserialize(&res.bincode_body)?;
     out.map_err(|e| anyhow::anyhow!("reliable channel remote error: {}", e))
