@@ -26,9 +26,12 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Install system dependencies
         run: |
+          set -e
           sudo apt install -y libseccomp-dev cmake
           curl -L https://github.com/apple/foundationdb/releases/download/6.3.24/foundationdb-clients_6.3.24-1_amd64.deb --output fdb-client.deb
           sudo dpkg -i fdb-client.deb
+          curl -L https://github.com/losfair/elfpromote/releases/download/v0.1.0/elfpromote_0.1.0_amd64.deb --output elfpromote.deb
+          sudo dpkg -i elfpromote.deb
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
@@ -118,9 +121,12 @@ jobs:
         uses: Swatinem/rust-cache@v1
       - name: Install system dependencies
         run: |
+          set -e
           sudo apt install -y libseccomp-dev cmake
           curl -L https://github.com/apple/foundationdb/releases/download/6.3.24/foundationdb-clients_6.3.24-1_amd64.deb --output fdb-client.deb
           sudo dpkg -i fdb-client.deb
+          curl -L https://github.com/losfair/elfpromote/releases/download/v0.1.0/elfpromote_0.1.0_amd64.deb --output elfpromote.deb
+          sudo dpkg -i elfpromote.deb
       - name: Install Node
         uses: actions/setup-node@v2
         with:
