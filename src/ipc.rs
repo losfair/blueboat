@@ -33,6 +33,7 @@ pub struct BlueboatIpcReq {
 pub enum BlueboatIpcReqV {
   Http(BlueboatRequest),
   Background(Vec<u8>),
+  SseAuth(BlueboatRequest),
 }
 
 impl BaseRequest for BlueboatIpcReq {
@@ -106,6 +107,10 @@ impl BlueboatIpcReqV {
         let value = deserialize_v8_value(scope, &wire_bytes)?;
         Ok(("__blueboat_app_background_entry", vec![value]))
       }
+      Self::SseAuth(req) => {
+        let req = v8_serialize(scope, &req)?;
+        Ok(("__blueboat_app_sse_auth_entry", vec![req]))
+      }
     }
   }
 }
@@ -134,6 +139,15 @@ impl BlueboatRequest {
       uri: that.uri().to_string(),
       headers,
       body: hyper::body::to_bytes(that.into_body()).await?.to_vec(),
+    })
+  }
+  pub fn from_hyper_no_body<T>(that: &hyper::Request<T>) -> Result<Self> {
+    let headers = decode_hyper_header_map(that.headers());
+    Ok(Self {
+      method: that.method().to_string(),
+      uri: that.uri().to_string(),
+      headers,
+      body: vec![],
     })
   }
 

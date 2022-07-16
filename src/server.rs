@@ -16,6 +16,8 @@ use crate::lpch::{BackgroundEntry, LowPriorityMsg};
 use crate::mds::config_v2::MdsConfig;
 use crate::mds::{MdsService, MDS};
 use crate::pm::pm_handle;
+use crate::pubsub::mq::{MessageQueue, MessageQueueConfig};
+use crate::pubsub::MQ;
 use crate::reliable_channel::create_reliable_channel;
 use crate::wpbl::WpblDb;
 use crate::{
@@ -123,6 +125,14 @@ struct Opt {
   /// Drop the main process to UID 1 (workers are always dropped). Only enable this if Blueboat starts as root.
   #[structopt(long)]
   drop_privileges: bool,
+
+  /// Pubsub FoundationDB cluster file path.
+  #[structopt(long, default_value = "-")]
+  pubsub_cluster: String,
+
+  /// Pubsub FoundationDB key prefix.
+  #[structopt(long, default_value = "-")]
+  pubsub_prefix: String,
 }
 
 struct LpContext {
@@ -314,6 +324,20 @@ async fn async_main() {
 
   S3.set((s3_client, opt.s3_bucket.clone()))
     .unwrap_or_else(|_| unreachable!());
+
+  if opt.pubsub_cluster != "-" && opt.pubsub_prefix != "-" {
+    let mq = MessageQueue::open(MessageQueueConfig {
+      fdb_cluster_file: opt.pubsub_cluster.clone(),
+      prefix: opt.pubsub_prefix.clone(),
+    })
+    .expect("failed to open pubsub");
+    MQ.set(mq).unwrap_or_else(|_| unreachable!());
+    tracing::warn!(
+      cluster = opt.pubsub_cluster,
+      prefix = opt.pubsub_prefix,
+      "pubsub opened"
+    );
+  }
 
   // Tweak parameters
   SPRING_CLEANING_INTERVAL_MS.store(300);
@@ -597,11 +621,7 @@ async fn handle(mut req: Request<Body>) -> Result<Response<Body>, Infallible> {
   match raw_handle(req, &md_path).await {
     Ok(x) => Ok(x),
     Err(e) => {
-      log::error!(
-        "early runtime error (app {}): {:?}",
-        serde_json::to_string(&md_path).unwrap(),
-        e
-      );
+      tracing::error!(app = %md_path, error = %e, "early runtime error");
       let mut res = Response::new(Body::empty());
       *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
       Ok(res)
@@ -630,27 +650,34 @@ async fn load_md(path: &str) -> Result<Arc<Metadata>> {
     .await?;
   let mut md: Metadata = serde_json::from_slice(&body)?;
   md.path = path.to_string();
+  for (k, x) in &mut md.pubsub {
+    if hex::decode_to_slice(&x.namespace, &mut x.namespace_bytes).is_err() {
+      anyhow::bail!("invalid pubsub '{}' namespace id: {}", k, x.namespace);
+    }
+  }
   Ok(Arc::new(md))
 }
 
-async fn generic_invoke(
+async fn load_md_with_cache(md_path: &String) -> Result<Arc<Metadata>> {
+  let md = md_cache().get(md_path);
+  if let Some(md) = md {
+    Ok(md)
+  } else {
+    let md = load_md(&md_path).await?;
+    md_cache().insert(md_path.to_string(), md.clone());
+    Ok(md)
+  }
+}
+
+pub async fn generic_invoke(
   req: BlueboatIpcReq,
-  md_path: &str,
+  md: Arc<Metadata>,
   version_assertion: Option<&str>,
 ) -> Result<BlueboatIpcRes> {
   #[derive(Error, Debug)]
   #[error("version changed")]
   struct VersionChanged;
 
-  let md_path = md_path.to_string();
-  let md = md_cache().get(&md_path);
-  let md = if let Some(md) = md {
-    md
-  } else {
-    let md = load_md(&md_path).await?;
-    md_cache().insert(md_path.to_string(), md.clone());
-    md
-  };
   if let Some(version_assertion) = version_assertion {
     if md.version != version_assertion {
       return Err(VersionChanged.into());
@@ -658,7 +685,7 @@ async fn generic_invoke(
   }
 
   let pk = PackageKey {
-    path: md_path.to_string(),
+    path: md.path.to_string(),
     version: md.version.clone(),
   };
   let pk2 = pk.clone();
@@ -678,12 +705,16 @@ async fn generic_invoke(
   Ok(res)
 }
 
-async fn raw_handle(mut req: Request<Body>, md_path: &str) -> Result<Response<Body>> {
+async fn raw_handle(mut req: Request<Body>, md_path: &String) -> Result<Response<Body>> {
   #[derive(Error, Debug)]
   #[error("metadata error")]
   struct MetadataError;
 
   let handle_start = Instant::now();
+  let md = load_md_with_cache(md_path)
+    .await
+    .map_err(|e| e.context("failed to load metadata"))?;
+
   let request_id = req
     .headers()
     .get(HDR_REQ_REQUEST_ID)
@@ -693,12 +724,18 @@ async fn raw_handle(mut req: Request<Body>, md_path: &str) -> Result<Response<Bo
   req
     .headers_mut()
     .insert(HDR_REQ_REQUEST_ID, HeaderValue::from_str(&request_id)?);
+
+  if req.uri().path() == "/_blueboat/events" {
+    return crate::pubsub::sse::handle_sse(&request_id, req, md)
+      .await
+      .map_err(|e| e.context("sse"));
+  }
   let request = BlueboatRequest::from_hyper(req).await?;
   let request = BlueboatIpcReq {
     v: BlueboatIpcReqV::Http(request),
     id: request_id.clone(),
   };
-  let res = generic_invoke(request, md_path, None).await;
+  let res = generic_invoke(request, md, None).await;
   let mut res = match res {
     Ok(res) => res.response.into_hyper(res.body)?,
     Err(e) => {
@@ -775,10 +812,17 @@ async fn do_run_background_entry(entry: BackgroundEntry, request_id: String) {
     id: request_id,
   };
   let app = entry.app;
+  let md = match load_md_with_cache(&app.path).await {
+    Ok(x) => x,
+    Err(e) => {
+      tracing::error!(reason = "load_md", error = %e, "background task failed");
+      return;
+    }
+  };
   let fut = async {
     match generic_invoke(
       req,
-      &app.path,
+      md,
       if entry.same_version {
         Some(app.version.as_str())
       } else {

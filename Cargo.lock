@@ -516,6 +516,7 @@ dependencies = [
  "tracing-subscriber",
  "ttf-parser",
  "typetag",
+ "url",
  "usvg",
  "uuid 0.8.2",
  "v8",

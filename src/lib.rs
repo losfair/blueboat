@@ -17,6 +17,7 @@ pub mod objserde;
 pub mod package;
 pub mod package_loader;
 pub mod pm;
+pub mod pubsub;
 pub mod registry;
 pub mod reliable_channel;
 pub mod secure_mode;
