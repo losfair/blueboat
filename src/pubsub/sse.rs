@@ -119,6 +119,7 @@ pub async fn handle_sse(
   };
   tokio::spawn(async move {
     task.run().await;
+    log::debug!("exiting sse task");
   });
 
   let mut res = Response::new(body);
