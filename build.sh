@@ -44,13 +44,18 @@ fi
 echo "[*] Running final build."
 cargo build $release_arg
 
+echo "[*] Fixing dynamic library loading order."
+ldd ./target/$target_subdir/blueboat_server
+elfpromote -o ./target/$target_subdir/blueboat_server --lib libfdb_c.so ./target/$target_subdir/blueboat_server
+
 if [ "$BLUEBOAT_DEB" = "1" ]; then
 if [ "$DEBUG_MODE" = "1" ]; then
   echo "[-] Cannot build DEB in debug mode."
 else
   echo "[*] Building DEB package."
-  cargo deb
+  cargo deb --no-build
 fi
 fi
 
+ldd ./target/$target_subdir/blueboat_server
 echo "[+] Build completed."

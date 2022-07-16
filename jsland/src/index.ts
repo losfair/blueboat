@@ -24,6 +24,8 @@ import * as textMod from "./text/index";
 import * as kvMod from "./kv";
 import { HostObject as HostObject_ } from "./host_object"
 import * as compressMod from "./compress/index";
+import { generateStdRequest } from "./util";
+import { appSseAuthEntry } from "./pubsub";
 
 const lateRoot = {
   App: appMod,
@@ -46,6 +48,7 @@ const lateRoot = {
   clearInterval,
   __blueboat_app_entry: appEntry,
   __blueboat_app_background_entry: appBackgroundEntry,
+  __blueboat_app_sse_auth_entry: appSseAuthEntry,
   __blueboat_app_bootstrap: appBootstrap,
 };
 
@@ -75,17 +78,8 @@ function appBootstrap(data: BlueboatBootstrapData) {
 }
 
 async function realAppEntry(req: BlueboatRequest, body: ArrayBuffer) {
-  req.uri =
-    "https://" + (req.headers.host ? req.headers.host[0] : "nohost") + req.uri;
-  let stdReq = new Request(req.uri, {
-    method: req.method,
-    headers: Object.keys(req.headers).map((k) => [
-      k,
-      req.headers[k].join(", "),
-    ]),
-    body: body.byteLength == 0 ? null : body,
-  });
-  const url = new URL(req.uri);
+  let stdReq = generateStdRequest(req, body);
+  const url = new URL(stdReq.url);
   const routeInfo = routerMod.coreRouter.lookupChild(url.pathname);
   let res: BlueboatResponse;
   let resBody: Uint8Array;

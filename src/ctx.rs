@@ -255,6 +255,7 @@ impl BlueboatCtx {
         mysql: md.mysql.keys().cloned().collect(),
         apns: md.apns.keys().cloned().collect(),
         env: md.env.clone(),
+        pubsub: md.pubsub.keys().cloned().collect(),
       };
       let bootstrap_data = v8_serialize(scope, &bootstrap_data)?;
       {

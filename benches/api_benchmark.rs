@@ -2,9 +2,9 @@ use std::time::Instant;
 
 use blueboat::{
   api::testutil::ApiTester,
-  v8util::{create_uint8array_from_bytes, set_up_v8_globally, ObjectExt},
+  v8util::{create_uint8array_from_bytes, ObjectExt},
 };
-use criterion::{black_box, criterion_group, criterion_main, Bencher, Criterion};
+use criterion::{criterion_group, criterion_main, Bencher, Criterion};
 use rand::RngCore;
 
 pub fn run(c: &mut Criterion) {

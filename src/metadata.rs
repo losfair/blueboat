@@ -22,6 +22,18 @@ pub struct Metadata {
 
   #[serde(default)]
   pub kv_namespaces: HashMap<String, KvNamespaceMetadata>,
+
+  #[serde(default)]
+  pub pubsub: HashMap<String, PubsubMetadata>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PubsubMetadata {
+  /// Must be a hex-encoded [u8; 16].
+  pub namespace: String,
+
+  #[serde(skip)]
+  pub namespace_bytes: [u8; 16],
 }
 
 #[derive(Serialize, Deserialize, Clone)]

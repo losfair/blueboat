@@ -9,6 +9,7 @@ pub mod graphics;
 pub mod host_object;
 pub mod kv;
 mod mysql;
+pub mod pubsub;
 pub mod task;
 pub mod tera;
 pub mod testutil;
@@ -115,6 +116,7 @@ pub static API: phf::Map<&'static str, ApiHandler> = phf_map! {
   "text_dom_get" => text::dom::repr::api_dom_get,
   "text_dom_update" => text::dom::repr::api_dom_update,
   "text_dom_remove" => text::dom::repr::api_dom_remove,
+  "pubsub_publish" => pubsub::api_pubsub_publish,
 };
 
 #[derive(Error, Debug)]

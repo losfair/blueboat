@@ -13,4 +13,6 @@ export SMRAPP_BLUEBOAT_DISABLE_SECCOMP=1
   --s3-bucket "bb-mt" --s3-region "us-east-1" \
   --s3-endpoint "http://127.0.0.1:1932" \
   --log-kafka com.example.blueboat.applog:0@localhost:9092 \
-  --syslog-kafka com.example.blueboat.syslog:0@localhost:9092
+  --syslog-kafka com.example.blueboat.syslog:0@localhost:9092 \
+  --pubsub-cluster /etc/foundationdb/fdb.cluster \
+  --pubsub-prefix mt-pubsub

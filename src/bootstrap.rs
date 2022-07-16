@@ -8,6 +8,7 @@ pub struct BlueboatBootstrapData {
   pub mysql: Vec<String>,
   pub apns: Vec<String>,
   pub env: HashMap<String, String>,
+  pub pubsub: Vec<String>,
 }
 
 pub static JSLAND_SNAPSHOT: &'static [u8] = include_bytes!("../jsland.snapshot");

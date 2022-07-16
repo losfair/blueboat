@@ -1,3 +1,5 @@
+import { BlueboatRequest } from "./native_schema";
+
 export type NativeAsyncCallback<T> = (
   err: Error | undefined,
   result: T | undefined
@@ -28,4 +30,17 @@ export async function wrapNativeAsync<T>(
     }
     throw e;
   }
+}
+
+export function generateStdRequest(req: BlueboatRequest, body: ArrayBuffer | null): Request {
+  let url = "https://" + (req.headers.host ? req.headers.host[0] : "nohost") + req.uri;
+  let stdReq = new Request(url, {
+    method: req.method,
+    headers: Object.keys(req.headers).map((k) => [
+      k,
+      req.headers[k].join(", "),
+    ]),
+    body: body ? (body.byteLength == 0 ? null : body) : null,
+  });
+  return stdReq;
 }
