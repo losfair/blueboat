@@ -146,9 +146,16 @@ impl SseTask {
     loop {
       let pop_fut = self.topic.pop(self.seq, self.n as usize, self.wait);
       let stop_fut = watch_sender_disconnect(&mut self.sender);
+      let heartbeat_fut = tokio::time::sleep(Duration::from_secs(15));
 
       let res = tokio::select! {
         res = pop_fut => res,
+        _ = heartbeat_fut => {
+          if !self.send_heartbeat().await {
+            return;
+          }
+          continue;
+        }
         _ = stop_fut => {
           return;
         }
@@ -181,6 +188,18 @@ impl SseTask {
       }
       self.seq = res.last().unwrap().0;
     }
+  }
+
+  async fn send_heartbeat(&mut self) -> bool {
+    if self
+      .sender
+      .send_data(b": heartbeat\n\n"[..].into())
+      .await
+      .is_err()
+    {
+      return false;
+    }
+    true
   }
 
   async fn send_sse<'a, 'b, 'c>(&mut self, msg: &SseMessage<'a, 'b, 'c>) -> bool {
