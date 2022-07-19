@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::process::Command;
 
 use nix::{
@@ -13,11 +14,19 @@ use smr::pm::{pm_secure_start, PmHandle};
 use tempdir::TempDir;
 
 use crate::{
-  gres::load_global_resources_single_threaded, ipc::BlueboatIpcReq,
-  secure_mode::enable_seccomp_from_first_thread,
+  bootstrap::JSLAND_SNAPSHOT, gres::load_global_resources_single_threaded, ipc::BlueboatIpcReq,
+  secure_mode::enable_seccomp_from_first_thread, v8util::set_up_v8_globally,
 };
 
 static mut PM: Option<Mutex<PmHandle<BlueboatIpcReq>>> = None;
+
+thread_local! {
+  static ISOLATE_BUFFER: RefCell<Option<v8::OwnedIsolate>> = RefCell::new(None);
+}
+
+pub fn take_isolate() -> v8::OwnedIsolate {
+  ISOLATE_BUFFER.with(|cell| cell.borrow_mut().take().expect("isolate already taken"))
+}
 
 pub unsafe fn secure_init(
   argc: libc::c_int,
@@ -43,6 +52,14 @@ pub unsafe fn secure_init(
       "Visible env vars: {:?}",
       std::env::vars().collect::<Vec<_>>()
     );
+
+    set_up_v8_globally();
+    ISOLATE_BUFFER.with(|buf| {
+      *buf.borrow_mut() = Some(v8::Isolate::new(
+        v8::CreateParams::default().snapshot_blob(JSLAND_SNAPSHOT),
+      ));
+    });
+    log::info!("V8 initialized.");
 
     // Now we have sanitized our environment, we are a little bit freeier to load resources.
     // But still keep security in mind!

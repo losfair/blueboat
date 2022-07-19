@@ -1,4 +1,10 @@
-use std::{borrow::Cow, cell::RefCell, collections::HashMap, sync::Arc, time::Duration};
+use std::{
+  borrow::Cow,
+  cell::RefCell,
+  collections::HashMap,
+  sync::Arc,
+  time::{Duration, Instant},
+};
 
 use crate::{
   api::{
@@ -6,13 +12,14 @@ use crate::{
     API,
   },
   app_mysql::AppMysql,
-  bootstrap::{BlueboatBootstrapData, JSLAND_SNAPSHOT},
+  bootstrap::BlueboatBootstrapData,
   consts::CACERT_PEM,
   exec::Executor,
   lpch::LowPriorityMsg,
   metadata::{ApnsEndpointMetadata, Metadata},
   package::{Package, PackageKey},
   package_loader::load_package,
+  pm::take_isolate,
   registry::SymbolRegistry,
   reliable_channel::{RchReqBody, ReliableChannel, ReliableChannelSeed},
   v8util::{IsolateInitDataExt, ObjectExt},
@@ -75,13 +82,14 @@ pub struct BlueboatCtx {
   pub mysql: HashMap<String, AppMysql>,
   pub apns: HashMap<String, a2::Client>,
   pub computation_watcher: Handle,
+  pub last_invocation_time_after_full_gc: RefCell<Option<Instant>>,
 }
 
 impl BlueboatCtx {
   pub fn init(mut d: BlueboatInitData) -> &'static Self {
     let rch = d.rch.take().unwrap().run_forever();
     let d: &'static BlueboatInitData = Box::leak(Box::new(d));
-    let mut isolate = v8::Isolate::new(v8::CreateParams::default().snapshot_blob(JSLAND_SNAPSHOT));
+    let mut isolate = take_isolate();
     isolate.set_slot(SymbolRegistry::new());
     isolate.set_slot(d);
     isolate.set_microtasks_policy(v8::MicrotasksPolicy::Auto);
@@ -187,6 +195,7 @@ impl BlueboatCtx {
         })
         .collect(),
       computation_watcher,
+      last_invocation_time_after_full_gc: RefCell::new(None),
     };
     let me: &'static BlueboatCtx = Box::leak(Box::new(me));
     me

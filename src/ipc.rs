@@ -1,4 +1,8 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{
+  collections::HashMap,
+  str::FromStr,
+  time::{Duration, Instant},
+};
 
 use anyhow::Result;
 use bytes::Bytes;
@@ -20,7 +24,7 @@ use crate::{
   ctx::{BlueboatCtx, BlueboatInitData},
   exec::Executor,
   objserde::deserialize_v8_value,
-  v8util::{create_arraybuffer_from_bytes, set_up_v8_globally, ObjectExt},
+  v8util::{create_arraybuffer_from_bytes, ObjectExt},
 };
 
 #[derive(Serialize, Deserialize)]
@@ -45,8 +49,26 @@ impl BaseRequest for BlueboatIpcReq {
 #[async_trait::async_trait(?Send)]
 impl Request for BlueboatIpcReq {
   async fn init(init_data: Self::InitData) -> &'static Self::Context {
-    set_up_v8_globally();
-    BlueboatCtx::init(init_data)
+    let ctx = BlueboatCtx::init(init_data);
+    tokio::task::spawn_local(async move {
+      loop {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let mut isolate = ctx.isolate.try_lock().expect("isolate is locked");
+
+        let mut last_invocation_time = ctx.last_invocation_time_after_full_gc.borrow_mut();
+        if let Some(t) = *last_invocation_time {
+          let elapsed = t.elapsed();
+          if elapsed.as_secs() > 10 {
+            log::debug!("performing full gc");
+            isolate.low_memory_notification();
+            *last_invocation_time = None;
+            continue;
+          }
+        }
+        v8::Platform::run_idle_tasks(&v8::V8::get_current_platform(), &mut isolate, 0.02);
+      }
+    });
+    ctx
   }
 
   async fn handle(mut self, _: &'static Self::Context) -> Result<Self::Res> {
@@ -66,6 +88,7 @@ impl Request for BlueboatIpcReq {
     #[error("completion error")]
     struct CompletionError;
 
+    *ctx.last_invocation_time_after_full_gc.borrow_mut() = Some(Instant::now());
     let (exec, spawn_activity_owner) = Executor::new(ctx, self.id.clone(), cancel)?;
     let v = self.v;
     Executor::enter(&exec.downgrade(), move |scope| {
@@ -80,7 +103,7 @@ impl Request for BlueboatIpcReq {
         .ok_or_else(|| EntryError)?;
       Ok::<(), anyhow::Error>(())
     })
-    .ok_or(EntryError)??;
+    .unwrap()?;
     drop(spawn_activity_owner);
 
     let res = exec
