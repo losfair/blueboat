@@ -19,7 +19,7 @@ use crate::{
   metadata::{ApnsEndpointMetadata, Metadata},
   package::{Package, PackageKey},
   package_loader::load_package,
-  pm::take_isolate,
+  pm::{take_isolate, CachedBootstrapData},
   registry::SymbolRegistry,
   reliable_channel::{RchReqBody, ReliableChannel, ReliableChannelSeed},
   v8util::{IsolateInitDataExt, ObjectExt},
@@ -77,7 +77,6 @@ pub struct BlueboatCtx {
   pub rch: ReliableChannel,
   pub isolate: Mutex<v8::OwnedIsolate>,
   pub v8_ctx: RefCell<v8::Global<v8::Context>>,
-  pub context_template: v8::Global<v8::ObjectTemplate>,
   pub http_client: reqwest::Client,
   pub mysql: HashMap<String, AppMysql>,
   pub apns: HashMap<String, a2::Client>,
@@ -93,7 +92,6 @@ impl BlueboatCtx {
     isolate.set_slot(SymbolRegistry::new());
     isolate.set_slot(d);
     isolate.set_microtasks_policy(v8::MicrotasksPolicy::Auto);
-    let context_template = Self::build_context_template(&mut isolate);
 
     let computation_watcher_rt = tokio::runtime::Builder::new_current_thread()
       .enable_time()
@@ -113,7 +111,7 @@ impl BlueboatCtx {
     let v8_ctx;
     {
       let scope = &mut v8::HandleScope::new(&mut isolate);
-      match Self::build_v8_context(&rch, scope, &context_template, &d.metadata) {
+      match Self::build_v8_context(&rch, scope, &d.metadata) {
         Ok(x) => {
           v8_ctx = x;
         }
@@ -174,7 +172,6 @@ impl BlueboatCtx {
       rch,
       isolate: Mutex::new(isolate),
       v8_ctx: RefCell::new(v8_ctx),
-      context_template,
       http_client: reqwest::Client::new(),
       mysql,
       apns: d
@@ -201,41 +198,36 @@ impl BlueboatCtx {
     me
   }
 
-  fn build_context_template(isolate: &mut v8::Isolate) -> v8::Global<v8::ObjectTemplate> {
-    let scope = &mut v8::HandleScope::new(isolate);
-    let obj_t = v8::ObjectTemplate::new(scope);
-
-    let blueboat_host_invoke = v8::FunctionTemplate::new(scope, native_invoke_entry);
-    obj_t.set(
-      v8::String::new(scope, NI_ENTRY_KEY).unwrap().into(),
-      blueboat_host_invoke.into(),
-    );
-    v8::Global::new(scope, obj_t)
-  }
-
   pub fn grab_v8_context<'s>(&self) -> v8::Global<v8::Context> {
     (*self.v8_ctx.borrow()).clone()
   }
 
   pub fn reset_v8_context<'s>(&self, scope: &mut v8::HandleScope<'s, ()>) {
     SymbolRegistry::current(scope).clear();
-    let ctx = Self::build_v8_context(&self.rch, scope, &self.context_template, self.metadata)
-      .expect("reset failed");
+    let ctx = Self::build_v8_context(&self.rch, scope, self.metadata).expect("reset failed");
     *self.v8_ctx.borrow_mut() = ctx;
   }
 
   fn build_v8_context<'s>(
     rch: &ReliableChannel,
     scope: &mut v8::HandleScope<'s, ()>,
-    template: &v8::Global<v8::ObjectTemplate>,
     md: &Metadata,
   ) -> Result<v8::Global<v8::Context>> {
     #[derive(Error, Debug)]
     #[error("package init error: {0}")]
     pub struct PackageInitError(String);
 
-    let template = v8::Local::new(scope, template);
-    let ctx = v8::Context::new_from_template(scope, template);
+    let ctx: v8::Local<v8::Context> = {
+      let data = scope.get_slot_mut::<CachedBootstrapData>().unwrap();
+      if let Some(x) = data.prebuilt_context.take() {
+        v8::Local::new(scope, x)
+      } else {
+        let template = data.context_template.clone();
+        let template = v8::Local::new(scope, template);
+        v8::Context::new_from_template(scope, template)
+      }
+    };
+
     {
       let scope = &mut v8::ContextScope::new(scope, ctx);
 

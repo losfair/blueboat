@@ -14,14 +14,23 @@ use smr::pm::{pm_secure_start, PmHandle};
 use tempdir::TempDir;
 
 use crate::{
-  bootstrap::JSLAND_SNAPSHOT, gres::load_global_resources_single_threaded, ipc::BlueboatIpcReq,
-  secure_mode::enable_seccomp_from_first_thread, v8util::set_up_v8_globally,
+  bootstrap::JSLAND_SNAPSHOT,
+  ctx::{native_invoke_entry, NI_ENTRY_KEY},
+  gres::load_global_resources_single_threaded,
+  ipc::BlueboatIpcReq,
+  secure_mode::enable_seccomp_from_first_thread,
+  v8util::set_up_v8_globally,
 };
 
 static mut PM: Option<Mutex<PmHandle<BlueboatIpcReq>>> = None;
 
 thread_local! {
   static ISOLATE_BUFFER: RefCell<Option<v8::OwnedIsolate>> = RefCell::new(None);
+}
+
+pub struct CachedBootstrapData {
+  pub context_template: v8::Global<v8::ObjectTemplate>,
+  pub prebuilt_context: Option<v8::Global<v8::Context>>,
 }
 
 pub fn take_isolate() -> v8::OwnedIsolate {
@@ -55,9 +64,30 @@ pub unsafe fn secure_init(
 
     set_up_v8_globally();
     ISOLATE_BUFFER.with(|buf| {
-      *buf.borrow_mut() = Some(v8::Isolate::new(
-        v8::CreateParams::default().snapshot_blob(JSLAND_SNAPSHOT),
-      ));
+      let mut isolate =
+        v8::Isolate::new(v8::CreateParams::default().snapshot_blob(JSLAND_SNAPSHOT));
+      let context_template: v8::Global<v8::ObjectTemplate>;
+      let prebuilt_context: Option<v8::Global<v8::Context>>;
+      {
+        let scope = &mut v8::HandleScope::new(&mut isolate);
+        let obj_t = v8::ObjectTemplate::new(scope);
+
+        let blueboat_host_invoke = v8::FunctionTemplate::new(scope, native_invoke_entry);
+        obj_t.set(
+          v8::String::new(scope, NI_ENTRY_KEY).unwrap().into(),
+          blueboat_host_invoke.into(),
+        );
+        context_template = v8::Global::new(scope, obj_t);
+
+        let ctx = v8::Context::new_from_template(scope, obj_t);
+        prebuilt_context = Some(v8::Global::new(scope, ctx));
+      }
+      isolate.set_slot(CachedBootstrapData {
+        context_template,
+        prebuilt_context,
+      });
+      isolate.low_memory_notification();
+      *buf.borrow_mut() = Some(isolate);
     });
     log::info!("V8 initialized.");
 
