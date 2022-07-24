@@ -91,7 +91,6 @@ impl BlueboatCtx {
     let mut isolate = take_isolate();
     isolate.set_slot(SymbolRegistry::new());
     isolate.set_slot(d);
-    isolate.set_microtasks_policy(v8::MicrotasksPolicy::Auto);
 
     let computation_watcher_rt = tokio::runtime::Builder::new_current_thread()
       .enable_time()
