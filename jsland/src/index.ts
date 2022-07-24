@@ -27,6 +27,8 @@ import * as compressMod from "./compress/index";
 import { generateStdRequest } from "./util";
 import { appSseAuthEntry } from "./pubsub";
 
+let warmingUp = false;
+
 const lateRoot = {
   App: appMod,
   Graphics: graphicsMod,
@@ -50,6 +52,7 @@ const lateRoot = {
   __blueboat_app_background_entry: appBackgroundEntry,
   __blueboat_app_sse_auth_entry: appSseAuthEntry,
   __blueboat_app_bootstrap: appBootstrap,
+  __blueboat_app_warmup: appWarmup,
 };
 
 const methodMap: Record<
@@ -167,7 +170,20 @@ async function realAppEntry(req: BlueboatRequest, body: ArrayBuffer) {
     };
     resBody = new TextEncoder().encode("not found");
   }
-  __blueboat_host_invoke("complete", res, resBody);
+  if (!warmingUp) __blueboat_host_invoke("complete", res, resBody);
+}
+
+async function appWarmup() {
+  warmingUp = true;
+  for (let i = 0; i < 1000; i++) {
+    await appEntry({
+      body: [],
+      headers: {},
+      method: "GET",
+      uri: "/",
+    }, new ArrayBuffer(0));
+  }
+  warmingUp = false;
 }
 
 Object.assign(globalThis, lateRoot);

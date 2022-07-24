@@ -66,6 +66,7 @@ pub unsafe fn secure_init(
     ISOLATE_BUFFER.with(|buf| {
       let mut isolate =
         v8::Isolate::new(v8::CreateParams::default().snapshot_blob(JSLAND_SNAPSHOT));
+      isolate.set_microtasks_policy(v8::MicrotasksPolicy::Auto);
       let context_template: v8::Global<v8::ObjectTemplate>;
       let prebuilt_context: Option<v8::Global<v8::Context>>;
       {
@@ -80,6 +81,7 @@ pub unsafe fn secure_init(
         context_template = v8::Global::new(scope, obj_t);
 
         let ctx = v8::Context::new_from_template(scope, obj_t);
+        warm_up(scope, ctx);
         prebuilt_context = Some(v8::Global::new(scope, ctx));
       }
       isolate.set_slot(CachedBootstrapData {
@@ -212,4 +214,13 @@ pub fn is_seccomp_disabled() -> bool {
     .ok()
     .map(|x| x == "1")
     .unwrap_or(false)
+}
+
+fn warm_up<'s, 't>(scope: &mut v8::HandleScope<'s, ()>, context: v8::Local<'t, v8::Context>) {
+  let scope = &mut v8::ContextScope::new(scope, context);
+  let text = v8::String::new(scope, r#"
+__blueboat_app_warmup();
+  "#).expect("string construction failed");
+  let script = v8::Script::compile(scope, text, None).expect("compile failed");
+  script.run(scope).expect("warm-up script failed");
 }
