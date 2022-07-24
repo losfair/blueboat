@@ -4,7 +4,7 @@ pub mod repr;
 use std::rc::Rc;
 
 use anyhow::Result;
-use html5ever::{tendril::TendrilSink, serialize::TraversalScope};
+use html5ever::tendril::TendrilSink;
 use markup5ever_rcdom::{Handle, RcDom, SerializableHandle};
 use serde::Deserialize;
 use v8;

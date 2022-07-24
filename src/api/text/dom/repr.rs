@@ -179,7 +179,6 @@ pub fn api_dom_append_child(
     }
   };
   for child in &children {
-    println!("{:?}", child.data);
     child.parent.replace(Some(Rc::downgrade(&parent.node)));
     parent_children.push(child.clone());
   }
