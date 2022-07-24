@@ -116,6 +116,7 @@ pub static API: phf::Map<&'static str, ApiHandler> = phf_map! {
   "text_dom_get" => text::dom::repr::api_dom_get,
   "text_dom_update" => text::dom::repr::api_dom_update,
   "text_dom_remove" => text::dom::repr::api_dom_remove,
+  "text_dom_append_child" => text::dom::repr::api_dom_append_child,
   "pubsub_publish" => pubsub::api_pubsub_publish,
 };
 

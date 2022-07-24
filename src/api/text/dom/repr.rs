@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use anyhow::Result;
 use html5ever::{Attribute, LocalName, QualName};
-use markup5ever_rcdom::NodeData;
+use markup5ever_rcdom::{Node, NodeData};
 use serde::{Deserialize, Serialize};
 use v8;
 
@@ -147,6 +147,46 @@ pub fn api_dom_remove(
   Ok(())
 }
 
+/// WARNING: This is **VERY** hacky. Do not use.
+pub fn api_dom_append_child(
+  scope: &mut v8::HandleScope,
+  args: v8::FunctionCallbackArguments,
+  mut retval: v8::ReturnValue,
+) -> Result<()> {
+  let parent: Rc<Dom> = SymbolRegistry::current(scope).cast_and_get(args.get(1))?;
+  let mut children: Vec<Rc<Node>> = vec![SymbolRegistry::current(scope)
+    .cast_and_get::<Dom>(args.get(2))?
+    .node
+    .clone()];
+
+  while !children.is_empty()
+    && (matches!(children[0].data, NodeData::Document)
+      || matches!(&children[0].data, NodeData::Element { name: QualName { local , ..}, .. } if *local == *"html"))
+  {
+    children = match children[0].children.try_borrow().ok().map(|x| (*x).clone()) {
+      Some(x) => x,
+      None => {
+        retval.set(v8::Boolean::new(scope, false).into());
+        return Ok(());
+      }
+    }
+  }
+  let mut parent_children = match parent.node.children.try_borrow_mut() {
+    Ok(x) => x,
+    Err(_) => {
+      retval.set(v8::Boolean::new(scope, false).into());
+      return Ok(());
+    }
+  };
+  for child in &children {
+    println!("{:?}", child.data);
+    child.parent.replace(Some(Rc::downgrade(&parent.node)));
+    parent_children.push(child.clone());
+  }
+  retval.set(v8::Boolean::new(scope, true).into());
+  Ok(())
+}
+
 #[cfg(test)]
 mod tests {
   use crate::api::testutil::ApiTester;
@@ -189,6 +229,27 @@ mod tests {
     assert_eq!(
       out.as_str(),
       "<html><div><p class=\"b\">something else</p></div></html>"
+    );
+  }
+
+  #[test]
+  fn test_append_child() {
+    let mut tester = ApiTester::new();
+    let out: String = tester.run_script(
+      r#"
+{
+  let dom = TextUtil.DOM.HTML.parse('<div>a<span>b</span>c</div>', { fragment: true });
+  dom.queryWithFilter({type: "tag", tag: "div"}, elem => {
+    elem.appendChild(TextUtil.DOM.HTML.parse('<p>d</p>', { fragment: true }));
+    return false;
+  });
+  new TextDecoder().decode(dom.serialize());
+}
+    "#,
+    );
+    assert_eq!(
+      out.as_str(),
+      "<html><div>a<span>b</span>c<p>d</p></div></html>"
     );
   }
 }
