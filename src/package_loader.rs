@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::{
   metadata::Metadata,
   package::PackageKey,
-  server::{cache, s3},
+  server::{cache, tenancy, Tenancy},
 };
 use anyhow::Result;
 use rusoto_s3::{GetObjectRequest, S3};
@@ -12,6 +12,10 @@ use tokio::io::AsyncReadExt;
 const PACKAGE_TTL: Duration = Duration::from_secs(86400 * 30);
 
 pub async fn load_package(pk: &PackageKey, md: &Metadata) -> Result<Vec<u8>> {
+  if let Tenancy::SingleTenant { package, .. } = tenancy() {
+    return Ok(package.clone());
+  }
+
   let cache = cache();
   let value = cache.get(&pk.version)?;
   if let Some(x) = value {
@@ -31,7 +35,10 @@ pub async fn load_package(pk: &PackageKey, md: &Metadata) -> Result<Vec<u8>> {
 }
 
 async fn fetch_package(md: &Metadata) -> Result<Vec<u8>> {
-  let (s3c, bucket) = s3();
+  let (s3c, bucket) = match tenancy() {
+    Tenancy::MultiTenant { s3 } => s3,
+    _ => panic!("fetch_package called in single-tenant mode"),
+  };
   let output = s3c
     .get_object(GetObjectRequest {
       bucket: bucket.clone(),

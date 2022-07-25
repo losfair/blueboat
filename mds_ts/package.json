@@ -1,7 +1,0 @@
-{
-  "name": "mds-ts",
-  "private": true,
-  "dependencies": {
-    "esbuild": "^0.14.1"
-  }
-}

@@ -1,11 +1,12 @@
 {
   "name": "blueboat-types",
-  "version": "0.2.14-alpha.1",
+  "version": "v0.3.1-alpha.5",
   "description": "Blueboat jsland types.",
   "main": "src/index.d.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "types": "src/index.d.ts",
   "author": "",
   "license": "MIT",
   "dependencies": {

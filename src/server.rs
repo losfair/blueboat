@@ -1,5 +1,6 @@
 use std::convert::Infallible;
 use std::net::IpAddr;
+use std::path::Path;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
@@ -63,11 +64,11 @@ struct Opt {
   listen: SocketAddr,
 
   /// S3 bucket for storing apps' code and metadata.
-  #[structopt(long)]
+  #[structopt(long, default_value = "-")]
   s3_bucket: String,
 
   /// S3 region for storing apps' code and metadata.
-  #[structopt(long)]
+  #[structopt(long, default_value = "-")]
   s3_region: String,
 
   /// S3-compatible endpoint for storing apps' code and metadata. Leave this default if using AWS S3.
@@ -133,6 +134,10 @@ struct Opt {
   /// Pubsub FoundationDB key prefix.
   #[structopt(long, default_value = "-")]
   pubsub_prefix: String,
+
+  /// Run in single-tenant mode with the provided `metadata.json`.
+  #[structopt(long, default_value = "-")]
+  single_tenant: String,
 }
 
 struct LpContext {
@@ -144,7 +149,7 @@ type MdCacheType = moka::sync::Cache<String, Arc<Metadata>>;
 
 static SCHEDULER: OnceCell<Arc<RwLock<Scheduler<PackageKey, BlueboatIpcReq>>>> =
   OnceCell::const_new();
-static S3: OnceCell<(S3Client, String)> = OnceCell::const_new();
+static TENANCY: OnceCell<Tenancy> = OnceCell::const_new();
 static CACHE: OnceCell<sqlite_cache::Topic> = OnceCell::const_new();
 static MD_CACHE: OnceCell<MdCacheType> = OnceCell::const_new();
 static MEM_HIGH_WATERMARK_KB: OnceCell<u64> = OnceCell::const_new();
@@ -174,8 +179,18 @@ pub fn global_scheduler() -> &'static Arc<RwLock<Scheduler<PackageKey, BlueboatI
   SCHEDULER.get().unwrap()
 }
 
-pub fn s3() -> &'static (S3Client, String) {
-  S3.get().unwrap()
+pub enum Tenancy {
+  MultiTenant {
+    s3: (S3Client, String),
+  },
+  SingleTenant {
+    metadata: Metadata,
+    package: Vec<u8>,
+  },
+}
+
+pub fn tenancy() -> &'static Tenancy {
+  TENANCY.get().unwrap()
 }
 
 pub fn cache() -> &'static sqlite_cache::Topic {
@@ -313,17 +328,41 @@ async fn async_main() {
     tracing::warn!("Dropped to uid 1.");
   }
 
-  let s3_client = S3Client::new(if opt.s3_endpoint != "-" {
-    Region::Custom {
-      name: opt.s3_region.clone(),
-      endpoint: opt.s3_endpoint.clone(),
+  if opt.single_tenant == "-" {
+    if opt.s3_region == "-" || opt.s3_bucket == "-" {
+      panic!("--s3-region and --s3-bucket are required in multi-tenant mode");
     }
-  } else {
-    Region::from_str(&opt.s3_region).unwrap()
-  });
+    let s3_client = S3Client::new(if opt.s3_endpoint != "-" {
+      Region::Custom {
+        name: opt.s3_region.clone(),
+        endpoint: opt.s3_endpoint.clone(),
+      }
+    } else {
+      Region::from_str(&opt.s3_region).unwrap()
+    });
 
-  S3.set((s3_client, opt.s3_bucket.clone()))
-    .unwrap_or_else(|_| unreachable!());
+    TENANCY
+      .set(Tenancy::MultiTenant {
+        s3: (s3_client, opt.s3_bucket.clone()),
+      })
+      .unwrap_or_else(|_| unreachable!());
+    tracing::info!("Running in multi-tenant mode.");
+  } else {
+    let metadata_json =
+      std::fs::read_to_string(&opt.single_tenant).expect("failed to read single-tenant metadata");
+    let metadata: Metadata =
+      serde_json::from_str(&metadata_json).expect("failed to parse single-tenant metadata");
+    let package_path = Path::new(&opt.single_tenant)
+      .parent()
+      .expect("failed to get metadata directory")
+      .to_path_buf()
+      .join(&metadata.package);
+    let package = std::fs::read(&package_path).expect("failed to read package");
+    TENANCY
+      .set(Tenancy::SingleTenant { metadata, package })
+      .unwrap_or_else(|_| unreachable!());
+    tracing::info!("Running in single-tenant mode.");
+  }
 
   if opt.pubsub_cluster != "-" && opt.pubsub_prefix != "-" {
     let mq = MessageQueue::open(MessageQueueConfig {
@@ -528,13 +567,17 @@ async fn handle(mut req: Request<Body>) -> Result<Response<Body>, Infallible> {
     return Ok(Response::new(Body::from("OK")));
   }
 
-  let md_path = match req.headers().get(HDR_REQ_METADATA) {
-    Some(x) => x.to_str().unwrap_or("").to_string(),
-    None => {
-      let mut res = Response::new(Body::empty());
-      *res.status_mut() = StatusCode::BAD_REQUEST;
-      return Ok(res);
+  let md_path = if matches!(tenancy(), Tenancy::MultiTenant { .. }) {
+    match req.headers().get(HDR_REQ_METADATA) {
+      Some(x) => x.to_str().unwrap_or("").to_string(),
+      None => {
+        let mut res = Response::new(Body::empty());
+        *res.status_mut() = StatusCode::BAD_REQUEST;
+        return Ok(res);
+      }
     }
+  } else {
+    "app".to_string()
   };
 
   let client_ip = req
@@ -634,25 +677,37 @@ async fn load_md(path: &str) -> Result<Arc<Metadata>> {
   #[error("metadata error")]
   struct MetadataError;
 
-  let (s3c, bucket) = s3();
-  let md = s3c
-    .get_object(GetObjectRequest {
-      bucket: bucket.clone(),
-      key: path.to_string(),
-      ..Default::default()
-    })
-    .await?;
-  let mut body: Vec<u8> = vec![];
-  md.body
-    .ok_or(MetadataError)?
-    .into_async_read()
-    .read_to_end(&mut body)
-    .await?;
-  let mut md: Metadata = serde_json::from_slice(&body)?;
+  let mut md = match tenancy() {
+    Tenancy::MultiTenant { s3: (s3c, bucket) } => {
+      let md = s3c
+        .get_object(GetObjectRequest {
+          bucket: bucket.clone(),
+          key: path.to_string(),
+          ..Default::default()
+        })
+        .await?;
+      let mut body: Vec<u8> = vec![];
+      md.body
+        .ok_or(MetadataError)?
+        .into_async_read()
+        .read_to_end(&mut body)
+        .await?;
+      serde_json::from_slice(&body)?
+    }
+    Tenancy::SingleTenant { metadata, .. } => metadata.clone(),
+  };
+
   md.path = path.to_string();
   for (k, x) in &mut md.pubsub {
     if hex::decode_to_slice(&x.namespace, &mut x.namespace_bytes).is_err() {
-      anyhow::bail!("invalid pubsub '{}' namespace id: {}", k, x.namespace);
+      match Uuid::parse_str(x.namespace.as_str()) {
+        Ok(uuid) => {
+          x.namespace_bytes.copy_from_slice(uuid.as_bytes());
+        }
+        Err(_) => {
+          anyhow::bail!("invalid pubsub '{}' namespace id: {}", k, x.namespace);
+        }
+      }
     }
   }
   Ok(Arc::new(md))
