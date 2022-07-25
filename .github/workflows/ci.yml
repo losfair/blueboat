@@ -107,7 +107,7 @@ jobs:
           cd single-tenant
           cp ../test-data/minio/apps/hello/1.tar ./
           echo '{"version":"1","package":"1.tar","env":{}}' | tee metadata.json
-          docker run --rm -p 127.0.0.1:3001:3001 --name blueboat --entrypoint /usr/bin/blueboat_server \
+          docker run --rm -p 127.0.0.1:3001:3001 --name blueboat-single-tenant --entrypoint /usr/bin/blueboat_server \
             -v "$PWD:/app" \
             -e RUST_LOG=info \
             -e SMRAPP_BLUEBOAT_DISABLE_SECCOMP=1 \
