@@ -2,10 +2,7 @@
 
 ![CI](https://github.com/losfair/blueboat/actions/workflows/ci.yml/badge.svg)
 
-Blueboat is an open-source alternative to Cloudflare Workers and aims to be a developer-friendly, multi-tenant platform for serverless web applications.
-
-- [Features](#features)
-- [Deploy](#deploy-your-own-blueboat-instance)
+Blueboat is an all-in-one, multi-tenant serverless JavaScript runtime.
 
 A simple Blueboat application looks like:
 
@@ -24,50 +21,169 @@ Router.get("/yaml", req => {
 });
 ```
 
-## Features
+- [Blueboat](#blueboat)
+  - [Quickstart (single-tenant mode)](#quickstart-single-tenant-mode)
+  - [The JavaScript API](#the-javascript-api)
+    - [Web API compatibility](#web-api-compatibility)
+    - [No local resources](#no-local-resources)
+  - [Developing on Blueboat](#developing-on-blueboat)
+    - [TypeScript type definitions](#typescript-type-definitions)
+    - [API documentation](#api-documentation)
+  - [Deploying Blueboat](#deploying-blueboat)
+    - [Single-tenant](#single-tenant)
+    - [Multi-tenant](#multi-tenant)
+  - [Frameworks](#frameworks)
+    - [Flareact](#flareact)
+  - [Contributing](#contributing)
+    - [Build locally](#build-locally)
+    - [Build process internals](#build-process-internals)
+  - [License](#license)
 
-- Batteries-included standard library.
+## Quickstart (single-tenant mode)
 
-Blueboat exposes a wide range of "standard library" features including data validation, encoding, cryptography, graphics and background tasks, aside from the regular Web platform API - see [this tracking issue](https://github.com/losfair/blueboat/issues/65) for details.
+This pulls, builds, and runs the [hello-world](https://github.com/losfair/blueboat-examples/tree/main/hello-world) example.
 
-- Designed for multi-app and multi-tenant environments.
+Prerequisites: [cargo](https://github.com/rust-lang/cargo), npm, git, docker
 
-Blueboat handles the routing of incoming HTTP requests, automatically scales apps up and down based on load, and securely isolates apps from different tenants using [seccomp](https://man7.org/linux/man-pages/man2/seccomp.2.html).
-
-- Native support for stateful apps.
-
-Apps have native access to a strongly-consistent distributed key-value database based on [FoundationDB](https://github.com/apple/foundationdb).
-
-## Deploy your own Blueboat instance
-
-### Production
-
-See [this link](https://windi.app/people/zhy/page/f25c522955c04e59b5771954f8702c14?note=2022-02-10-3bad19f28b25) for a guide on production deployment.
-
-### Single-machine / testing
-
-Blueboat depends on various external services such as [FoundationDB](https://www.foundationdb.org/) and [Kafka](https://kafka.apache.org/) to operate reliably as a distributed system, but you don't need all these services to run Blueboat on a single machine. Just pull [b6t](https://github.com/losfair/b6t) - this contains all necessary dependencies to get Blueboat up and running.
-
-After starting `b6t` you need to set up a reverse proxy such as Nginx or [Caddy](https://caddyserver.com/) to accept external traffic. Blueboat loads the application's metadata from the S3 key specified in the `X-Blueboat-Metadata` header, and this information should be provided by the reverse proxy.
-
-An example Caddy config looks like:
-
+```bash
+cargo install boatctl
+git clone https://github.com/losfair/blueboat-examples
+cd blueboat-examples/hello-world
+npm i && boat pack -o build.json
+docker run --rm -d -p 127.0.0.1:3001:3001 \
+  -v "$PWD:/app" \
+  --entrypoint /usr/bin/blueboat_server \
+  -e RUST_LOG=info \
+  -e SMRAPP_BLUEBOAT_DISABLE_SECCOMP=1 \
+  ghcr.io/losfair/blueboat:v0.3.1-alpha.5 \
+  -l "0.0.0.0:3001" \
+  --single-tenant "/app/build.json"
+curl http://localhost:3001 # "hello world"
 ```
-hello.blueboat.example.com {
-  reverse_proxy blueboat:3000 {
-    # S3 path to application metadata
-    header_up X-Blueboat-Metadata "test/metadata.json"
-    header_up X-Blueboat-Client-Ip "{remote_host}"
 
-    # Prevent faked request id
-    header_up -X-Blueboat-Request-Id
+## The JavaScript API
+
+### Web API compatibility
+
+Blueboat prefers to keep compatibility with the Web API when doing so is reasonable.
+
+* Things like `fetch`, `Request`, `Response` and `URL` are built-in.
+
+### No local resources
+
+Blueboat is a “distributed-system-native” runtime and prioritizes frictionless scalability over single-node performance. Local resources are abstracted out and replaced with their equivalents in a distributed system:
+
+* Files → Key-value store
+* Sockets → Event stream
+* Single-file databases → Key-value store, `App.mysql` and `App.postgresql` object families
+* FFI → WebAssembly
+
+**Read and write files**
+
+```ts
+// Don't: The filesystem is a local resource
+import { writeFileSync } from "fs"
+writeFileSync("hello.txt", "Hello from Node")
+
+// Do: Use the key-value store
+const ns = new KV.Namespace("files")
+await ns.set("hello.txt", "Hello from Blueboat")
+```
+
+**Stream data to client**
+
+```ts
+// Don't: Sockets are a local resource
+import { WebSocketServer } from "ws";
+const wss = new WebSocketServer({ port: 8080 });
+wss.on("connection", (ws) => {
+  ws.on("message", (data) => {
+    console.log("received: %s", data);
+  });
+  ws.send("something");
+});
+
+// Do: Use the PubSub API
+Router.post("/send_to_group", async req => {
+  const { groupId, message } = await req.json();
+  await App.pubsub.myChannel.publish(groupId, message)
+  return new Response("ok");
+});
+```
+
+**Use SQL databases**
+
+```ts
+// Don't: SQLite databases are stored on the local filesystem
+import { DB } from "https://deno.land/x/sqlite/mod.ts";
+const db = new DB("test.db");
+const people = db.query("SELECT name FROM people");
+
+// Do: Use `App.mysql` or `App.postgresql`
+const people = App.mysql.myDatabase.exec("SELECT name FROM people", {}, "s");
+```
+
+## Developing on Blueboat
+
+You can use your favorite JS/TS bundler to build your project for Blueboat. [webpack](https://github.com/webpack/webpack) works, and other bundlers like [esbuild](https://github.com/evanw/esbuild) and [bun](https://github.com/oven-sh/bun) should work too.
+
+You can package and run your apps with single-tenant mode as described in the [Quickstart](#quickstart-single-tenant-mode) section, or deploy it on a multi-tenant service like [MagicBoat](https://magic.blueboat.io).
+
+### TypeScript type definitions
+
+Pull in the [blueboat-types](https://www.npmjs.com/package/blueboat-types) package in your TypeScript project, and add it to your `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "types": [
+      "blueboat-types"
+    ]
   }
 }
 ```
 
-### Automatic deployments
+### API documentation
 
-`b6t`'s readme describes a simple way to manually deploy apps, but if you need an automatic multi-tenant deployment service, you can deploy the [bbcp](https://github.com/losfair/bbcp) app (which itself runs on Blueboat) and use the [bbcli](https://github.com/losfair/bbcli) tool.
+While there isn't a lot of documentation on Blueboat's API yet, the global object declared in [jsland](https://github.com/losfair/blueboat/tree/main/jsland) can be seen as the source-of-truth of the public API.
+
+Meanwhile, refer to [the tracking issue](https://github.com/losfair/blueboat/issues/65) for a high-level overview of the API.
+
+## Deploying Blueboat
+
+There are two options for deploying Blueboat apps.
+
+### Single-tenant
+
+This mode works well for local development and private self-hosting. The steps are described in [quickstart](#quickstart-single-tenant-mode).
+
+### Multi-tenant
+
+This is a fully optimized mode for multi-tenant operation. [See the guide](https://bluelogic.notion.site/Multi-tenant-Blueboat-deployment-f25c522955c04e59b5771954f8702c14) to deploy a multi-tenant environment yourself, or request access to our hosted environment, [MagicBoat](https://magic.blueboat.io).
+
+## Frameworks
+
+Simple web backends with JSON API and template-based rendering can be built without requiring any third-party frameworks. If you have more complex needs like server-side rendering React or just prefer a different style of router API, third-party frameworks are also available.
+
+### Flareact
+
+[Flareact](https://flareact.com/) is an edge-rendered React framework built for Cloudflare Workers. Since Blueboat and Workers both implement a large (and mostly overlapping) subset of the Web API, Flareact also works on Blueboat with some modifications in the entry script.
+
+See the source code of [my blog](https://github.com/losfair/blog) as an example of using Flareact with Blueboat.
+
+## Contributing
+
+### Build locally
+
+Clone the repository, and run `./build.sh`.
+
+### Build process internals
+
+Normally the build process is handled automatically by `build.sh`. Here are some internals, in case you need it.
+
+Blueboat is built in three stages: *jsland build*, *rust prebuild* and *rust final build*. The *jsland build* stage bundles `/jsland/`; the *rust prebuild* stage generates a `blueboat_mkimage` binary that is used to generate `JSLAND_SNAPSHOT` from `/jsland/`; and the *rust final build* stage generates the final `blueboat_server` binary.
+
+Please refer to [the CI script](https://github.com/losfair/blueboat/blob/main/.github/workflows/ci.yml) for a reproducible set of steps.
 
 ## License
 
