@@ -50,14 +50,14 @@ cargo install boatctl
 git clone https://github.com/losfair/blueboat-examples
 cd blueboat-examples/hello-world
 npm i && boat pack -o build.json
-docker run --rm -p 127.0.0.1:3001:3001 \
+docker run --rm -d -p 127.0.0.1:3001:3001 \
   -v "$PWD:/app" \
   --entrypoint /usr/bin/blueboat_server \
   -e RUST_LOG=info \
   -e SMRAPP_BLUEBOAT_DISABLE_SECCOMP=1 \
   ghcr.io/losfair/blueboat:v0.3.1-alpha.5 \
   -l "0.0.0.0:3001" \
-  --single-tenant "/app/build.json" &
+  --single-tenant "/app/build.json"
 curl http://localhost:3001 # "hello world"
 ```
 
