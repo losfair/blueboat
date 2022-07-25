@@ -2,7 +2,7 @@
 
 ![CI](https://github.com/losfair/blueboat/actions/workflows/ci.yml/badge.svg)
 
-Blueboat is an all-in-one, multi-tenant JavaScript runtime for the cloud.
+Blueboat is an all-in-one, multi-tenant serverless JavaScript runtime.
 
 A simple Blueboat application looks like:
 
@@ -40,6 +40,8 @@ Router.get("/yaml", req => {
   - [License](#license)
 
 ## Quickstart (single-tenant mode)
+
+This pulls, builds, and runs the [hello-world](https://github.com/losfair/blueboat-examples/tree/main/hello-world) example.
 
 Prerequisites: [cargo](https://github.com/rust-lang/cargo), npm, git, docker
 
@@ -104,7 +106,7 @@ wss.on("connection", (ws) => {
 // Do: Use the PubSub API
 Router.post("/send_to_group", async req => {
   const { groupId, message } = await req.json();
-	await App.pubsub.myChannel.publish(groupId, message)
+  await App.pubsub.myChannel.publish(groupId, message)
   return new Response("ok");
 });
 ```
@@ -134,7 +136,6 @@ Pull in the [blueboat-types](https://www.npmjs.com/package/blueboat-types) packa
 ```json
 {
   "compilerOptions": {
-    // ...
     "types": [
       "blueboat-types"
     ]
