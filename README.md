@@ -2,7 +2,7 @@
 
 ![CI](https://github.com/losfair/blueboat/actions/workflows/ci.yml/badge.svg)
 
-Blueboat is an all-in-one, multi-tenant serverless JavaScript runtime.
+Blueboat is an all-in-one, multi-tenant serverless JavaScript runtime. See [the site](https://blueboat.io/) for a brief introduction on features.
 
 A simple Blueboat application looks like:
 
