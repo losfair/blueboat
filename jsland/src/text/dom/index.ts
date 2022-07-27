@@ -65,6 +65,10 @@ export class Node extends HostObject {
   remove(): boolean {
     return <boolean>__blueboat_host_invoke("text_dom_remove", this.hostSymbol);
   }
+
+  appendChild(child: this): boolean {
+    return <boolean>__blueboat_host_invoke("text_dom_append_child", this.hostSymbol, child.hostSymbol);
+  }
 }
 
 export class HTML extends Node {
