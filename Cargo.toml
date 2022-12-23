@@ -56,7 +56,7 @@ flume = "0.10.9"
 time = { version = "0.2", features = ["serde"] }
 uuid = "0.8"
 futures = { version = "0.3", features = ["executor"] }
-a2 = "0.6.0"
+a2 = "0.7.0"
 base64-serde = "0.6.1"
 base64 = "0.13"
 schemars = { version = "0.8.3", features = ["bytes"] }
